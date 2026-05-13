@@ -4,75 +4,385 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BookWare — Teacher</title>
-    <link rel="stylesheet" href="/css/style.css" />
+    <link rel="stylesheet" href="/css/index.css" />
+    <style>
+      /* ─────────────────────────────────────────────────────────────────────────── */
+      /* SPA Layout: sidebar + main */
+      /* ─────────────────────────────────────────────────────────────────────────── */
+      body {
+        display: flex;
+        min-height: 100vh;
+        margin: 0;
+        background: radial-gradient(
+          circle at top,
+          #1a1a2e 0,
+          #050509 45%,
+          #000 100%
+        );
+      }
+
+      .app-container {
+        display: flex;
+        width: 100%;
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        width: 240px;
+        background: linear-gradient(180deg, #0b0b12 0%, #050509 100%);
+        border-right: 1px solid var(--border);
+        padding: 20px 0;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: 100vh;
+      }
+
+      .sidebar-header {
+        padding: 0 16px 20px;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 20px;
+      }
+
+      .sidebar-title {
+        font-size: 0.9rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .sidebar-title span.logo-dot {
+        width: 8px;
+        height: 8px;
+        background: var(--accent);
+        border-radius: 999px;
+        box-shadow: var(--glow);
+      }
+
+      .sidebar-nav {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .sidebar-nav li {
+        margin: 0;
+      }
+
+      .sidebar-nav .nav-item {
+        display: block;
+        padding: 10px 16px;
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        cursor: pointer;
+        border-left: 2px solid transparent;
+        transition: all var(--transition);
+        background: none;
+        border: none;
+        width: 100%;
+        text-align: left;
+      }
+
+      .sidebar-nav .nav-item:hover {
+        color: var(--accent-soft);
+        border-left-color: var(--accent);
+        padding-left: 20px;
+      }
+
+      .sidebar-nav .nav-item.active {
+        color: var(--accent);
+        border-left-color: var(--accent);
+        background: rgba(255, 0, 60, 0.08);
+        padding-left: 20px;
+      }
+
+      .sidebar-footer {
+        position: absolute;
+        bottom: 0;
+        width: 100%;
+        padding: 16px;
+        border-top: 1px solid var(--border);
+        background: rgba(5, 5, 9, 0.5);
+      }
+
+      .sidebar-footer button {
+        width: 100%;
+        font-size: 0.75rem;
+      }
+
+      .main-content {
+        flex: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .page-wrapper {
+        padding: 32px 20px;
+        max-width: 1400px;
+        margin: 0 auto;
+        width: 100%;
+        flex: 1;
+      }
+
+      .page {
+        display: none;
+      }
+
+      .page.active {
+        display: block;
+        animation: fadeIn 0.2s ease-out;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(4px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .page-top-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 24px;
+      }
+
+      .page-top-bar h1 {
+        font-size: 1.4rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin: 0;
+      }
+
+      .book-cover-thumb {
+        height: 72px;
+        width: auto;
+        border-radius: 4px;
+        border: 1px solid var(--border);
+        float: right;
+        margin: 0 0 8px 12px;
+      }
+
+      .action-buttons {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .action-buttons button {
+        font-size: 0.75rem;
+        padding: 6px 10px;
+      }
+
+      @media (max-width: 900px) {
+        .sidebar {
+          width: 180px;
+        }
+      }
+
+      @media (max-width: 600px) {
+        .app-container {
+          flex-direction: column;
+        }
+
+        .sidebar {
+          width: 100%;
+          height: auto;
+          position: static;
+          border-right: none;
+          border-bottom: 1px solid var(--border);
+        }
+
+        .sidebar-footer {
+          position: static;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div class="app-shell">
-      <div class="card">
-        <div class="card-inner">
-          <!-- Top bar -->
-          <div class="top-bar">
-            <div>
-              <span class="top-bar-title">BookWare</span>
-              <span class="top-bar-role">Teacher Dashboard</span>
-            </div>
-            <button class="btn-ghost" id="logoutTeacher">Log Out</button>
+    <div class="app-container">
+      <!-- SIDEBAR -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div class="sidebar-title">
+            <span class="logo-dot"></span>
+            BookWare
           </div>
+        </div>
 
-          <div class="layout-split">
-            <!-- Left column: library + history -->
-            <div>
-              <!-- Library management -->
-              <div class="section-title">My Library</div>
-              <div id="libraryList">
-                <p class="text-muted">Loading…</p>
-              </div>
+        <ul class="sidebar-nav">
+          <li>
+            <button class="nav-item active" data-page="library">
+              📚 Library
+            </button>
+          </li>
+          <li>
+            <button class="nav-item" data-page="history">📋 History</button>
+          </li>
+          <li>
+            <button class="nav-item" data-page="reading">📖 Now Reading</button>
+          </li>
+          <li>
+            <button class="nav-item" data-page="invites">🔗 Invites</button>
+          </li>
+          <li>
+            <button class="nav-item" data-page="settings">⚙️ Settings</button>
+          </li>
+        </ul>
 
-              <!-- Checkout history -->
-              <div class="section-title">Checkout History</div>
-              <div id="historyList">
-                <p class="text-muted">Loading…</p>
-              </div>
+        <div class="sidebar-footer">
+          <button class="btn-ghost" id="logoutTeacherBtn">Log Out</button>
+        </div>
+      </aside>
+
+      <!-- MAIN CONTENT -->
+      <main class="main-content">
+        <div class="page-wrapper">
+          <!-- PAGE: Library -->
+          <div id="libraryPage" class="page active">
+            <div class="page-top-bar">
+              <h1>My Library</h1>
             </div>
 
-            <!-- Right column: tools -->
-            <div>
-              <!-- ISBN lookup -->
-              <div class="section-title">Look Up a Book</div>
-              <div class="panel">
-                <div class="panel-body">
-                  <div class="input-row">
-                    <label for="isbnInput">ISBN</label>
-                    <input
-                      type="text"
-                      id="isbnInput"
-                      placeholder="e.g. 9780743273565"
-                    />
+            <div class="layout-split">
+              <div>
+                <div class="section-title">Add a Book</div>
+                <div class="panel">
+                  <div class="panel-body">
+                    <div class="input-row">
+                      <label for="isbnInput">ISBN</label>
+                      <input
+                        type="text"
+                        id="isbnInput"
+                        placeholder="e.g. 9780743273565"
+                      />
+                    </div>
+                    <button class="btn-primary" id="lookupIsbn">Look Up</button>
                   </div>
-                  <button class="btn-primary" id="lookupIsbn">Look Up</button>
+                </div>
+                <div id="isbnResult"></div>
+              </div>
+
+              <div>
+                <div class="section-title">Your Books</div>
+                <div id="libraryList">
+                  <p class="text-muted">Loading…</p>
                 </div>
               </div>
-              <div id="isbnResult"></div>
+            </div>
+          </div>
 
-              <!-- Generate invite -->
-              <div class="section-title">Invite a Teacher</div>
+          <!-- PAGE: History -->
+          <div id="historyPage" class="page">
+            <div class="page-top-bar">
+              <h1>Checkout History</h1>
+              <button class="btn-primary" id="exportHistoryBtn">
+                Export as MD
+              </button>
+            </div>
+
+            <div id="historyList">
+              <p class="text-muted">Loading…</p>
+            </div>
+          </div>
+
+          <!-- PAGE: Now Reading -->
+          <div id="readingPage" class="page">
+            <div class="page-top-bar">
+              <h1>Now Reading</h1>
+            </div>
+
+            <div class="layout-split" style="grid-template-columns: 1fr">
+              <div>
+                <div class="section-title">Share with Your Class</div>
+                <div class="panel">
+                  <div class="panel-body">
+                    <p class="text-muted">
+                      Tell your students what you're currently reading. This
+                      feature is coming soon!
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- PAGE: Invites -->
+          <div id="invitesPage" class="page">
+            <div class="page-top-bar">
+              <h1>Invite Teachers</h1>
+            </div>
+
+            <div class="layout-split" style="grid-template-columns: 1fr">
+              <div>
+                <div class="section-title">Generate Invite</div>
+                <div class="panel">
+                  <div class="panel-body">
+                    <p class="text-muted">
+                      Create a one-time invite link for a new teacher. You must
+                      have <strong>canInvite</strong> permission.
+                    </p>
+                    <br />
+                    <button class="btn-primary" id="createInviteBtn">
+                      Generate Invite Link
+                    </button>
+                  </div>
+                </div>
+                <div id="inviteOutput"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- PAGE: Settings -->
+          <div id="settingsPage" class="page">
+            <div class="page-top-bar">
+              <h1>Settings</h1>
+            </div>
+
+            <div style="max-width: 800px">
+              <div class="section-title">Account</div>
+              <div class="panel" id="settingsPanel">
+                <div class="panel-body">
+                  <p class="text-muted">Loading…</p>
+                </div>
+              </div>
+
+              <div class="section-title">Permissions</div>
               <div class="panel">
                 <div class="panel-body">
-                  <p class="text-muted">
-                    Generate a one-time invite link for a new teacher. Requires
-                    the <strong>canInvite</strong> permission.
+                  <p>
+                    <strong>Can Invite Teachers:</strong>
+                    <span id="canInviteStatus">—</span>
                   </p>
-                  <br />
-                  <button class="btn-primary" id="createInvite">
-                    Generate Invite Link
+                  <p class="text-muted" style="font-size: 0.8rem">
+                    Only admin can grant this permission.
+                  </p>
+                </div>
+              </div>
+
+              <div class="section-title">Danger Zone</div>
+              <div class="panel">
+                <div class="panel-body">
+                  <button class="btn-ghost" id="logoutSettingsBtn">
+                    Log Out
                   </button>
                 </div>
               </div>
-              <div id="inviteOutput"></div>
             </div>
           </div>
         </div>
-      </div>
+      </main>
     </div>
 
     <script type="module" src="/js/teacher.js"></script>

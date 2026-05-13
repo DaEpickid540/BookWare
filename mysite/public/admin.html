@@ -2,49 +2,301 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>BookWare · Admin</title>
-    <link rel="stylesheet" href="css/style.css" />
-    <script type="module" src="js/admin.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BookWare — Admin</title>
+    <link rel="stylesheet" href="/css/index.css" />
   </head>
   <body>
-    <div class="app-shell">
-      <div class="card">
-        <div class="card-inner">
-          <div class="top-bar">
-            <div>
-              <div class="top-bar-title">Admin Console</div>
-              <div class="top-bar-role">Override · Bans · Debug</div>
+    <div class="app-container">
+      <!-- SIDEBAR -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div class="sidebar-title">
+            <span class="logo-dot"></span>
+            BookWare
+          </div>
+        </div>
+
+        <ul class="sidebar-nav">
+          <li>
+            <button class="nav-item active" data-page="dashboard">
+              📊 Dashboard
+            </button>
+          </li>
+          <li><button class="nav-item" data-page="users">👥 Users</button></li>
+          <li><button class="nav-item" data-page="bans">🚫 Bans</button></li>
+          <li>
+            <button class="nav-item" data-page="settings">⚙️ Settings</button>
+          </li>
+          <li><button class="nav-item" data-page="debug">🐛 Debug</button></li>
+        </ul>
+
+        <div class="sidebar-footer">
+          <button class="btn-ghost" id="logoutAdminBtn">Log Out</button>
+        </div>
+      </aside>
+
+      <!-- MAIN CONTENT -->
+      <main class="main-content">
+        <div class="page-wrapper">
+          <!-- PAGE: Dashboard -->
+          <div id="dashboardPage" class="page active">
+            <div class="page-top-bar">
+              <h1>Dashboard</h1>
             </div>
-            <button class="btn-ghost" id="logoutAdmin">Sign out</button>
-          </div>
 
-          <div class="layout-split">
-            <section>
-              <div class="panel">
-                <div class="panel-title">Users</div>
-                <div class="panel-body" id="adminUsers">
-                  List of students/teachers with ban/delete controls.
+            <div class="admin-grid" id="statsGrid">
+              <div class="stat-card">
+                <div class="stat-label">Total Users</div>
+                <div class="stat-value" id="statTotalUsers">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Active Today</div>
+                <div class="stat-value" id="statActiveToday">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Global Bans</div>
+                <div class="stat-value" id="statBannedUsers">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Maintenance</div>
+                <div class="stat-value" id="statMaintenance">—</div>
+              </div>
+            </div>
+
+            <div class="layout-split full">
+              <div>
+                <div class="section-title">Quick Actions</div>
+                <div class="panel">
+                  <div class="panel-body flex flex-col gap-md">
+                    <button class="btn-primary" id="toggleMaintenanceBtn">
+                      Toggle Maintenance Mode
+                    </button>
+                    <button class="btn-secondary" id="refreshStatsBtn">
+                      Refresh Stats
+                    </button>
+                  </div>
                 </div>
               </div>
-            </section>
+            </div>
 
-            <aside>
+            <div class="layout-split full">
+              <div>
+                <div class="section-title">Recent Activity</div>
+                <div id="activityFeed">
+                  <p class="text-muted">Loading activity…</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- PAGE: Users -->
+          <div id="usersPage" class="page">
+            <div class="page-top-bar">
+              <h1>User Management</h1>
+              <button class="btn-primary" id="refreshUsersBtn">Refresh</button>
+            </div>
+
+            <div class="search-row">
+              <input
+                id="userSearchInput"
+                type="text"
+                placeholder="Search by email, name, or role…"
+              />
+              <select id="userRoleFilter">
+                <option value="">All Roles</option>
+                <option value="student">Student</option>
+                <option value="teacher">Teacher</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+
+            <div id="usersTableContainer">
+              <p class="text-muted">Loading users…</p>
+            </div>
+          </div>
+
+          <!-- PAGE: Bans -->
+          <div id="bansPage" class="page">
+            <div class="page-top-bar">
+              <h1>Ban Management</h1>
+              <button class="btn-primary" id="createBanBtn">Create Ban</button>
+            </div>
+
+            <div class="layout-split full">
+              <div>
+                <div class="section-title">Active Bans</div>
+                <div id="bansList">
+                  <p class="text-muted">Loading bans…</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- PAGE: Settings -->
+          <div id="settingsPage" class="page">
+            <div class="page-top-bar">
+              <h1>System Settings</h1>
+            </div>
+
+            <div style="max-width: 800px">
+              <div class="section-title">Maintenance Mode</div>
               <div class="panel">
-                <div class="panel-title">System controls</div>
                 <div class="panel-body">
-                  <button class="btn-primary" id="toggleMaintenance">
-                    Toggle maintenance mode
-                  </button>
-                  <p class="text-muted" style="margin-top: 8px">
-                    Writes to <code>admin/settings</code>. Claude can wire this
-                    to rules.
-                  </p>
+                  <div class="flex flex-between gap-lg">
+                    <div>
+                      <p><strong>Enable Maintenance Mode</strong></p>
+                      <p class="text-muted">
+                        Disable all user access except admin.
+                      </p>
+                    </div>
+                    <label class="toggle-switch">
+                      <input type="checkbox" id="maintenanceModeToggle" />
+                      <div class="toggle-box">
+                        <div class="toggle-circle"></div>
+                      </div>
+                    </label>
+                  </div>
                 </div>
               </div>
-            </aside>
+
+              <div class="section-title">Global Ban List</div>
+              <div class="panel">
+                <div class="panel-body">
+                  <p class="text-muted">View or edit the global ban list.</p>
+                  <button
+                    class="btn-secondary"
+                    id="viewGlobalBansBtn"
+                    style="margin-top: 12px"
+                  >
+                    View Ban List
+                  </button>
+                </div>
+              </div>
+
+              <div class="section-title">Danger Zone</div>
+              <div class="panel" style="border-color: #e74c3c">
+                <div class="panel-body">
+                  <p class="text-danger"><strong>Dangerous Actions</strong></p>
+                  <p class="text-muted" style="margin-bottom: 16px">
+                    These actions cannot be undone.
+                  </p>
+                  <button class="btn-danger" id="exportDataBtn">
+                    Export All Data
+                  </button>
+                  <button class="btn-danger" id="logoutAllBtn">
+                    Force Logout All Users
+                  </button>
+                </div>
+              </div>
+
+              <div class="section-title">Account</div>
+              <div class="panel">
+                <div class="panel-body">
+                  <p class="text-muted">
+                    Signed in as: <strong id="adminEmail">—</strong>
+                  </p>
+                  <br />
+                  <button class="btn-ghost" id="logoutSettingsBtn">
+                    Log Out
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
+
+          <!-- PAGE: Debug -->
+          <div id="debugPage" class="page">
+            <div class="page-top-bar">
+              <h1>System Debug</h1>
+              <button class="btn-secondary" id="refreshDebugBtn">
+                Refresh
+              </button>
+            </div>
+
+            <div class="layout-split full">
+              <div>
+                <div class="section-title">Firestore Stats</div>
+                <table class="data-table">
+                  <tbody id="firestoreStats">
+                    <tr>
+                      <td colspan="2" class="text-muted">Loading…</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="layout-split full">
+              <div>
+                <div class="section-title">Auth Breakdown</div>
+                <table class="data-table">
+                  <tbody id="authStats">
+                    <tr>
+                      <td colspan="2" class="text-muted">Loading…</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="layout-split full">
+              <div>
+                <div class="section-title">Error Log</div>
+                <div id="errorLog">
+                  <p class="text-muted">No errors logged.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Modals -->
+    <div id="banModalOverlay" class="modal-overlay hidden">
+      <div class="modal">
+        <div class="modal-header">
+          <h2 class="modal-title">Create Ban</h2>
+        </div>
+        <div class="modal-body">
+          <div class="input-row">
+            <label for="banUserEmail">User Email</label>
+            <input
+              id="banUserEmail"
+              type="email"
+              placeholder="student@school.edu"
+            />
+          </div>
+          <div class="input-row">
+            <label for="banReason">Reason</label>
+            <select id="banReason">
+              <option value="">— Select Reason —</option>
+              <option value="malicious">Malicious Activity</option>
+              <option value="abuse">Abusive Behavior</option>
+              <option value="non-return">Non-Return of Books</option>
+              <option value="terms">Terms Violation</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="input-row">
+            <label for="banDuration">Duration</label>
+            <select id="banDuration">
+              <option value="24h">24 Hours</option>
+              <option value="7d">7 Days</option>
+              <option value="permanent">Permanent</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-ghost" id="banModalCancelBtn">Cancel</button>
+          <button class="btn-danger" id="banModalConfirmBtn">Create Ban</button>
         </div>
       </div>
     </div>
+
+    <div id="toastContainer" class="toast-container"></div>
+
+    <script type="module" src="/js/admin.js"></script>
   </body>
 </html>

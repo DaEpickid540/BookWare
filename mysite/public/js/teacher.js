@@ -10,6 +10,7 @@ import {
   getDocs,
   setDoc,
   updateDoc,
+  deleteDoc,
   addDoc,
   collection,
   query,
@@ -20,23 +21,60 @@ import {
 
 import { lookupISBN } from "./books.js";
 
+// ─── Page Routing ──────────────────────────────────────────────────────────────
+function setupPageRouting() {
+  document.querySelectorAll(".sidebar-nav .nav-item").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      const page = e.currentTarget.dataset.page;
+      showPage(page);
+    });
+  });
+}
+
+function showPage(pageName) {
+  document
+    .querySelectorAll(".page")
+    .forEach((p) => p.classList.remove("active"));
+  document
+    .querySelectorAll(".nav-item")
+    .forEach((n) => n.classList.remove("active"));
+
+  const pageEl = document.getElementById(pageName + "Page");
+  if (pageEl) {
+    pageEl.classList.add("active");
+  }
+
+  document.querySelector(`[data-page="${pageName}"]`)?.classList.add("active");
+}
+
 // ─── DOM refs ──────────────────────────────────────────────────────────────────
-const logoutBtn = document.getElementById("logoutTeacher");
+const logoutBtn = document.getElementById("logoutTeacherBtn");
+const logoutSettingsBtn = document.getElementById("logoutSettingsBtn");
 const lookupBtn = document.getElementById("lookupIsbn");
 const isbnInput = document.getElementById("isbnInput");
 const isbnResult = document.getElementById("isbnResult");
-const inviteBtn = document.getElementById("createInvite");
-const inviteOutput = document.getElementById("inviteOutput");
 const libraryEl = document.getElementById("libraryList");
 const historyEl = document.getElementById("historyList");
+const exportHistoryBtn = document.getElementById("exportHistoryBtn");
+const createInviteBtn = document.getElementById("createInviteBtn");
+const inviteOutput = document.getElementById("inviteOutput");
+const settingsEl = document.getElementById("settingsPanel");
+const canInviteStatus = document.getElementById("canInviteStatus");
 
 // ─── State ─────────────────────────────────────────────────────────────────────
 let currentUser = null;
+let teacherData = null;
+let allBooks = [];
 
 // ─── Logout ───────────────────────────────────────────────────────────────────
 logoutBtn?.addEventListener("click", () => signOut(auth));
+logoutSettingsBtn?.addEventListener("click", () => signOut(auth));
 
-// ─── Auth guard ───────────────────────────────────────────────────────────────
+onAuthStateChanged(auth, (user) => {
+  if (!user) window.location.href = "/";
+});
+
+// ─── Auth + Initialization ──────────────────────────────────────────────────────
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
     window.location.href = "/";
@@ -52,11 +90,53 @@ onAuthStateChanged(auth, async (user) => {
   }
 
   currentUser = user;
+
+  const teacherRef = doc(db, "teachers", user.uid);
+  const teacherSnap = await getDoc(teacherRef);
+  if (!teacherSnap.exists()) {
+    settingsEl.innerHTML = `<div class="panel-body"><p class="text-muted">Teacher record not found.</p></div>`;
+    return;
+  }
+
+  teacherData = teacherSnap.data();
+
+  setupPageRouting();
+  renderSettings();
   await loadLibrary();
   await loadCheckoutHistory();
 });
 
-// ─── ISBN lookup → autofill form ──────────────────────────────────────────────
+// ─── Utilities ──────────────────────────────────────────────────────────────────
+function setStatus(container, msg, type = "info") {
+  if (!container) return;
+  container.innerHTML = `<p class="text-muted">${escHtml(msg)}</p>`;
+}
+
+function escHtml(str) {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// ─── Settings ───────────────────────────────────────────────────────────────────
+function renderSettings() {
+  if (!settingsEl || !teacherData) return;
+
+  settingsEl.innerHTML = `
+    <div class="panel-title">Account Information</div>
+    <div class="panel-body">
+      <strong>${escHtml(teacherData.name)}</strong>
+      <p class="text-muted">${escHtml(currentUser?.email ?? "")}</p>
+    </div>`;
+
+  if (canInviteStatus) {
+    canInviteStatus.textContent = teacherData.canInvite ? "✓ Yes" : "✗ No";
+  }
+}
+
+// ─── ISBN Lookup + Add Book ─────────────────────────────────────────────────────
 lookupBtn?.addEventListener("click", async () => {
   const isbn = isbnInput.value.trim();
   if (!isbn) return;
@@ -72,14 +152,15 @@ lookupBtn?.addEventListener("click", async () => {
     return;
   }
 
-  // Render editable autofill form — teacher can correct fields before saving
   isbnResult.innerHTML = `
     <div class="panel">
       <div class="panel-title">Book Details — Edit Before Saving</div>
       <div class="panel-body">
         ${
           data.cover
-            ? `<img id="bookCoverPreview" src="${data.cover}" alt="Cover" class="book-cover-preview"/>`
+            ? `<img src="${escHtml(
+                data.cover,
+              )}" alt="Cover" class="book-cover-thumb"/>`
             : `<p class="text-muted">No cover image found.</p>`
         }
         <div class="input-row">
@@ -95,7 +176,7 @@ lookupBtn?.addEventListener("click", async () => {
           <input id="bookDescInput" type="text" />
         </div>
         <div class="chip-row">
-          <span class="chip">ISBN ${isbn}</span>
+          <span class="chip">ISBN ${escHtml(isbn)}</span>
         </div>
         <br/>
         <button class="btn-primary" id="addToLibraryBtn">Add to Library</button>
@@ -103,12 +184,10 @@ lookupBtn?.addEventListener("click", async () => {
       </div>
     </div>`;
 
-  // Populate fields after rendering (avoids XSS via innerHTML attribute injection)
   document.getElementById("bookTitleInput").value = data.title;
   document.getElementById("bookAuthorInput").value = data.author;
   document.getElementById("bookDescInput").value = data.description;
 
-  // "Add to Library" — reads current input values so teacher edits are respected
   document
     .getElementById("addToLibraryBtn")
     .addEventListener("click", async () => {
@@ -125,9 +204,18 @@ lookupBtn?.addEventListener("click", async () => {
       document.getElementById("addToLibraryBtn").disabled = true;
       statusEl.textContent = "Saving…";
 
-      await addBook(isbn, title, author, data.cover ?? "", description);
+      await addDoc(collection(db, "teachers", currentUser.uid, "books"), {
+        title,
+        author,
+        isbn,
+        coverUrl: data.cover ?? "",
+        description,
+        status: "available",
+        checkedOutBy: null,
+        checkedOutAt: null,
+        wishlist: [],
+      });
 
-      // Clear the lookup form and result on success
       isbnInput.value = "";
       isbnResult.innerHTML = `<p class="text-muted">✓ "${title}" added to your library.</p>`;
 
@@ -135,75 +223,32 @@ lookupBtn?.addEventListener("click", async () => {
     });
 });
 
-// ─── Invite generator — fixed to match schema exactly ─────────────────────────
-// Schema: invites/{token} { createdBy, createdAt, expiresAt, used }
-// No email field. expiresAt is a required Timestamp, not null.
-inviteBtn?.addEventListener("click", async () => {
-  const user = auth.currentUser;
-  if (!user) return;
-
-  // Respect canInvite permission from teachers/{uid}
-  const teacherSnap = await getDoc(doc(db, "teachers", user.uid));
-  if (!teacherSnap.exists() || !teacherSnap.data().canInvite) {
-    inviteOutput.innerHTML = `<p class="text-muted">You do not have permission to create invites.</p>`;
-    return;
-  }
-
-  inviteOutput.textContent = "Creating invite…";
-
-  const token = crypto.randomUUID();
-  const expiresAt = Timestamp.fromDate(
-    new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-  );
-
-  await setDoc(doc(db, "invites", token), {
-    createdBy: user.uid,
-    createdAt: serverTimestamp(),
-    expiresAt,
-    used: false,
-  });
-
-  const url = `${
-    window.location.origin
-  }/teacher-signup.html?token=${encodeURIComponent(token)}`;
-
-  inviteOutput.innerHTML = `
-    <div class="panel">
-      <div class="panel-title">Invite Link</div>
-      <div class="panel-body">
-        <input value="${url}" readonly/>
-        <p class="text-muted">Expires in 7 days. Send to the new teacher.</p>
-      </div>
-    </div>`;
-});
-
-// ─── Load teacher library ─────────────────────────────────────────────────────
+// ─── Load library ───────────────────────────────────────────────────────────────
 async function loadLibrary() {
   if (!libraryEl) return;
 
   libraryEl.innerHTML = `<p class="text-muted">Loading library…</p>`;
 
-  const booksSnap = await getDocs(
+  const snap = await getDocs(
     collection(db, "teachers", currentUser.uid, "books"),
   );
 
-  if (booksSnap.empty) {
-    libraryEl.innerHTML = `<p class="text-muted">No books in your library yet.</p>`;
+  if (snap.empty) {
+    libraryEl.innerHTML = `<p class="text-muted">No books yet. Add one above!</p>`;
+    allBooks = [];
     return;
   }
 
-  // Collect available book IDs to check for pending student requests
-  const availableBookIds = [];
-  booksSnap.forEach((d) => {
-    if (d.data().status === "available") availableBookIds.push(d.id);
-  });
+  allBooks = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  libraryEl.innerHTML = "";
 
-  // Query students who have a currentBook that is one of our available books
-  // (these are pending checkout requests)
-  // Security: students allow read if request.auth != null ✓
-  const pendingMap = {}; // bookId -> { studentId, studentName }
+  // Get pending student checkouts
+  const availableBookIds = allBooks
+    .filter((b) => b.status === "available")
+    .map((b) => b.id);
+  const pendingMap = {};
+
   if (availableBookIds.length > 0) {
-    // Firestore 'in' supports up to 30 values — fine for a classroom library
     const chunk = availableBookIds.slice(0, 30);
     const studentsSnap = await getDocs(
       query(collection(db, "students"), where("currentBook", "in", chunk)),
@@ -216,57 +261,53 @@ async function loadLibrary() {
     });
   }
 
-  libraryEl.innerHTML = "";
-
-  booksSnap.forEach((docSnap) => {
-    const book = docSnap.data();
-    const bookId = docSnap.id;
-    const pending = pendingMap[bookId];
-
-    const panel = document.createElement("div");
-    panel.className = "panel";
+  allBooks.forEach((book) => {
+    const pending = pendingMap[book.id];
 
     let actionHtml = "";
-
     if (book.status === "checked_out") {
-      // Validate return — teacher side
       actionHtml = `
-        <span class="badge"><span class="badge-dot"></span>Checked Out — ${
-          book.checkedOutBy ?? "unknown"
-        }</span>
-        <br/><br/>
-        <button class="btn-primary"
-          data-action="return"
-          data-book-id="${bookId}"
-          data-book-title="${book.title}"
-        >Validate Return</button>
-        <p class="text-muted">After the student hands back the physical book.</p>`;
+        <span class="badge"><span class="badge-dot"></span>Checked Out by Student</span>
+        <div class="action-buttons">
+          <button class="btn-primary" data-action="return" data-book-id="${escHtml(
+            book.id,
+          )}" data-book-title="${escHtml(book.title)}">Mark Returned</button>
+        </div>`;
     } else if (pending) {
-      // Pending checkout request from a student
       actionHtml = `
-        <span class="badge"><span class="badge-dot"></span>Pending — ${pending.studentName}</span>
-        <br/><br/>
-        <button class="btn-primary"
-          data-action="confirm"
-          data-book-id="${bookId}"
-          data-book-title="${book.title}"
-          data-student-id="${pending.studentId}"
-          data-student-name="${pending.studentName}"
-        >Confirm Checkout</button>`;
+        <span class="badge"><span class="badge-dot"></span>Pending — ${escHtml(
+          pending.studentName,
+        )}</span>
+        <div class="action-buttons">
+          <button class="btn-primary" data-action="confirm" data-book-id="${escHtml(
+            book.id,
+          )}" data-book-title="${escHtml(
+        book.title,
+      )}" data-student-id="${escHtml(
+        pending.studentId,
+      )}" data-student-name="${escHtml(
+        pending.studentName,
+      )}">Confirm Checkout</button>
+        </div>`;
     } else {
-      // Available, no requests
       actionHtml = `<span class="chip">Available</span>`;
     }
 
+    const panel = document.createElement("div");
+    panel.className = "panel";
     panel.innerHTML = `
-      <div class="panel-title">${book.title}</div>
+      <div class="panel-title">${escHtml(book.title)}</div>
       <div class="panel-body">
-        <p class="text-muted">${book.author}</p>
+        <p class="text-muted">${escHtml(book.author)}</p>
         <div class="chip-row">
-          <span class="chip">ISBN ${book.isbn}</span>
+          <span class="chip">ISBN ${escHtml(book.isbn)}</span>
+          ${actionHtml}
         </div>
-        <br/>
-        ${actionHtml}
+        <div class="action-buttons">
+          <button class="btn-ghost" data-action="delete" data-book-id="${escHtml(
+            book.id,
+          )}" data-book-title="${escHtml(book.title)}">Delete Book</button>
+        </div>
       </div>`;
 
     panel
@@ -288,24 +329,25 @@ async function loadLibrary() {
         validateReturn(btn.dataset.bookId, btn.dataset.bookTitle);
       });
 
+    panel
+      .querySelector("[data-action='delete']")
+      ?.addEventListener("click", (e) => {
+        const btn = e.currentTarget;
+        deleteBook(btn.dataset.bookId, btn.dataset.bookTitle);
+      });
+
     libraryEl.appendChild(panel);
   });
 }
 
-// ─── Confirm checkout (teacher side) ─────────────────────────────────────────
-// Updates book status and creates history entry.
-// Security: teachers/{uid}/books allow write if auth.uid == teacherId ✓
-//           teachers/{uid}/history allow write if auth.uid == teacherId ✓
-// Note: student's currentBook was already set by the student — no write needed here.
+// ─── Confirm checkout ───────────────────────────────────────────────────────────
 async function confirmCheckout(bookId, bookTitle, studentId, studentName) {
-  // Update book — schema fields: status, checkedOutBy, checkedOutAt
   await updateDoc(doc(db, "teachers", currentUser.uid, "books", bookId), {
     status: "checked_out",
     checkedOutBy: studentId,
     checkedOutAt: serverTimestamp(),
   });
 
-  // Create history entry — schema fields: bookId, bookTitle, studentId, studentName, dateOut, dateReturned
   await addDoc(collection(db, "teachers", currentUser.uid, "history"), {
     bookId,
     bookTitle,
@@ -319,30 +361,20 @@ async function confirmCheckout(bookId, bookTitle, studentId, studentName) {
   await loadCheckoutHistory();
 }
 
-// ─── Validate return (teacher side) ───────────────────────────────────────────
-// Updates book status and closes the history entry.
-// Security: teachers/{uid}/books allow write if auth.uid == teacherId ✓
-//           teachers/{uid}/history allow write if auth.uid == teacherId ✓
-// Note: Cannot clear students/{studentId}/currentBook — student must do that
-//       themselves via the "I've Returned This Book" button in student.html.
+// ─── Validate return ────────────────────────────────────────────────────────────
 async function validateReturn(bookId, bookTitle) {
-  // Get book to find checkedOutBy before clearing it
   const bookRef = doc(db, "teachers", currentUser.uid, "books", bookId);
   const bookSnap = await getDoc(bookRef);
   if (!bookSnap.exists()) return;
 
   const { checkedOutBy } = bookSnap.data();
 
-  // Update book — restore to available, clear checkout fields
   await updateDoc(bookRef, {
     status: "available",
     checkedOutBy: null,
     checkedOutAt: null,
   });
 
-  // Find the open history entry for this book + student and close it
-  // Query: teachers/{uid}/history where bookId == X and dateReturned == null
-  // Requires a Firestore composite index on (bookId ASC, dateReturned ASC) — create in Firebase console
   const historyRef = collection(db, "teachers", currentUser.uid, "history");
   const q = query(
     historyRef,
@@ -361,23 +393,34 @@ async function validateReturn(bookId, bookTitle) {
   await loadCheckoutHistory();
 }
 
-// ─── Checkout history display ─────────────────────────────────────────────────
+// ─── Delete book ────────────────────────────────────────────────────────────────
+async function deleteBook(bookId, bookTitle) {
+  const confirmed = confirm(
+    `Delete "${bookTitle}" from your library? This cannot be undone.`,
+  );
+  if (!confirmed) return;
+
+  await deleteDoc(doc(db, "teachers", currentUser.uid, "books", bookId));
+
+  await loadLibrary();
+}
+
+// ─── Load checkout history ──────────────────────────────────────────────────────
 async function loadCheckoutHistory() {
   if (!historyEl) return;
 
-  const histSnap = await getDocs(
+  const snap = await getDocs(
     collection(db, "teachers", currentUser.uid, "history"),
   );
 
-  if (histSnap.empty) {
+  if (snap.empty) {
     historyEl.innerHTML = `<p class="text-muted">No checkout history yet.</p>`;
     return;
   }
 
   historyEl.innerHTML = "";
 
-  // Sort by dateOut descending (most recent first)
-  const entries = histSnap.docs
+  const entries = snap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
     .sort((a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0));
 
@@ -392,10 +435,10 @@ async function loadCheckoutHistory() {
     const panel = document.createElement("div");
     panel.className = "panel";
     panel.innerHTML = `
-      <div class="panel-title">${entry.bookTitle}</div>
+      <div class="panel-title">${escHtml(entry.bookTitle)}</div>
       <div class="panel-body">
         <ul class="meta-list">
-          <li>Student: <strong>${entry.studentName}</strong></li>
+          <li>Student: <strong>${escHtml(entry.studentName)}</strong></li>
           <li>Checked out: <strong>${dateOut}</strong></li>
           <li>Returned: <strong>${
             dateReturned ?? "Not yet returned"
@@ -407,25 +450,89 @@ async function loadCheckoutHistory() {
             : ""
         }
       </div>`;
+
     historyEl.appendChild(panel);
   });
 }
 
-// ─── Add book to teacher's library ────────────────────────────────────────────
-// Writes exactly the fields defined in teachers/{teacherId}/books/{bookId} schema.
-// Uses addDoc (auto-generated ID) — ISBN is stored as a field, not the doc ID,
-// so a teacher can hold multiple copies of the same book.
-// Security: teachers/{uid}/books allow write if auth.uid == teacherId ✓
-async function addBook(isbn, title, author, coverUrl, description) {
-  await addDoc(collection(db, "teachers", currentUser.uid, "books"), {
-    title,
-    author,
-    isbn,
-    coverUrl,
-    description,
-    status: "available",
-    checkedOutBy: null,
-    checkedOutAt: null,
-    wishlist: [],
+// ─── Export history as markdown ──────────────────────────────────────────────────
+exportHistoryBtn?.addEventListener("click", async () => {
+  const snap = await getDocs(
+    collection(db, "teachers", currentUser.uid, "history"),
+  );
+
+  if (snap.empty) {
+    alert("No history to export.");
+    return;
+  }
+
+  const entries = snap.docs
+    .map((d) => ({ ...d.data() }))
+    .sort((a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0));
+
+  const date = new Date().toLocaleDateString();
+  let md = `# Checkout History\n\n`;
+  md += `**Teacher:** ${escHtml(teacherData.name)}\n\n`;
+  md += `**Exported:** ${date}\n\n`;
+  md += `| Book | Author | Student | Date Out | Date Returned |\n`;
+  md += `|------|--------|---------|----------|---------------|\n`;
+
+  entries.forEach((entry) => {
+    const dateOut = entry.dateOut
+      ? new Date(entry.dateOut.seconds * 1000).toLocaleDateString()
+      : "—";
+    const dateReturned = entry.dateReturned
+      ? new Date(entry.dateReturned.seconds * 1000).toLocaleDateString()
+      : "(Not returned)";
+
+    md += `| ${escHtml(entry.bookTitle)} | ${escHtml(
+      entry.bookTitle || entry.bookTitle,
+    )} | ${escHtml(entry.studentName)} | ${dateOut} | ${dateReturned} |\n`;
   });
-}
+
+  const blob = new Blob([md], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${teacherData.name.replace(
+    /\\s+/g,
+    "_",
+  )}_history_${Date.now()}.md`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+// ─── Invite teachers ────────────────────────────────────────────────────────────
+createInviteBtn?.addEventListener("click", async () => {
+  if (!teacherData.canInvite) {
+    inviteOutput.innerHTML = `<div class="panel"><div class="panel-body"><p class="text-muted">You do not have permission to create invites.</p></div></div>`;
+    return;
+  }
+
+  inviteOutput.textContent = "Creating invite…";
+
+  const token = crypto.randomUUID();
+  const expiresAt = Timestamp.fromDate(
+    new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  );
+
+  await setDoc(doc(db, "invites", token), {
+    createdBy: currentUser.uid,
+    createdAt: serverTimestamp(),
+    expiresAt,
+    used: false,
+  });
+
+  const url = `${
+    window.location.origin
+  }/teacher-signup.html?token=${encodeURIComponent(token)}`;
+
+  inviteOutput.innerHTML = `
+    <div class="panel">
+      <div class="panel-title">Invite Link</div>
+      <div class="panel-body">
+        <input value="${url}" readonly/>
+        <p class="text-muted">Expires in 7 days. Send to the new teacher.</p>
+      </div>
+    </div>`;
+});

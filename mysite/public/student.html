@@ -4,9 +4,170 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BookWare — Student</title>
-    <link rel="stylesheet" href="/css/style.css" />
+    <link rel="stylesheet" href="/css/index.css" />
     <style>
-      /* ── Book covers ─────────────────────────────────────────── */
+      /* ─────────────────────────────────────────────────────────────────────────── */
+      /* SPA Layout: sidebar + main content */
+      /* ─────────────────────────────────────────────────────────────────────────── */
+      body {
+        display: flex;
+        min-height: 100vh;
+        margin: 0;
+        background: radial-gradient(
+          circle at top,
+          #1a1a2e 0,
+          #050509 45%,
+          #000 100%
+        );
+      }
+
+      .app-container {
+        display: flex;
+        width: 100%;
+        min-height: 100vh;
+      }
+
+      /* Sidebar */
+      .sidebar {
+        width: 240px;
+        background: linear-gradient(180deg, #0b0b12 0%, #050509 100%);
+        border-right: 1px solid var(--border);
+        padding: 20px 0;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: 100vh;
+      }
+
+      .sidebar-header {
+        padding: 0 16px 20px;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 20px;
+      }
+
+      .sidebar-title {
+        font-size: 0.9rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .sidebar-title span.logo-dot {
+        width: 8px;
+        height: 8px;
+        background: var(--accent);
+        border-radius: 999px;
+        box-shadow: var(--glow);
+      }
+
+      .sidebar-nav {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .sidebar-nav li {
+        margin: 0;
+      }
+
+      .sidebar-nav .nav-item {
+        display: block;
+        padding: 10px 16px;
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        cursor: pointer;
+        border-left: 2px solid transparent;
+        transition: all var(--transition);
+        background: none;
+        border: none;
+        width: 100%;
+        text-align: left;
+      }
+
+      .sidebar-nav .nav-item:hover {
+        color: var(--accent-soft);
+        border-left-color: var(--accent);
+        padding-left: 20px;
+      }
+
+      .sidebar-nav .nav-item.active {
+        color: var(--accent);
+        border-left-color: var(--accent);
+        background: rgba(255, 0, 60, 0.08);
+        padding-left: 20px;
+      }
+
+      .sidebar-footer {
+        position: absolute;
+        bottom: 0;
+        width: 100%;
+        padding: 16px;
+        border-top: 1px solid var(--border);
+        background: rgba(5, 5, 9, 0.5);
+      }
+
+      .sidebar-footer button {
+        width: 100%;
+        font-size: 0.75rem;
+      }
+
+      /* Main content area */
+      .main-content {
+        flex: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .page-wrapper {
+        padding: 32px 20px;
+        max-width: 1400px;
+        margin: 0 auto;
+        width: 100%;
+        flex: 1;
+      }
+
+      .page {
+        display: none;
+      }
+
+      .page.active {
+        display: block;
+        animation: fadeIn 0.2s ease-out;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(4px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .page-top-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 24px;
+      }
+
+      .page-top-bar h1 {
+        font-size: 1.4rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin: 0;
+      }
+
+      /* Book covers */
       .book-cover-thumb {
         height: 72px;
         width: auto;
@@ -15,6 +176,7 @@
         float: right;
         margin: 0 0 8px 12px;
       }
+
       .book-cover-current {
         height: 130px;
         width: auto;
@@ -25,7 +187,6 @@
         margin-bottom: 12px;
       }
 
-      /* ── Book description — truncated to 2 lines ─────────────── */
       .book-desc {
         margin-top: 6px;
         display: -webkit-box;
@@ -34,7 +195,7 @@
         overflow: hidden;
       }
 
-      /* ── Teacher list ────────────────────────────────────────── */
+      /* Teacher selector */
       #teacherList {
         display: flex;
         flex-direction: column;
@@ -42,29 +203,30 @@
         margin-bottom: 16px;
       }
 
-      /* Selected teacher highlight (toggled by JS via .selected class) */
       #teacherList .btn-role.selected {
         border-color: var(--accent);
         box-shadow: var(--glow);
       }
 
-      /* ── Search row ──────────────────────────────────────────── */
+      /* Search row */
       .search-row {
         display: flex;
         gap: 8px;
         align-items: center;
         margin-bottom: 14px;
       }
+
       .search-row input {
         flex: 1;
       }
 
-      /* ── Scrollable book list ────────────────────────────────── */
+      /* Book list */
       #bookList {
         max-height: 62vh;
         overflow-y: auto;
         padding-right: 4px;
       }
+
       #bookList::-webkit-scrollbar {
         width: 4px;
       }
@@ -76,94 +238,234 @@
         border-radius: 2px;
       }
 
-      /* ── Top-bar right cluster ───────────────────────────────── */
-      .top-bar-right {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-
-      /* ── Wishlist list (each item is a .panel) ───────────────── */
+      /* Wishlist */
       #wishlistPanel .panel {
         margin-bottom: 8px;
+      }
+
+      /* Responsive */
+      @media (max-width: 900px) {
+        .sidebar {
+          width: 180px;
+        }
+      }
+
+      @media (max-width: 600px) {
+        .app-container {
+          flex-direction: column;
+        }
+
+        .sidebar {
+          width: 100%;
+          height: auto;
+          position: static;
+          border-right: none;
+          border-bottom: 1px solid var(--border);
+        }
+
+        .sidebar-footer {
+          position: static;
+        }
+
+        .sidebar-nav {
+          display: flex;
+          gap: 0;
+          flex-wrap: wrap;
+        }
+
+        .sidebar-nav .nav-item {
+          flex: 1;
+          min-width: 100px;
+          padding: 8px;
+          border: 1px solid var(--border);
+          border-left: none;
+          border-top: none;
+        }
       }
     </style>
   </head>
   <body>
-    <div class="app-shell">
-      <div class="card">
-        <div class="card-inner">
-          <!-- Top bar -->
-          <div class="top-bar">
-            <h1 class="app-title">Book<span class="logo-dot"></span>Ware</h1>
-            <div class="top-bar-right">
-              <span class="top-bar-role">Student Portal</span>
-              <button class="btn-ghost" id="logoutStudent">Log Out</button>
+    <div class="app-container">
+      <!-- SIDEBAR -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div class="sidebar-title">
+            <span class="logo-dot"></span>
+            BookWare
+          </div>
+        </div>
+
+        <ul class="sidebar-nav">
+          <li>
+            <button class="nav-item active" data-page="library">
+              📚 Library
+            </button>
+          </li>
+          <li>
+            <button class="nav-item" data-page="locker">🎒 Locker</button>
+          </li>
+          <li>
+            <button class="nav-item" data-page="wishlist">♡ Wishlist</button>
+          </li>
+          <li>
+            <button class="nav-item" data-page="profile">👤 Profile</button>
+          </li>
+          <li>
+            <button class="nav-item" data-page="settings">⚙️ Settings</button>
+          </li>
+        </ul>
+
+        <div class="sidebar-footer">
+          <button class="btn-ghost" id="logoutStudentBtn">Log Out</button>
+        </div>
+      </aside>
+
+      <!-- MAIN CONTENT -->
+      <main class="main-content">
+        <div class="page-wrapper">
+          <!-- PAGE: Library / Browse -->
+          <div id="libraryPage" class="page active">
+            <div class="page-top-bar">
+              <h1>Library</h1>
+            </div>
+
+            <div class="layout-split">
+              <div>
+                <div class="section-title">Select a Library</div>
+                <div id="teacherList">
+                  <p class="text-muted">Loading teachers…</p>
+                </div>
+              </div>
+
+              <div>
+                <div class="section-title" id="bookListTitle">Books</div>
+                <div class="search-row">
+                  <input
+                    id="searchInput"
+                    type="text"
+                    placeholder="Search by title, author, or ISBN…"
+                  />
+                </div>
+                <div id="bookList">
+                  <p class="text-muted">Select a teacher to browse.</p>
+                </div>
+              </div>
             </div>
           </div>
 
-          <div class="layout-split">
-            <!-- ── Left column ──────────────────────────────────── -->
-            <div>
-              <!-- Profile -->
-              <div class="section-title">My Profile</div>
+          <!-- PAGE: Locker / Current Checkout -->
+          <div id="lockerPage" class="page">
+            <div class="page-top-bar">
+              <h1>My Locker</h1>
+            </div>
+
+            <div class="layout-split">
+              <div>
+                <div class="section-title">Currently Reading</div>
+                <div class="panel" id="currentBookPanel">
+                  <div class="panel-body">
+                    <p class="text-muted">Loading…</p>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div class="section-title">Return Instructions</div>
+                <div class="panel">
+                  <div class="panel-body">
+                    <ol class="meta-list">
+                      <li>Hand the book back to your teacher</li>
+                      <li>They'll mark it returned in their dashboard</li>
+                      <li>
+                        Click "I've Returned This Book" below once you've handed
+                        it back
+                      </li>
+                    </ol>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- PAGE: Wishlist -->
+          <div id="wishlistPage" class="page">
+            <div class="page-top-bar">
+              <h1>My Wishlist</h1>
+            </div>
+
+            <div style="max-width: 800px">
+              <div id="wishlistPanel">
+                <p class="text-muted">Your wishlist is empty.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- PAGE: Profile -->
+          <div id="profilePage" class="page">
+            <div class="page-top-bar">
+              <h1>Profile</h1>
+            </div>
+
+            <div style="max-width: 800px">
+              <div class="section-title">My Information</div>
               <div class="panel" id="profilePanel">
                 <div class="panel-body">
                   <p class="text-muted">Loading…</p>
                 </div>
               </div>
 
-              <!-- Currently reading / checkout status -->
-              <!-- "Currently reading" = the student's currentBook field.
-                 No separate schema field exists for a reading tracker;
-                 the checked-out book IS the currently reading book. -->
-              <div class="section-title">Currently Reading</div>
-              <div class="panel" id="currentBookPanel">
+              <div class="section-title">My Class</div>
+              <div class="panel" id="classPanel">
                 <div class="panel-body">
                   <p class="text-muted">Loading…</p>
                 </div>
               </div>
+            </div>
+          </div>
 
-              <!-- Wishlist -->
-              <div class="section-title">My Wishlist</div>
-              <div id="wishlistPanel">
-                <p class="text-muted">Loading…</p>
-              </div>
+          <!-- PAGE: Settings -->
+          <div id="settingsPage" class="page">
+            <div class="page-top-bar">
+              <h1>Settings</h1>
             </div>
 
-            <!-- ── Right column ─────────────────────────────────── -->
-            <div>
-              <!-- Teacher selector -->
-              <div class="section-title">Select a Library</div>
-              <div id="teacherList">
-                <p class="text-muted">Loading teachers…</p>
+            <div style="max-width: 800px">
+              <div class="section-title">Preferences</div>
+              <div class="panel">
+                <div class="panel-body">
+                  <p class="text-muted">
+                    Theme and notification settings coming soon.
+                  </p>
+                </div>
               </div>
 
-              <!-- Book list header + search -->
-              <div class="section-title" id="bookListTitle">Library</div>
-              <div class="search-row">
-                <input
-                  id="searchInput"
-                  type="text"
-                  placeholder="Search by title, author, or ISBN…"
-                />
+              <div class="section-title">Account</div>
+              <div class="panel">
+                <div class="panel-body">
+                  <p class="text-muted">
+                    Signed in as: <strong id="settingsEmail">—</strong>
+                  </p>
+                  <br />
+                  <button class="btn-ghost" id="logoutSettingsBtn">
+                    Log Out
+                  </button>
+                </div>
               </div>
 
-              <!-- Book grid — populated by JS -->
-              <div id="bookList">
-                <p class="text-muted">
-                  Select a teacher's library above to browse books.
-                </p>
+              <div class="section-title">About</div>
+              <div class="panel">
+                <div class="panel-body">
+                  <p class="text-muted">
+                    BookWare v1.0 — Firebase-based book rental for classroom
+                    libraries.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
-          <!-- /.layout-split -->
         </div>
-        <!-- /.card-inner -->
-      </div>
-      <!-- /.card -->
+      </main>
     </div>
-    <!-- /.app-shell -->
 
     <script type="module" src="/js/student.js"></script>
   </body>

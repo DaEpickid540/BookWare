@@ -1,0 +1,119 @@
+:root {
+  /* ─────────────────────────────────────────────────────────────────────── */
+  /* Color Palette — Gentle Dark Gray + Red */
+  /* ─────────────────────────────────────────────────────────────────────── */
+
+  /* Backgrounds — warm dark gray instead of pure black */
+  --bg: #1a1a1e; /* Main background — dark gray */
+  --bg-alt: #2a2a2f; /* Alt background — slightly lighter */
+  --bg-light: #3a3a42; /* Light background — for contrasts */
+
+  /* Accent — red (primary action color) */
+  --accent: #e74c3c; /* Primary red — warm, inviting */
+  --accent-soft: #f5a6a0; /* Soft red — hover states */
+  --accent-dark: #c0392b; /* Dark red — pressed states */
+
+  /* Text — light gray on dark background */
+  --text: #f0f0f0; /* Primary text — light gray */
+  --text-muted: #ababab; /* Muted text — medium gray */
+  --muted: #7a7a7a; /* Secondary muted — darker gray */
+
+  /* Borders & Dividers */
+  --border: #3a3a42; /* Border color — slightly lighter than bg */
+  --card: #242428; /* Card background — slightly darker than bg */
+
+  /* Semantic colors */
+  --danger: #e74c3c; /* Danger/error — red */
+  --success: #2ecc71; /* Success — green */
+  --warning: #f39c12; /* Warning — orange */
+  --info: #3498db; /* Info — blue */
+
+  /* Effects */
+  --glow: 0 0 12px rgba(231, 76, 60, 0.5); /* Red glow instead of pink */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 8px 20px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 18px 40px rgba(0, 0, 0, 0.5);
+
+  /* Spacing scale */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-xxl: 32px;
+
+  /* Typography */
+  --font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.85rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.1rem;
+  --font-size-xl: 1.4rem;
+  --font-size-xxl: 2.2rem;
+
+  --font-weight-regular: 400;
+  --font-weight-semi: 600;
+  --font-weight-bold: 700;
+
+  /* Line height */
+  --line-height-tight: 1.2;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.75;
+
+  /* Border radius */
+  --radius-sm: 4px;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --radius-full: 999px;
+
+  /* Transitions */
+  --transition: 0.2s ease-out;
+  --transition-slow: 0.3s ease-out;
+  --transition-fast: 0.1s ease-out;
+
+  /* Letter spacing */
+  --letter-spacing-tight: -0.01em;
+  --letter-spacing-normal: 0;
+  --letter-spacing-wide: 0.08em;
+  --letter-spacing-wider: 0.12em;
+  --letter-spacing-widest: 0.16em;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* Dark theme (default) */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1a1a1e;
+    --bg-alt: #2a2a2f;
+    --bg-light: #3a3a42;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* Light theme (optional, for future) */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+html[data-theme="light"] {
+  --bg: #f8f8f8;
+  --bg-alt: #efefef;
+  --bg-light: #e8e8e8;
+  --text: #1a1a1e;
+  --text-muted: #5a5a5a;
+  --muted: #8a8a8a;
+  --border: #d8d8d8;
+  --card: #ffffff;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* High contrast for accessibility */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+@media (prefers-contrast: more) {
+  :root {
+    --accent: #d42b1b; /* Darker red for contrast */
+    --text: #ffffff; /* Pure white text */
+  }
+}
