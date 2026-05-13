@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>BookWare · Role Select</title>
+    <link rel="stylesheet" href="css/style.css" />
+    <script type="module" src="js/auth.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <div class="card">
+        <div class="card-inner">
+          <div class="app-title">
+            <span class="logo-dot"></span>
+            <span>BOOKWARE</span>
+          </div>
+          <div class="app-subtitle">
+            Teacher‑friendly book rental for classroom libraries. No more
+            handing your phone to students.
+          </div>
+
+          <div class="pill-row">
+            <span class="pill">Firebase‑based</span>
+            <span class="pill">Teacher · Student · Admin</span>
+            <span class="pill">Google Books Powered</span>
+          </div>
+
+          <div class="layout-split">
+            <section>
+              <div class="section-title">Choose your portal</div>
+              <div class="role-grid">
+                <button class="btn-role" id="studentLogin">
+                  <div class="btn-role-label">Student</div>
+                  <div class="btn-role-title">Student Portal</div>
+                  <div class="btn-role-desc">
+                    Browse your teachers’ shelves, check out books, track what
+                    you’re reading, and manage your wishlist.
+                  </div>
+                </button>
+
+                <button class="btn-role" id="teacherLogin">
+                  <div class="btn-role-label">Teacher</div>
+                  <div class="btn-role-title">Teacher Library</div>
+                  <div class="btn-role-desc">
+                    Manage your classroom library, validate returns, export
+                    history, and invite new teachers.
+                  </div>
+                </button>
+
+                <button class="btn-role" id="adminLogin">
+                  <div class="btn-role-label">Admin</div>
+                  <div class="btn-role-title">Admin Console</div>
+                  <div class="btn-role-desc">
+                    Full override access for debugging, bans, and emergency
+                    fixes. Handle with care.
+                  </div>
+                </button>
+              </div>
+            </section>
+
+            <aside>
+              <div class="section-title">System status</div>
+              <div class="panel">
+                <div class="panel-title">Environment</div>
+                <div class="panel-body">
+                  <span class="badge">
+                    <span class="badge-dot"></span>
+                    Firebase Connected
+                  </span>
+                  <ul class="meta-list">
+                    <li><strong>Mode:</strong> School classroom libraries</li>
+                    <li><strong>Auth:</strong> Google Sign‑In</li>
+                    <li><strong>Data:</strong> Firestore (free tier)</li>
+                  </ul>
+                  <div class="chip-row">
+                    <span class="chip">No phone hand‑offs</span>
+                    <span class="chip">Teacher‑controlled</span>
+                    <span class="chip">Student‑friendly</span>
+                  </div>
+                </div>
+              </div>
+
+              <a
+                class="link-ghost"
+                href="#"
+                onclick="alert('Docs coming soon.'); return false;"
+              >
+                <span>View usage &amp; safety notes</span>
+                <span class="arrow">↗</span>
+              </a>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

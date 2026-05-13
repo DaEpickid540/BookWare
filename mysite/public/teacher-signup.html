@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BookWare – Teacher Signup</title>
+    <link rel="stylesheet" href="/css/style.css" />
+    <style>
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        margin: 0;
+        background: #f5f7fa;
+        font-family: sans-serif;
+      }
+
+      .signup-card {
+        background: #fff;
+        border-radius: 10px;
+        box-shadow: 0 2px 16px rgba(0, 0, 0, 0.1);
+        padding: 2.5rem 2rem;
+        max-width: 420px;
+        width: 100%;
+        text-align: center;
+      }
+
+      .signup-card h1 {
+        font-size: 1.5rem;
+        margin-bottom: 0.4rem;
+      }
+
+      .signup-card p.subtitle {
+        color: #666;
+        font-size: 0.95rem;
+        margin-bottom: 1.8rem;
+      }
+
+      #statusMessage {
+        margin-bottom: 1.2rem;
+        min-height: 1.2rem;
+        font-size: 0.95rem;
+      }
+
+      #statusMessage.error {
+        color: #c0392b;
+      }
+      #statusMessage.success {
+        color: #27ae60;
+      }
+      #statusMessage.info {
+        color: #2980b9;
+      }
+
+      #signInBtn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.6rem;
+        background: #4285f4;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        padding: 0.75rem 1.5rem;
+        font-size: 1rem;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+
+      #signInBtn:hover:not(:disabled) {
+        background: #3367d6;
+      }
+      #signInBtn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .spinner {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        border: 2px solid rgba(255, 255, 255, 0.4);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="signup-card">
+      <h1>BookWare</h1>
+      <p class="subtitle">You've been invited to join as a teacher.</p>
+
+      <div id="statusMessage" class="info">Validating invite link…</div>
+
+      <button id="signInBtn" disabled>
+        <span id="btnLabel">Sign in with Google</span>
+      </button>
+    </div>
+
+    <script type="module" src="/js/teacher-signup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>BookWare · Admin</title>
+    <link rel="stylesheet" href="css/style.css" />
+    <script type="module" src="js/admin.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <div class="card">
+        <div class="card-inner">
+          <div class="top-bar">
+            <div>
+              <div class="top-bar-title">Admin Console</div>
+              <div class="top-bar-role">Override · Bans · Debug</div>
+            </div>
+            <button class="btn-ghost" id="logoutAdmin">Sign out</button>
+          </div>
+
+          <div class="layout-split">
+            <section>
+              <div class="panel">
+                <div class="panel-title">Users</div>
+                <div class="panel-body" id="adminUsers">
+                  List of students/teachers with ban/delete controls.
+                </div>
+              </div>
+            </section>
+
+            <aside>
+              <div class="panel">
+                <div class="panel-title">System controls</div>
+                <div class="panel-body">
+                  <button class="btn-primary" id="toggleMaintenance">
+                    Toggle maintenance mode
+                  </button>
+                  <p class="text-muted" style="margin-top: 8px">
+                    Writes to <code>admin/settings</code>. Claude can wire this
+                    to rules.
+                  </p>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

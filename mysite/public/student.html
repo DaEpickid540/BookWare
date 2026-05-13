@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BookWare — Student</title>
+    <link rel="stylesheet" href="/css/style.css" />
+    <style>
+      /* ── Book covers ─────────────────────────────────────────── */
+      .book-cover-thumb {
+        height: 72px;
+        width: auto;
+        border-radius: 4px;
+        border: 1px solid var(--border);
+        float: right;
+        margin: 0 0 8px 12px;
+      }
+      .book-cover-current {
+        height: 130px;
+        width: auto;
+        border-radius: var(--radius);
+        border: 1px solid var(--accent);
+        box-shadow: var(--glow);
+        display: block;
+        margin-bottom: 12px;
+      }
+
+      /* ── Book description — truncated to 2 lines ─────────────── */
+      .book-desc {
+        margin-top: 6px;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+
+      /* ── Teacher list ────────────────────────────────────────── */
+      #teacherList {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 16px;
+      }
+
+      /* Selected teacher highlight (toggled by JS via .selected class) */
+      #teacherList .btn-role.selected {
+        border-color: var(--accent);
+        box-shadow: var(--glow);
+      }
+
+      /* ── Search row ──────────────────────────────────────────── */
+      .search-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 14px;
+      }
+      .search-row input {
+        flex: 1;
+      }
+
+      /* ── Scrollable book list ────────────────────────────────── */
+      #bookList {
+        max-height: 62vh;
+        overflow-y: auto;
+        padding-right: 4px;
+      }
+      #bookList::-webkit-scrollbar {
+        width: 4px;
+      }
+      #bookList::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      #bookList::-webkit-scrollbar-thumb {
+        background: var(--border);
+        border-radius: 2px;
+      }
+
+      /* ── Top-bar right cluster ───────────────────────────────── */
+      .top-bar-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      /* ── Wishlist list (each item is a .panel) ───────────────── */
+      #wishlistPanel .panel {
+        margin-bottom: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-shell">
+      <div class="card">
+        <div class="card-inner">
+          <!-- Top bar -->
+          <div class="top-bar">
+            <h1 class="app-title">Book<span class="logo-dot"></span>Ware</h1>
+            <div class="top-bar-right">
+              <span class="top-bar-role">Student Portal</span>
+              <button class="btn-ghost" id="logoutStudent">Log Out</button>
+            </div>
+          </div>
+
+          <div class="layout-split">
+            <!-- ── Left column ──────────────────────────────────── -->
+            <div>
+              <!-- Profile -->
+              <div class="section-title">My Profile</div>
+              <div class="panel" id="profilePanel">
+                <div class="panel-body">
+                  <p class="text-muted">Loading…</p>
+                </div>
+              </div>
+
+              <!-- Currently reading / checkout status -->
+              <!-- "Currently reading" = the student's currentBook field.
+                 No separate schema field exists for a reading tracker;
+                 the checked-out book IS the currently reading book. -->
+              <div class="section-title">Currently Reading</div>
+              <div class="panel" id="currentBookPanel">
+                <div class="panel-body">
+                  <p class="text-muted">Loading…</p>
+                </div>
+              </div>
+
+              <!-- Wishlist -->
+              <div class="section-title">My Wishlist</div>
+              <div id="wishlistPanel">
+                <p class="text-muted">Loading…</p>
+              </div>
+            </div>
+
+            <!-- ── Right column ─────────────────────────────────── -->
+            <div>
+              <!-- Teacher selector -->
+              <div class="section-title">Select a Library</div>
+              <div id="teacherList">
+                <p class="text-muted">Loading teachers…</p>
+              </div>
+
+              <!-- Book list header + search -->
+              <div class="section-title" id="bookListTitle">Library</div>
+              <div class="search-row">
+                <input
+                  id="searchInput"
+                  type="text"
+                  placeholder="Search by title, author, or ISBN…"
+                />
+              </div>
+
+              <!-- Book grid — populated by JS -->
+              <div id="bookList">
+                <p class="text-muted">
+                  Select a teacher's library above to browse books.
+                </p>
+              </div>
+            </div>
+          </div>
+          <!-- /.layout-split -->
+        </div>
+        <!-- /.card-inner -->
+      </div>
+      <!-- /.card -->
+    </div>
+    <!-- /.app-shell -->
+
+    <script type="module" src="/js/student.js"></script>
+  </body>
+</html>

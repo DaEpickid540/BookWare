@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BookWare — Teacher</title>
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <div class="card">
+        <div class="card-inner">
+          <!-- Top bar -->
+          <div class="top-bar">
+            <div>
+              <span class="top-bar-title">BookWare</span>
+              <span class="top-bar-role">Teacher Dashboard</span>
+            </div>
+            <button class="btn-ghost" id="logoutTeacher">Log Out</button>
+          </div>
+
+          <div class="layout-split">
+            <!-- Left column: library + history -->
+            <div>
+              <!-- Library management -->
+              <div class="section-title">My Library</div>
+              <div id="libraryList">
+                <p class="text-muted">Loading…</p>
+              </div>
+
+              <!-- Checkout history -->
+              <div class="section-title">Checkout History</div>
+              <div id="historyList">
+                <p class="text-muted">Loading…</p>
+              </div>
+            </div>
+
+            <!-- Right column: tools -->
+            <div>
+              <!-- ISBN lookup -->
+              <div class="section-title">Look Up a Book</div>
+              <div class="panel">
+                <div class="panel-body">
+                  <div class="input-row">
+                    <label for="isbnInput">ISBN</label>
+                    <input
+                      type="text"
+                      id="isbnInput"
+                      placeholder="e.g. 9780743273565"
+                    />
+                  </div>
+                  <button class="btn-primary" id="lookupIsbn">Look Up</button>
+                </div>
+              </div>
+              <div id="isbnResult"></div>
+
+              <!-- Generate invite -->
+              <div class="section-title">Invite a Teacher</div>
+              <div class="panel">
+                <div class="panel-body">
+                  <p class="text-muted">
+                    Generate a one-time invite link for a new teacher. Requires
+                    the <strong>canInvite</strong> permission.
+                  </p>
+                  <br />
+                  <button class="btn-primary" id="createInvite">
+                    Generate Invite Link
+                  </button>
+                </div>
+              </div>
+              <div id="inviteOutput"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/js/teacher.js"></script>
+  </body>
+</html>
