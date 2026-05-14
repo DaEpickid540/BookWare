@@ -16,6 +16,7 @@ import {
   where,
   serverTimestamp,
   Timestamp,
+  arrayRemove,
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { lookupISBN, searchBooks } from "./books.js";
 
@@ -90,6 +91,7 @@ function showPage(name) {
     loadCheckedOut();
     loadHistory();
     loadActiveBans();
+    loadRoster();
   }
   if (name === "recommendations") {
     renderRecommendationsList();
@@ -279,22 +281,42 @@ async function runBookSearch() {
   const isbnInput = document.getElementById("isbnInput");
   const isbnResult = document.getElementById("isbnResult");
   const btn = document.getElementById("lookupIsbnBtn");
+  if (!isbnInput || !isbnResult || !btn) {
+    console.error("[teacher.js] runBookSearch: missing DOM elements");
+    return;
+  }
   const query = isbnInput.value.trim();
-  if (!query) return;
+  if (!query) {
+    isbnResult.innerHTML = `<p class="t-hint" style="margin-top:8px">Type a title, author, or ISBN to search.</p>`;
+    return;
+  }
 
-  isbnResult.innerHTML = `<p class="t-hint" style="margin-top:8px">Searching…</p>`;
+  isbnResult.innerHTML = `<p class="t-hint" style="margin-top:8px">Searching books…</p>`;
   btn.disabled = true;
 
-  // If it looks like an ISBN (all digits/dashes, 10-13 chars) do ISBN lookup first
-  const isIsbn = /^[\d\-]{9,17}$/.test(query.replace(/\s/g, ""));
-  const results = isIsbn
-    ? await lookupISBN(query).then((r) => (r ? [r] : []))
-    : await searchBooks(query, 8);
+  let results = [];
+  try {
+    const isIsbn = /^[\d\-]{9,17}$/.test(query.replace(/\s/g, ""));
+    if (isIsbn) {
+      const single = await lookupISBN(query);
+      results = single ? [single] : [];
+    } else {
+      results = await searchBooks(query, 8);
+    }
+  } catch (err) {
+    console.error("[teacher.js] Book search threw:", err);
+    isbnResult.innerHTML = `<p class="t-hint" style="margin-top:8px;color:var(--danger)">Search error. Check console for details.</p>`;
+    btn.disabled = false;
+    return;
+  }
 
   btn.disabled = false;
 
-  if (!results.length) {
-    isbnResult.innerHTML = `<p class="t-hint" style="margin-top:8px">No results found. Try a different title or ISBN.</p>`;
+  if (!Array.isArray(results) || results.length === 0) {
+    isbnResult.innerHTML = `<p class="t-hint" style="margin-top:8px">No results found for "${esc(
+      query,
+    )}". Try different keywords.</p>`;
+    bookSearchResults = [];
     return;
   }
 
@@ -338,28 +360,51 @@ function renderBookSearchResults(results) {
 
 async function addBookToLibrary(idx) {
   const book = bookSearchResults[idx];
-  if (!book) return;
-  await addDoc(collection(db, "teachers", currentUser.uid, "books"), {
-    title: book.title,
-    author: book.author,
-    isbn: book.isbn ?? "",
-    coverUrl: book.cover ?? "",
-    description: book.description ?? "",
-    googleId: book.googleId ?? "",
-    status: "available",
-    checkedOutBy: null,
-    checkedOutAt: null,
-    wishlist: [],
-  });
+  if (!book) {
+    console.warn("[teacher.js] addBookToLibrary: no book at index", idx);
+    return;
+  }
+  if (!currentUser?.uid) {
+    toast("Not signed in.", "danger");
+    return;
+  }
+
+  try {
+    const ref = await addDoc(
+      collection(db, "teachers", currentUser.uid, "books"),
+      {
+        title: book.title ?? "",
+        author: book.author ?? "",
+        isbn: book.isbn ?? "",
+        coverUrl: book.cover ?? "",
+        description: book.description ?? "",
+        sourceId: book.sourceId ?? book.googleId ?? "",
+        status: "available",
+        checkedOutBy: null,
+        checkedOutAt: null,
+        wishlist: [],
+        addedAt: serverTimestamp(),
+      },
+    );
+    console.log("[teacher.js] Book added with id:", ref.id);
+  } catch (err) {
+    console.error("[teacher.js] addBookToLibrary FAILED:", err);
+    toast(
+      `Failed to add book: ${err.message ?? err.code ?? "unknown"}`,
+      "danger",
+    );
+    return;
+  }
+
   document.getElementById(
     "isbnResult",
-  ).innerHTML = `<p class="t-hint" style="margin-top:8px">✓ "${esc(
+  ).innerHTML = `<p class="t-hint" style="margin-top:8px;color:var(--success)">✓ "${esc(
     book.title,
-  )}" added to library.</p>`;
+  )}" added to your library.</p>`;
   document.getElementById("isbnInput").value = "";
   bookSearchResults = [];
   await loadLibrary();
-  toast(`✓ "${book.title}" added to library`, "success");
+  toast(`✓ "${book.title}" added`, "success");
 }
 
 document
@@ -427,7 +472,11 @@ function renderLibraryList(books) {
         <div class="t-book-actions">
           <button class="btn-xs ${isRec ? "starred" : ""}" data-action="${
       isRec ? "unrecommend" : "recommend"
-    }" data-id="${esc(book.id)}" data-title="${esc(book.title)}" data-author="${esc(book.author ?? "")}" data-cover="${esc(book.coverUrl ?? "")}">
+    }" data-id="${esc(book.id)}" data-title="${esc(
+      book.title,
+    )}" data-author="${esc(book.author ?? "")}" data-cover="${esc(
+      book.coverUrl ?? "",
+    )}">
             ${isRec ? "☆ Unrecommend" : "⭐ Recommend"}
           </button>
           ${
@@ -719,6 +768,97 @@ function checkBiweeklyNotification() {
   setTimeout(show, 1500);
 }
 
+// ─── Student Roster ────────────────────────────────────────────────────────────
+async function loadRoster() {
+  const listEl = document.getElementById("rosterList");
+  const countEl = document.getElementById("rosterCount");
+  if (!listEl || !currentUser) return;
+
+  listEl.innerHTML = `<p class="empty-state">Loading roster…</p>`;
+  try {
+    const snap = await getDocs(
+      collection(db, "teachers", currentUser.uid, "students"),
+    );
+    if (snap.empty) {
+      listEl.innerHTML = `<p class="empty-state">No students enrolled yet. Share your class code so they can join.</p>`;
+      if (countEl) countEl.textContent = "0 students";
+      return;
+    }
+
+    const students = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+
+    if (countEl)
+      countEl.textContent = `${students.length} student${
+        students.length !== 1 ? "s" : ""
+      }`;
+
+    listEl.innerHTML = "";
+    students.forEach((s) => {
+      const row = document.createElement("div");
+      row.className = "t-book-row";
+      row.innerHTML = `
+        <div class="t-book-cover-ph" style="width:32px;height:32px;border-radius:50%;font-size:0.62rem">${esc(
+          (s.name ?? "?")
+            .split(" ")
+            .map((w) => w[0])
+            .join("")
+            .slice(0, 2)
+            .toUpperCase(),
+        )}</div>
+        <div class="t-book-info">
+          <div class="t-book-title">${esc(s.name ?? "Unknown")}</div>
+          <div class="t-book-author">${esc(s.email ?? "")}</div>
+          <div class="t-book-actions">
+            <button class="btn-xs danger" data-sid="${esc(
+              s.id,
+            )}" data-name="${esc(s.name ?? "")}">Remove from Class</button>
+          </div>
+        </div>`;
+      row.querySelector("button").addEventListener("click", (e) => {
+        removeStudent(
+          e.currentTarget.dataset.sid,
+          e.currentTarget.dataset.name,
+        );
+      });
+      listEl.appendChild(row);
+    });
+  } catch (err) {
+    console.error("[teacher.js] loadRoster failed:", err);
+    listEl.innerHTML = `<p class="empty-state" style="color:var(--danger)">Failed to load roster: ${esc(
+      err.message ?? "",
+    )}</p>`;
+  }
+}
+
+async function removeStudent(sid, name) {
+  if (
+    !confirm(
+      `Remove ${
+        name || "this student"
+      } from your class?\n\nThey can rejoin later with your class code.`,
+    )
+  )
+    return;
+  try {
+    await deleteDoc(doc(db, "teachers", currentUser.uid, "students", sid));
+    // Also remove this teacher from the student's addedTeachers array
+    try {
+      await updateDoc(doc(db, "students", sid), {
+        addedTeachers: arrayRemove(currentUser.uid),
+      });
+    } catch (e) {
+      console.warn("Could not update student doc:", e);
+    }
+    toast(`Removed ${name} from class`, "success");
+    loadRoster();
+  } catch (err) {
+    console.error("[teacher.js] removeStudent failed:", err);
+    toast(`Failed: ${err.message ?? err}`, "danger");
+  }
+}
+
 // ─── Bans ───────────────────────────────────────────────────────────────────────
 document.getElementById("issueBanBtn")?.addEventListener("click", async () => {
   const email = document.getElementById("banStudentEmail")?.value.trim();
@@ -821,7 +961,12 @@ async function loadRecommendations() {
   recommendations = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
-async function toggleRecommendation(bookId, bookTitle, author = "", coverUrl = "") {
+async function toggleRecommendation(
+  bookId,
+  bookTitle,
+  author = "",
+  coverUrl = "",
+) {
   const existing = recommendations.find((r) => r.bookId === bookId);
   if (existing) {
     await deleteDoc(
@@ -871,7 +1016,9 @@ function renderRecommendationsList() {
         ${author ? `<div class="t-book-author">${esc(author)}</div>` : ""}
         <button class="btn-xs danger" style="margin-top:5px" data-id="${esc(
           rec.bookId,
-        )}" data-title="${esc(rec.bookTitle)}" data-action="unrecommend">☆ Remove</button>
+        )}" data-title="${esc(
+      rec.bookTitle,
+    )}" data-action="unrecommend">☆ Remove</button>
       </div>`;
     row
       .querySelector("[data-action='unrecommend']")
@@ -916,7 +1063,9 @@ function renderRecPicker() {
       row.innerHTML = `
         ${
           book.coverUrl
-            ? `<img src="${esc(book.coverUrl)}" class="t-book-cover" alt="Cover">`
+            ? `<img src="${esc(
+                book.coverUrl,
+              )}" class="t-book-cover" alt="Cover">`
             : `<div class="t-book-cover-ph">📖</div>`
         }
         <div class="t-book-info" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
@@ -926,9 +1075,11 @@ function renderRecPicker() {
           </div>
           <button class="btn-xs ${isRec ? "starred" : ""}" data-action="${
         isRec ? "unrecommend" : "recommend"
-      }" data-id="${esc(book.id)}" data-title="${esc(book.title)}" data-author="${esc(
-        book.author ?? "",
-      )}" data-cover="${esc(book.coverUrl ?? "")}" style="flex-shrink:0">
+      }" data-id="${esc(book.id)}" data-title="${esc(
+        book.title,
+      )}" data-author="${esc(book.author ?? "")}" data-cover="${esc(
+        book.coverUrl ?? "",
+      )}" style="flex-shrink:0">
             ${isRec ? "⭐ Starred" : "☆ Star"}
           </button>
         </div>`;
@@ -964,9 +1115,11 @@ function renderRecPicker() {
           </div>
           <button class="btn-xs ${isRec ? "starred" : ""}" data-action="${
         isRec ? "unrecommend" : "recommend"
-      }" data-id="${esc(book.googleId)}" data-title="${esc(book.title)}" data-author="${esc(
-        book.author ?? "",
-      )}" data-cover="${esc(book.cover ?? "")}" style="flex-shrink:0">
+      }" data-id="${esc(book.googleId)}" data-title="${esc(
+        book.title,
+      )}" data-author="${esc(book.author ?? "")}" data-cover="${esc(
+        book.cover ?? "",
+      )}" style="flex-shrink:0">
             ${isRec ? "⭐ Starred" : "☆ Star"}
           </button>
         </div>`;
@@ -1200,11 +1353,9 @@ function renderReadingPreview() {
 document
   .getElementById("recReadingSearchBtn")
   ?.addEventListener("click", runRecReadingSearch);
-document
-  .getElementById("recReadingInput")
-  ?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") runRecReadingSearch();
-  });
+document.getElementById("recReadingInput")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") runRecReadingSearch();
+});
 document
   .getElementById("recClearReadingBtn")
   ?.addEventListener("click", async () => {
@@ -1320,7 +1471,9 @@ function renderRecReadingDisplay() {
     <div class="reading-set-card">
       ${
         r.coverUrl
-          ? `<img src="${esc(r.coverUrl)}" class="reading-set-cover" alt="Cover">`
+          ? `<img src="${esc(
+              r.coverUrl,
+            )}" class="reading-set-cover" alt="Cover">`
           : ""
       }
       <div>

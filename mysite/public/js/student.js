@@ -9,6 +9,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  deleteDoc,
   setDoc,
   updateDoc,
   collection,
@@ -310,6 +311,19 @@ async function addTeacherByCode() {
     addedTeachers: arrayUnion(teacherId),
   });
 
+  // Also enroll in the teacher's roster so the teacher sees this student
+  try {
+    await setDoc(doc(db, "teachers", teacherId, "students", currentUser.uid), {
+      studentId: currentUser.uid,
+      name: studentData?.name ?? currentUser.displayName ?? "",
+      email: currentUser.email ?? "",
+      joinedAt: serverTimestamp(),
+      joinedVia: "code",
+    });
+  } catch (e) {
+    console.warn("Could not write to teacher roster:", e);
+  }
+
   if (input) input.value = "";
   toast(`✓ Library added!`, "success");
   renderAddedTeachersList();
@@ -341,6 +355,12 @@ async function renderAddedTeachersList() {
       await updateDoc(doc(db, "students", currentUser.uid), {
         addedTeachers: arrayRemove(id),
       });
+      // Also remove from teacher's roster
+      try {
+        await deleteDoc(doc(db, "teachers", id, "students", currentUser.uid));
+      } catch (e) {
+        console.warn("Could not remove from teacher roster:", e);
+      }
       toast("Library removed.", "info");
       renderAddedTeachersList();
       await loadTeachers();
@@ -411,7 +431,9 @@ async function renderNotifications() {
       : "No new notifications.";
     const div = document.createElement("div");
     div.className = "nr";
-    div.innerHTML = `<div class="nd dim"></div><div class="nt" style="color:var(--muted)">${escHtml(msg)}</div>`;
+    div.innerHTML = `<div class="nd dim"></div><div class="nt" style="color:var(--muted)">${escHtml(
+      msg,
+    )}</div>`;
     inner.appendChild(div);
   } else {
     notifs.slice(0, 3).forEach((n) => {
@@ -541,11 +563,14 @@ async function renderAllLibraries() {
                 t.id,
               )}" data-name="${escHtml(t.name)}">Browse</button>`
             : isPublic
-            ? `<button class="btn-sm alib-request" data-tid="${escHtml(
+            ? `<button class="btn-sm alib-browse" data-tid="${escHtml(
                 t.id,
-              )}" data-name="${escHtml(t.name)}" data-email="${escHtml(
+              )}" data-name="${escHtml(t.name)}">Browse</button>
+               <button class="btn-sm alib-request" style="margin-left:6px" data-tid="${escHtml(
+                 t.id,
+               )}" data-name="${escHtml(t.name)}" data-email="${escHtml(
                 t.email ?? "",
-              )}">Request Access</button>`
+              )}">Request</button>`
             : `<span class="alib-locked">Class Only</span>`
         }
       </div>`;
@@ -623,12 +648,18 @@ async function renderTeacherExtras(tid, name) {
       row.innerHTML = `
         ${
           r.coverUrl
-            ? `<img src="${escHtml(r.coverUrl)}" style="width:28px;height:40px;object-fit:cover;border-radius:2px;border:1px solid var(--border);flex-shrink:0">`
+            ? `<img src="${escHtml(
+                r.coverUrl,
+              )}" style="width:28px;height:40px;object-fit:cover;border-radius:2px;border:1px solid var(--border);flex-shrink:0">`
             : `<div class="bc"></div>`
         }
         <div class="bi">
           <div class="bt">${escHtml(r.bookTitle)}</div>
-          ${r.author ? `<div class="bau">${escHtml(r.author)}</div>` : `<span class="bx av-b"><span class="bd"></span>Recommended</span>`}
+          ${
+            r.author
+              ? `<div class="bau">${escHtml(r.author)}</div>`
+              : `<span class="bx av-b"><span class="bd"></span>Recommended</span>`
+          }
         </div>`;
       recCard.appendChild(row);
     });
