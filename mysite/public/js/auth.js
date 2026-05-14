@@ -2,6 +2,7 @@ import { auth, db } from "./firebase.js";
 import {
   GoogleAuthProvider,
   signInWithPopup,
+  signOut,
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 import {
@@ -11,10 +12,77 @@ import {
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
+// ─── Access Control ────────────────────────────────────────────────────────────
+const ALLOWED_DOMAIN = "@masonohioschools.com";
+const ADMIN_EMAILS = ["sarvin.sukhe@gmail.com", "daepickid540@gmail.com"];
+
+function isEmailAllowed(email) {
+  if (!email) return false;
+  const lower = email.toLowerCase();
+  return lower.endsWith(ALLOWED_DOMAIN) || ADMIN_EMAILS.includes(lower);
+}
+
+function isAdminEmail(email) {
+  return ADMIN_EMAILS.includes(email?.toLowerCase());
+}
+
+function showError(msg) {
+  const el = document.getElementById("loginError");
+  if (el) {
+    el.textContent = msg;
+    el.style.display = "block";
+  } else {
+    alert(msg);
+  }
+}
+
 async function login(role) {
+  // Block non-admins from even attempting admin login
+  if (role === "admin") {
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
+    let result;
+    try {
+      result = await signInWithPopup(auth, provider);
+    } catch (e) {
+      return;
+    }
+    const user = result.user;
+    if (!isAdminEmail(user.email)) {
+      await signOut(auth);
+      showError("Access denied. Admin login is restricted.");
+      return;
+    }
+    // Admin doc creation handled below — fall through with role = "admin"
+    const userRef = doc(db, "users", user.uid);
+    const userSnap = await getDoc(userRef);
+    if (!userSnap.exists()) {
+      await setDoc(userRef, {
+        name: user.displayName,
+        email: user.email,
+        role: "admin",
+        banned: false,
+        class: null,
+        createdAt: serverTimestamp(),
+      });
+    }
+    window.location.href = "/admin.html";
+    return;
+  }
+
   const provider = new GoogleAuthProvider();
   const result = await signInWithPopup(auth, provider);
   const user = result.user;
+
+  // ─── Email allowlist gate ─────────────────────────────────────────────────
+  if (!isEmailAllowed(user.email)) {
+    await signOut(auth);
+    showError("Access denied. Only Mason Ohio Schools accounts are allowed.");
+    return;
+  }
+
+  // ─── Prevent school staff from accessing admin via student/teacher buttons ─
+  // (admin emails can still use student/teacher portals if they want)
 
   // ─── Create or verify users/{uid} ────────────────────────────────────────
   const userRef = doc(db, "users", user.uid);
@@ -33,6 +101,19 @@ async function login(role) {
 
   // ─── Create role-specific docs ──────────────────────────────────────────
   const finalRole = (await getDoc(userRef)).data().role;
+
+  // ─── Ban check on login ─────────────────────────────────────────────────
+  const latestUserData = (await getDoc(userRef)).data();
+  if (latestUserData.banned === true) {
+    const expiry = latestUserData.banExpiry?.toDate?.();
+    if (!expiry || expiry > new Date()) {
+      await signOut(auth);
+      const days = expiry ? Math.ceil((expiry - new Date()) / 86400000) : "permanently";
+      const reason = latestUserData.banReason ?? "Policy violation";
+      window.location.href = `/?banned=1&reason=${encodeURIComponent(reason)}&days=${days}`;
+      return;
+    }
+  }
 
   if (finalRole === "student") {
     // Create students/{uid} doc if it doesn't exist — schema: { name, email, currentBook, wishlist, banned }

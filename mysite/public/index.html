@@ -11,6 +11,7 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/css/index.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
   </head>
   <body>
     <div class="signin-overlay" id="signinOverlay">
@@ -35,8 +36,8 @@
           aria-label="Sign in as Student"
         >
           <div class="portal-card-top">
-            <div class="portal-card-icon">🎒</div>
-            <span class="portal-card-arrow">↗</span>
+            <div class="portal-card-icon"><i class="bi bi-backpack-fill"></i></div>
+            <span class="portal-card-arrow"><i class="bi bi-arrow-up-right"></i></span>
           </div>
           <div class="portal-card-label">Student</div>
           <div class="portal-card-title">Student Portal</div>
@@ -78,8 +79,8 @@
           aria-label="Sign in as Teacher"
         >
           <div class="portal-card-top">
-            <div class="portal-card-icon">📚</div>
-            <span class="portal-card-arrow">↗</span>
+            <div class="portal-card-icon"><i class="bi bi-collection-fill"></i></div>
+            <span class="portal-card-arrow"><i class="bi bi-arrow-up-right"></i></span>
           </div>
           <div class="portal-card-label">Teacher</div>
           <div class="portal-card-title">Teacher Library</div>
@@ -121,8 +122,8 @@
           aria-label="Sign in as Admin"
         >
           <div class="portal-card-top">
-            <div class="portal-card-icon">🔧</div>
-            <span class="portal-card-arrow">↗</span>
+            <div class="portal-card-icon"><i class="bi bi-wrench-adjustable-fill"></i></div>
+            <span class="portal-card-arrow"><i class="bi bi-arrow-up-right"></i></span>
           </div>
           <div class="portal-card-label">Admin</div>
           <div class="portal-card-title">Admin</div>
@@ -155,6 +156,26 @@
           </div>
         </button>
       </div>
+
+      <p id="loginError" style="display:none;color:#e74c3c;text-align:center;margin-top:16px;font-size:0.85rem;font-weight:500;letter-spacing:0.01em;"></p>
+
+      <script>
+        // Show ban message if redirected after auto-ban or regular ban
+        const _params = new URLSearchParams(window.location.search);
+        const _el = document.getElementById("loginError");
+        if (_el) {
+          if (_params.get("banned") === "admin") {
+            _el.textContent = "Your account has been suspended for 24 hours due to repeated unauthorized access attempts.";
+            _el.style.display = "block";
+          } else if (_params.get("banned") === "1") {
+            const _reason = _params.get("reason") || "Policy violation";
+            const _days = _params.get("days") || "some time";
+            _el.textContent = `Account suspended for ${_days} day(s): ${_reason}. Contact your teacher or administrator.`;
+            _el.style.display = "block";
+          }
+          if (_params.get("banned")) history.replaceState(null, "", "/");
+        }
+      </script>
 
       <footer class="portal-footer">
         <p class="portal-footer-text">

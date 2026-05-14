@@ -117,3 +117,54 @@ html[data-theme="light"] {
     --text: #ffffff; /* Pure white text */
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* Color Themes — accent overrides only, works in both dark + light mode      */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+/* Crimson (default — no attribute needed, already in :root) */
+
+/* Ocean — deep blue */
+html[data-color="ocean"] {
+  --accent:      #2980b9;
+  --accent-soft: #85c1e9;
+  --accent-dark: #1a6fa8;
+  --glow:        0 0 12px rgba(41, 128, 185, 0.5);
+  --danger:      #e74c3c;
+}
+
+/* Forest — rich green */
+html[data-color="forest"] {
+  --accent:      #27ae60;
+  --accent-soft: #82e0aa;
+  --accent-dark: #1e8449;
+  --glow:        0 0 12px rgba(39, 174, 96, 0.5);
+  --danger:      #e74c3c;
+}
+
+/* Amethyst — purple */
+html[data-color="amethyst"] {
+  --accent:      #8e44ad;
+  --accent-soft: #c39bd3;
+  --accent-dark: #7d3c98;
+  --glow:        0 0 12px rgba(142, 68, 173, 0.5);
+  --danger:      #e74c3c;
+}
+
+/* Sunset — warm orange */
+html[data-color="sunset"] {
+  --accent:      #e67e22;
+  --accent-soft: #f0b27a;
+  --accent-dark: #ca6f1e;
+  --glow:        0 0 12px rgba(230, 126, 34, 0.5);
+  --danger:      #e74c3c;
+}
+
+/* Slate — cool gray-blue */
+html[data-color="slate"] {
+  --accent:      #607d8b;
+  --accent-soft: #90a4ae;
+  --accent-dark: #455a64;
+  --glow:        0 0 12px rgba(96, 125, 139, 0.5);
+  --danger:      #e74c3c;
+}

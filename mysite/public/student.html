@@ -11,6 +11,31 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/css/student.css" />
+    <style>body{visibility:hidden}</style>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <script>
+      // Apply brightness before first paint to avoid flash
+      (function() {
+        var val = parseInt(localStorage.getItem("bookware-brightness") || "18", 10);
+        var t = val / 100;
+        function lerp(a,b,t){return a+(b-a)*t;}
+        function clamp(v){return Math.max(0,Math.min(255,Math.round(v)));}
+        function hex(v){v=clamp(v);return"#"+v.toString(16).padStart(2,"0").repeat(3);}
+        var base=lerp(0,255,t);
+        var offAlt=lerp(16,-8,t);
+        var r = document.documentElement;
+        r.style.setProperty("--bg", hex(base));
+        r.style.setProperty("--bg-alt", hex(base+offAlt));
+        r.style.setProperty("--bg-light", hex(base+lerp(28,-18,t)));
+        r.style.setProperty("--card", hex(base+lerp(-8,8,t)));
+        r.style.setProperty("--border", hex(base+offAlt*0.6));
+        var textV = val<=45 ? lerp(240,200,val/45) : val>=55 ? lerp(200,26,(val-55)/45) : 200;
+        r.style.setProperty("--text", hex(textV));
+        if(val>=50) r.setAttribute("data-theme","light");
+        var color = localStorage.getItem("bookware-color");
+        if(color && color !== "crimson") r.setAttribute("data-color", color);
+      })();
+    </script>
   </head>
   <body>
     <!-- ══ SIDEBAR ══════════════════════════════════════════════════════════ -->
@@ -31,26 +56,26 @@
 
       <nav>
         <button class="ni active" data-page="library">
-          <span class="ni-icon">📚</span>
+          <span class="ni-icon"><i class="bi bi-collection-fill"></i></span>
           <span class="ni-label">Library</span>
         </button>
         <button class="ni" data-page="locker">
-          <span class="ni-icon">🎒</span>
+          <span class="ni-icon"><i class="bi bi-backpack-fill"></i></span>
           <span class="ni-label">Locker</span>
         </button>
         <button class="ni" data-page="wishlist">
-          <span class="ni-icon">♡</span>
+          <span class="ni-icon"><i class="bi bi-heart"></i></span>
           <span class="ni-label">Wishlist</span>
         </button>
         <button class="ni" data-page="profile">
-          <span class="ni-icon">👤</span>
+          <span class="ni-icon"><i class="bi bi-person-fill"></i></span>
           <span class="ni-label">Profile</span>
         </button>
       </nav>
 
       <div class="sb-foot">
         <button class="ni" data-page="settings">
-          <span class="ni-icon">⚙️</span>
+          <span class="ni-icon"><i class="bi bi-gear-fill"></i></span>
           <span class="ni-label">Settings</span>
         </button>
       </div>
@@ -105,7 +130,7 @@
 
               <!-- Search box -->
               <div class="sbox">
-                <span class="sbox-icon">🔍</span>
+                <span class="sbox-icon"><i class="bi bi-search"></i></span>
                 <input
                   id="searchInput"
                   class="sbox-input"
@@ -129,7 +154,7 @@
             <div class="col" id="teacherExtras">
               <!-- Recommendations placeholder — JS replaces these when a teacher is selected -->
               <div class="c" id="recCardPlaceholder">
-                <div class="lbl">⭐ Recommendations</div>
+                <div class="lbl"><i class="bi bi-star-fill"></i> Recommendations</div>
                 <p class="empty-state" style="line-height: 1.6">
                   To see what your teacher recommends, join a library using your
                   teacher's code
@@ -139,7 +164,7 @@
                       onclick="document.querySelector('[data-page=settings]').click()"
                       style="font-size: 0.65rem"
                     >
-                      Add a Code →
+                      Add a Code <i class="bi bi-arrow-right"></i>
                     </button>
                   </span>
                 </p>
@@ -147,10 +172,10 @@
 
               <!-- Now reading placeholder -->
               <div class="c" id="readingCardPlaceholder">
-                <div class="lbl">📖 Teacher is Reading</div>
+                <div class="lbl"><i class="bi bi-book-fill"></i> Teacher is Reading</div>
                 <p class="empty-state" style="line-height: 1.6">
                   To see what your teacher is currently reading, join their
-                  library using their class code 🙂
+                  library using their class code <i class="bi bi-emoji-smile"></i>
                 </p>
               </div>
             </div>
@@ -200,7 +225,7 @@
           <!-- Reading log -->
           <div class="log-header">
             <div class="lbl" style="margin-bottom: 0">Reading Log</div>
-            <button class="btn-sm" id="downloadLogBtn">↓ Download .MD</button>
+            <button class="btn-sm" id="downloadLogBtn"><i class="bi bi-arrow-down"></i> Download .MD</button>
           </div>
           <div id="readingLog">
             <p class="empty-state">Loading history…</p>
@@ -227,7 +252,7 @@
             <div class="c">
               <div class="lbl">Search Books to Wishlist</div>
               <div class="sbox" style="margin-bottom: 10px">
-                <span class="sbox-icon">🔍</span>
+                <span class="sbox-icon"><i class="bi bi-search"></i></span>
                 <input
                   id="wishlistSearchInput"
                   class="sbox-input"
@@ -251,7 +276,7 @@
             <div class="r2">
               <!-- Currently reading -->
               <div class="c">
-                <div class="lbl">📖 Currently Reading</div>
+                <div class="lbl"><i class="bi bi-book-fill"></i> Currently Reading</div>
                 <div id="profileCurrentBook">
                   <p class="empty-state">Loading…</p>
                 </div>
@@ -259,7 +284,7 @@
 
               <!-- My recommendations -->
               <div class="c">
-                <div class="lbl">⭐ My Recommendations</div>
+                <div class="lbl"><i class="bi bi-star-fill"></i> My Recommendations</div>
                 <div id="myRecommendations">
                   <p class="empty-state">No recommendations yet.</p>
                 </div>
@@ -407,15 +432,35 @@
                 </div>
               </div>
               <div class="s-body">
+                <div class="s-row" style="flex-direction:column;align-items:flex-start;gap:10px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
+                    <div class="s-label">Background Brightness</div>
+                    <span id="brightnessLabel" style="font-size:0.72rem;color:var(--muted)">Dark</span>
+                  </div>
+                  <div style="width:100%;display:flex;align-items:center;gap:10px">
+                    <i class="bi bi-moon-stars-fill" style="color:var(--muted);font-size:0.9rem;flex-shrink:0"></i>
+                    <input
+                      type="range"
+                      id="brightnessSlider"
+                      min="0" max="100" value="18"
+                      class="brightness-slider"
+                      style="flex:1"
+                    />
+                    <i class="bi bi-sun-fill" style="color:var(--muted);font-size:0.9rem;flex-shrink:0"></i>
+                  </div>
+                </div>
                 <div class="s-row">
-                  <div class="s-label">Theme</div>
-                  <div class="th-row">
-                    <button class="th-btn on theme-btn" data-theme="dark">
-                      🌙 Dark
-                    </button>
-                    <button class="th-btn theme-btn" data-theme="light">
-                      ☀️ Light
-                    </button>
+                  <div>
+                    <div class="s-label">Accent Color</div>
+                    <div class="s-hint">Changes buttons, badges, and highlights</div>
+                  </div>
+                  <div class="color-swatch-row">
+                    <button class="color-swatch active" data-color="crimson"  title="Crimson"></button>
+                    <button class="color-swatch"        data-color="ocean"    title="Ocean"></button>
+                    <button class="color-swatch"        data-color="forest"   title="Forest"></button>
+                    <button class="color-swatch"        data-color="amethyst" title="Amethyst"></button>
+                    <button class="color-swatch"        data-color="sunset"   title="Sunset"></button>
+                    <button class="color-swatch"        data-color="slate"    title="Slate"></button>
                   </div>
                 </div>
               </div>
@@ -459,6 +504,50 @@
               </div>
             </div>
 
+            <!-- ARIA AI -->
+            <div class="s-section">
+              <div class="s-head">
+                <div>
+                  <div class="s-title"><i class="bi bi-robot"></i> ARIA AI</div>
+                  <div class="s-sub">Personal AI reading assistant</div>
+                </div>
+              </div>
+              <div class="s-body">
+                <div class="s-row">
+                  <div>
+                    <div class="s-label">Enable ARIA</div>
+                    <div class="s-hint">Adds an AI chat button to your library</div>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="ariaEnabled" />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div>
+                  </label>
+                </div>
+                <div id="ariaSetupPanel" style="display:none">
+                  <div class="s-row" style="flex-direction:column;align-items:flex-start;gap:10px">
+                    <div>
+                      <div class="s-label">Groq API Key</div>
+                      <div class="s-hint">ARIA runs on Groq's free tier — fast and private</div>
+                    </div>
+                    <input type="password" id="ariaApiKey" class="t-input" placeholder="gsk_..." style="width:100%;font-family:monospace;font-size:0.78rem" autocomplete="off" />
+                    <button class="btn-sm" id="ariaSaveKeyBtn">Save Key</button>
+                  </div>
+                  <div class="banner" style="margin-top:10px;padding:12px 14px">
+                    <div class="lbl" style="font-size:0.78rem;margin-bottom:8px">How to get your free Groq key</div>
+                    <ol style="font-size:0.72rem;color:var(--muted);margin:0;padding-left:16px;line-height:1.8">
+                      <li>Go to <strong>console.groq.com</strong> and sign up (free)</li>
+                      <li>Click <strong>API Keys</strong> in the left sidebar</li>
+                      <li>Click <strong>Create API Key</strong>, name it "BookWare"</li>
+                      <li>Copy the key (starts with <code>gsk_</code>) and paste it above</li>
+                      <li>Hit <strong>Save Key</strong> — ARIA is ready!</li>
+                    </ol>
+                    <p style="font-size:0.68rem;color:var(--muted);margin-top:8px;margin-bottom:0">Your key is stored only in your browser. It never touches our servers.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <!-- About -->
             <div class="s-section">
               <div class="s-head">
@@ -477,7 +566,7 @@
                 <div class="signout-label">Sign Out</div>
                 <div class="signout-hint" id="signoutEmail">—</div>
               </div>
-              <span class="signout-arrow">→</span>
+              <span class="signout-arrow"><i class="bi bi-arrow-right"></i></span>
             </div>
           </div>
         </div>

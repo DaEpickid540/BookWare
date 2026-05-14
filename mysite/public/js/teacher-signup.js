@@ -8,6 +8,7 @@ import {
   getDoc,
   setDoc,
   updateDoc,
+  runTransaction,
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
@@ -78,57 +79,77 @@ async function handleSignup(token) {
     console.error(err);
     setStatus("Sign-in was cancelled or failed. Please try again.", "error");
     setLoading(false);
-    signInBtn.addEventListener("click", () => handleSignup(token), {
-      once: true,
-    });
+    signInBtn.addEventListener("click", () => handleSignup(token), { once: true });
+    return;
+  }
+
+  // Email allowlist check on client (Firestore rules enforce server-side too)
+  const ALLOWED_DOMAIN = "@masonohioschools.com";
+  const ADMIN_EMAILS = ["sarvin.sukhe@gmail.com", "daepickid540@gmail.com"];
+  const email = user.email?.toLowerCase() ?? "";
+  if (!email.endsWith(ALLOWED_DOMAIN) && !ADMIN_EMAILS.includes(email)) {
+    setStatus("Only Mason Ohio Schools accounts may register.", "error");
+    setLoading(false);
     return;
   }
 
   try {
-    // Check for existing account
+    // Check for existing account before the transaction
     const existingSnap = await getDoc(doc(db, "users", user.uid));
     if (existingSnap.exists()) {
-      setStatus(
-        "This Google account is already registered in BookWare.",
-        "error",
-      );
+      setStatus("This Google account is already registered in BookWare.", "error");
       setLoading(false);
       return;
     }
 
-    // Create users/{uid}
-    await setDoc(doc(db, "users", user.uid), {
-      name: user.displayName,
-      email: user.email,
-      role: "teacher",
-      banned: false,
-      class: null,
-      createdAt: serverTimestamp(),
-    });
+    // Atomically claim the invite token — prevents TOCTOU race where two people
+    // use the same token simultaneously
+    await runTransaction(db, async (tx) => {
+      const inviteRef = doc(db, "invites", token);
+      const inviteSnap = await tx.get(inviteRef);
 
-    // Create teachers/{uid} — all teachers get canInvite: true, no admin needed
-    await setDoc(doc(db, "teachers", user.uid), {
-      name: user.displayName,
-      email: user.email,
-      createdAt: serverTimestamp(),
-      canInvite: true, // every teacher can invite others
-      libraryPublic: false,
-    });
+      if (!inviteSnap.exists())             throw new Error("invalid");
+      if (inviteSnap.data().used === true)  throw new Error("used");
+      if (inviteSnap.data().expiresAt?.toDate() < new Date()) throw new Error("expired");
 
-    // Mark invite used
-    await updateDoc(doc(db, "invites", token), { used: true });
+      // Verify the signed-in account matches the intended recipient
+      const recipientEmail = inviteSnap.data().recipientEmail;
+      if (recipientEmail && user.email?.toLowerCase() !== recipientEmail.toLowerCase()) {
+        throw new Error("wrong-account");
+      }
+
+      // Claim the token atomically
+      tx.update(inviteRef, { used: true, claimedBy: user.uid, claimedAt: serverTimestamp() });
+
+      // Create user docs inside the same transaction
+      tx.set(doc(db, "users", user.uid), {
+        name: user.displayName,
+        email: user.email,
+        role: "teacher",
+        banned: false,
+        class: null,
+        createdAt: serverTimestamp(),
+      });
+      tx.set(doc(db, "teachers", user.uid), {
+        name: user.displayName,
+        email: user.email,
+        createdAt: serverTimestamp(),
+        canInvite: true,
+        libraryPublic: false,
+      });
+    });
   } catch (err) {
     console.error(err);
-    setStatus(
-      "Account setup failed. Please contact an administrator.",
-      "error",
-    );
+    const msg = err.message === "used"          ? "This invite link has already been used." :
+                err.message === "expired"        ? "This invite link has expired." :
+                err.message === "invalid"        ? "This invite link is invalid." :
+                err.message === "wrong-account"  ? "This invite was sent to a different email address. Sign in with the correct account and try again." :
+                "Account setup failed. Please contact an administrator.";
+    setStatus(msg, "error");
     setLoading(false);
     return;
   }
 
   setStatus("Account created! Redirecting…", "success");
-  setTimeout(() => {
-    window.location.href = "/teacher.html";
-  }, 800);
+  setTimeout(() => { window.location.href = "/teacher.html"; }, 800);
 }
