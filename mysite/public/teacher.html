@@ -4,183 +4,428 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BookWare — Teacher</title>
-    <link rel="stylesheet" href="/css/index.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/css/student.css" />
+    <link rel="stylesheet" href="/css/teacher.css" />
   </head>
   <body>
-    <div class="app-container">
-      <!-- SIDEBAR -->
-      <aside class="sidebar">
-        <div class="sidebar-header">
-          <div class="sidebar-title">
-            <span class="logo-dot"></span>
-            BookWare
-          </div>
+    <!-- ══ SIDEBAR ══════════════════════════════════════════════════════════ -->
+    <aside class="sb" id="sidebar">
+      <div class="sb-head">
+        <div class="sb-logo">
+          <div class="sb-dot"></div>
+          <span class="sb-name">BookWare</span>
         </div>
+        <button
+          class="sb-toggle"
+          id="sidebarToggle"
+          aria-label="Toggle sidebar"
+        >
+          &#9776;
+        </button>
+      </div>
+      <nav>
+        <button class="ni active" data-page="library">
+          <span class="ni-icon">📚</span><span class="ni-label">Library</span>
+        </button>
+        <button class="ni" data-page="students">
+          <span class="ni-icon">👥</span><span class="ni-label">Students</span>
+        </button>
+        <button class="ni" data-page="reading">
+          <span class="ni-icon">📖</span
+          ><span class="ni-label">Now Reading</span>
+        </button>
+        <button class="ni" data-page="recommendations">
+          <span class="ni-icon">⭐</span
+          ><span class="ni-label">Recommendations</span>
+        </button>
+        <button class="ni" data-page="invites">
+          <span class="ni-icon">🔗</span
+          ><span class="ni-label">Invite Teachers</span>
+        </button>
+      </nav>
+      <div class="sb-foot">
+        <button class="ni" data-page="settings">
+          <span class="ni-icon">⚙️</span><span class="ni-label">Settings</span>
+        </button>
+      </div>
+    </aside>
 
-        <ul class="sidebar-nav">
-          <li>
-            <button class="nav-item active" data-page="library">
-              📚 Library
-            </button>
-          </li>
-          <li>
-            <button class="nav-item" data-page="history">📋 History</button>
-          </li>
-          <li>
-            <button class="nav-item" data-page="reading">📖 Now Reading</button>
-          </li>
-          <li>
-            <button class="nav-item" data-page="invites">🔗 Invites</button>
-          </li>
-          <li>
-            <button class="nav-item" data-page="settings">⚙️ Settings</button>
-          </li>
-        </ul>
-
-        <div class="sidebar-footer">
-          <button class="btn-ghost" id="logoutTeacherBtn">Log Out</button>
+    <!-- ══ MAIN ════════════════════════════════════════════════════════════ -->
+    <div class="main">
+      <div class="tbar">
+        <div class="pt" id="pt">Library</div>
+        <div class="tbar-right">
+          <div class="av" id="userAvatar">?</div>
+          <span class="uname" id="userDisplayName">—</span>
         </div>
-      </aside>
+      </div>
 
-      <!-- MAIN CONTENT -->
-      <main class="main-content">
-        <div class="page-wrapper">
-          <!-- PAGE: Library -->
-          <div id="libraryPage" class="page active">
-            <div class="page-top-bar">
-              <h1>My Library</h1>
-            </div>
-
-            <div class="layout-split">
-              <div>
-                <div class="section-title">Add a Book</div>
-                <div class="panel">
-                  <div class="panel-body">
-                    <div class="input-row">
-                      <label for="isbnInput">ISBN</label>
-                      <input
-                        type="text"
-                        id="isbnInput"
-                        placeholder="e.g. 9780743273565"
-                      />
-                    </div>
-                    <button class="btn-primary" id="lookupIsbn">Look Up</button>
-                  </div>
-                </div>
-                <div id="isbnResult"></div>
-              </div>
-
-              <div>
-                <div class="section-title">Your Books</div>
-                <div id="libraryList">
-                  <p class="text-muted">Loading…</p>
-                </div>
-              </div>
-            </div>
+      <div class="content">
+        <!-- ══ LIBRARY ══ -->
+        <div id="libraryPage" class="pg active">
+          <div class="banner" id="biweeklyBanner" style="display: none">
+            <div class="lbl">📋 Bi-Weekly Check-In — Books Currently Out</div>
+            <div id="biweeklyContent"></div>
           </div>
 
-          <!-- PAGE: History -->
-          <div id="historyPage" class="page">
-            <div class="page-top-bar">
-              <h1>Checkout History</h1>
-              <button class="btn-primary" id="exportHistoryBtn">
-                Export as MD
-              </button>
-            </div>
-
-            <div id="historyList">
-              <p class="text-muted">Loading…</p>
-            </div>
-          </div>
-
-          <!-- PAGE: Now Reading -->
-          <div id="readingPage" class="page">
-            <div class="page-top-bar">
-              <h1>Now Reading</h1>
-            </div>
-
-            <div class="layout-split" style="grid-template-columns: 1fr">
-              <div>
-                <div class="section-title">Share with Your Class</div>
-                <div class="panel">
-                  <div class="panel-body">
-                    <p class="text-muted">
-                      Tell your students what you're currently reading. This
-                      feature is coming soon!
-                    </p>
-                  </div>
-                </div>
+          <div class="r2">
+            <div class="c">
+              <div class="lbl">Add a Book</div>
+              <div class="t-input-row">
+                <input
+                  type="text"
+                  id="isbnInput"
+                  class="t-input"
+                  placeholder="Title, author, or ISBN…"
+                />
+                <button class="btn-primary" id="lookupIsbnBtn">Search</button>
               </div>
-            </div>
-          </div>
+              <div id="isbnResult"></div>
 
-          <!-- PAGE: Invites -->
-          <div id="invitesPage" class="page">
-            <div class="page-top-bar">
-              <h1>Invite Teachers</h1>
-            </div>
+              <div class="t-divider"></div>
 
-            <div class="layout-split" style="grid-template-columns: 1fr">
-              <div>
-                <div class="section-title">Generate Invite</div>
-                <div class="panel">
-                  <div class="panel-body">
-                    <p class="text-muted">
-                      Create a one-time invite link for a new teacher. You must
-                      have <strong>canInvite</strong> permission.
-                    </p>
-                    <br />
-                    <button class="btn-primary" id="createInviteBtn">
-                      Generate Invite Link
-                    </button>
-                  </div>
-                </div>
-                <div id="inviteOutput"></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- PAGE: Settings -->
-          <div id="settingsPage" class="page">
-            <div class="page-top-bar">
-              <h1>Settings</h1>
-            </div>
-
-            <div style="max-width: 800px">
-              <div class="section-title">Account</div>
-              <div class="panel" id="settingsPanel">
-                <div class="panel-body">
-                  <p class="text-muted">Loading…</p>
-                </div>
-              </div>
-
-              <div class="section-title">Permissions</div>
-              <div class="panel">
-                <div class="panel-body">
-                  <p>
-                    <strong>Can Invite Teachers:</strong>
-                    <span id="canInviteStatus">—</span>
-                  </p>
-                  <p class="text-muted" style="font-size: 0.8rem">
-                    Only admin can grant this permission.
-                  </p>
-                </div>
-              </div>
-
-              <div class="section-title">Danger Zone</div>
-              <div class="panel">
-                <div class="panel-body">
-                  <button class="btn-ghost" id="logoutSettingsBtn">
-                    Log Out
+              <div class="lbl">Student Access Code</div>
+              <p class="t-hint">
+                Refreshing the code keeps existing students enrolled.
+              </p>
+              <div class="code-box">
+                <span class="code-val" id="studentCodeValue">—</span>
+                <div class="code-box-btns">
+                  <button class="btn-sm" id="copyStudentCodeBtn">Copy</button>
+                  <button class="btn-sm" id="refreshStudentCodeBtn">
+                    ↻ New
                   </button>
                 </div>
               </div>
+
+              <div class="t-divider"></div>
+
+              <div class="lbl">Library Visibility</div>
+              <div class="t-toggle-row">
+                <div>
+                  <div class="t-row-title">Who can see this library</div>
+                  <div class="t-row-sub" id="visibilityHint">
+                    Only your class
+                  </div>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" id="libraryPublicToggle" />
+                  <div class="toggle-track"></div>
+                  <div class="toggle-thumb"></div>
+                </label>
+              </div>
+              <p class="t-hint">
+                When <strong>Public</strong>, any student can discover and
+                request books — even outside your class.
+              </p>
+            </div>
+
+            <div class="c">
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  margin-bottom: 10px;
+                "
+              >
+                <div class="lbl" style="margin-bottom: 0">Your Books</div>
+                <span class="t-count-chip" id="libraryCountChip">—</span>
+              </div>
+              <div class="sbox">
+                <span class="sbox-icon">🔍</span>
+                <input
+                  id="librarySearchInput"
+                  class="sbox-input"
+                  type="text"
+                  placeholder="Search title, author, or ISBN…"
+                />
+              </div>
+              <div id="libraryList"><p class="empty-state">Loading…</p></div>
             </div>
           </div>
         </div>
-      </main>
-    </div>
 
+        <!-- ══ STUDENTS ══ -->
+        <div id="studentsPage" class="pg">
+          <div class="t-page-actions">
+            <button class="btn-sm" id="exportCheckoutsBtn">↓ Export .MD</button>
+          </div>
+
+          <div class="r2">
+            <div class="c">
+              <div class="lbl">Currently Checked Out</div>
+              <div id="checkedOutList"><p class="empty-state">Loading…</p></div>
+            </div>
+            <div class="c">
+              <div class="lbl">Checkout History</div>
+              <div id="historyList"><p class="empty-state">Loading…</p></div>
+            </div>
+          </div>
+
+          <div class="c" style="margin-top: 13px">
+            <div class="lbl">⚠️ Temporary Bans</div>
+            <p class="t-hint" style="margin-bottom: 10px">
+              Issue a temporary ban if a student is misusing the system (e.g.
+              inappropriate content, harassment).
+            </p>
+            <div class="t-ban-form">
+              <input
+                type="text"
+                id="banStudentEmail"
+                class="t-input"
+                placeholder="Student email…"
+              />
+              <input
+                type="number"
+                id="banDays"
+                class="t-input t-input-sm"
+                placeholder="Days"
+                min="1"
+                max="365"
+              />
+              <input
+                type="text"
+                id="banReason"
+                class="t-input"
+                placeholder="Reason (required)…"
+              />
+              <button class="btn-sm danger-btn" id="issueBanBtn">
+                Issue Ban
+              </button>
+            </div>
+            <div id="activeBansList" style="margin-top: 12px"></div>
+          </div>
+        </div>
+
+        <!-- ══ NOW READING ══ -->
+        <div id="readingPage" class="pg">
+          <div class="r2">
+            <div class="c">
+              <div class="lbl">Set Currently Reading</div>
+              <p class="t-hint" style="margin-bottom: 10px">
+                Search Google Books or pick from your library. Students see this
+                when browsing.
+              </p>
+              <div class="t-input-row">
+                <input
+                  type="text"
+                  id="readingSearchInput"
+                  class="t-input"
+                  placeholder="Search by title or author…"
+                />
+                <button class="btn-primary" id="readingSearchBtn">
+                  Search
+                </button>
+              </div>
+              <div
+                id="readingPickerList"
+                style="margin-top: 8px; max-height: 260px; overflow-y: auto"
+              ></div>
+              <div
+                class="t-btn-row"
+                style="
+                  margin-top: 10px;
+                  border-top: 1px solid var(--border);
+                  padding-top: 10px;
+                "
+              >
+                <button class="btn-sm" id="clearCurrentlyReadingBtn">
+                  Clear Currently Reading
+                </button>
+              </div>
+              <div id="currentlyReadingDisplay"></div>
+            </div>
+            <div class="c">
+              <div class="lbl">Student Preview</div>
+              <div id="readingPreview">
+                <p class="empty-state">Nothing set yet.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ══ RECOMMENDATIONS ══ -->
+        <div id="recommendationsPage" class="pg">
+          <!-- Currently Reading quick-set -->
+          <div class="banner" style="margin-bottom: 13px">
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 10px;
+              "
+            >
+              <div class="lbl" style="margin-bottom: 0">
+                📖 Currently Reading
+              </div>
+              <button class="btn-sm" id="recClearReadingBtn">Clear</button>
+            </div>
+            <div id="recReadingDisplay"></div>
+            <div class="t-input-row" style="margin-top: 10px; margin-bottom: 0">
+              <input
+                type="text"
+                id="recReadingInput"
+                class="t-input"
+                placeholder="Search Google Books or your library to change…"
+              />
+              <button class="btn-primary" id="recReadingSearchBtn">
+                Search
+              </button>
+            </div>
+            <div
+              id="recReadingResults"
+              style="margin-top: 8px; max-height: 200px; overflow-y: auto"
+            ></div>
+          </div>
+
+          <div class="r2">
+            <div class="c">
+              <div class="lbl">Your Picks</div>
+              <p class="t-hint" style="margin-bottom: 10px">
+                Shows as "Teacher Recommends" on the student Library page.
+              </p>
+              <div id="recommendationsList">
+                <p class="empty-state">Loading…</p>
+              </div>
+            </div>
+            <div class="c">
+              <div class="lbl">Add Recommendation</div>
+              <p class="t-hint" style="margin-bottom: 8px">
+                Search your library or Google Books to recommend a book.
+              </p>
+              <div class="sbox" style="margin-bottom: 10px">
+                <span class="sbox-icon">🔍</span>
+                <input
+                  id="recSearchInput"
+                  class="sbox-input"
+                  type="text"
+                  placeholder="Search to star…"
+                />
+              </div>
+              <div id="recPickerList">
+                <p class="empty-state">Loading…</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ══ INVITE TEACHERS ══ -->
+        <div id="invitesPage" class="pg">
+          <div class="gap" style="max-width: 640px">
+            <div class="c">
+              <div class="lbl">Generate an Invite Link</div>
+              <p class="t-hint" style="margin-bottom: 14px">
+                Creates a one-time sign-up link valid for 7 days. The new
+                teacher uses it to create their account — no need to ask an
+                admin. Requires <strong>canInvite</strong> permission.
+              </p>
+              <div style="display: flex; align-items: center; gap: 10px">
+                <button class="btn-primary" id="createInviteBtn">
+                  Generate Link
+                </button>
+                <span class="t-perm-badge" id="canInviteStatus"></span>
+              </div>
+              <div id="inviteOutput"></div>
+            </div>
+
+            <div class="c">
+              <div class="lbl">Past Invites</div>
+              <div id="pastInvitesList">
+                <p class="empty-state">Loading…</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ══ SETTINGS ══ -->
+        <div id="settingsPage" class="pg">
+          <div class="settings-wrap">
+            <div class="s-section">
+              <div class="s-head">
+                <div>
+                  <div class="s-title">Account</div>
+                  <div class="s-sub" id="settingsEmailSub">—</div>
+                </div>
+              </div>
+              <div class="s-body" id="accountInfoSection">
+                <p class="empty-state">Loading…</p>
+              </div>
+            </div>
+
+            <div class="s-section">
+              <div class="s-head">
+                <div>
+                  <div class="s-title">Permissions</div>
+                  <div class="s-sub">Capabilities granted by admin</div>
+                </div>
+              </div>
+              <div class="s-body">
+                <div class="s-row">
+                  <div>
+                    <div class="s-label">Can Invite Teachers</div>
+                    <div class="s-hint">Only admins can grant this</div>
+                  </div>
+                  <span id="canInviteSettingsBadge">—</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="s-section">
+              <div class="s-head">
+                <div>
+                  <div class="s-title">Appearance</div>
+                  <div class="s-sub">Theme preference</div>
+                </div>
+              </div>
+              <div class="s-body">
+                <div class="s-row">
+                  <div class="s-label">Theme</div>
+                  <div class="th-row">
+                    <button class="th-btn on theme-btn" data-theme="dark">
+                      🌙 Dark
+                    </button>
+                    <button class="th-btn theme-btn" data-theme="light">
+                      ☀️ Light
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="s-section">
+              <div class="s-head">
+                <div>
+                  <div class="s-title">About</div>
+                  <div class="s-sub">
+                    BookWare v1.0 · Mason High School · Sarvin Sukhe
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="signout-bar" id="signoutBar">
+            <div>
+              <div class="signout-label">Sign Out</div>
+              <div class="signout-hint" id="signoutEmail">—</div>
+            </div>
+            <span class="signout-arrow">→</span>
+          </div>
+        </div>
+      </div>
+      <!-- /content -->
+    </div>
+    <!-- /main -->
+
+    <div id="notificationContainer" class="toast-container"></div>
     <script type="module" src="/js/teacher.js"></script>
   </body>
 </html>

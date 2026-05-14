@@ -4,191 +4,490 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BookWare — Student</title>
-    <link rel="stylesheet" href="/css/index.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/css/student.css" />
   </head>
   <body>
-    <div class="app-container">
-      <!-- SIDEBAR -->
-      <aside class="sidebar">
-        <div class="sidebar-header">
-          <div class="sidebar-title">
-            <span class="logo-dot"></span>
-            BookWare
+    <!-- ══ SIDEBAR ══════════════════════════════════════════════════════════ -->
+    <aside class="sb" id="sidebar">
+      <div class="sb-head">
+        <div class="sb-logo">
+          <div class="sb-dot"></div>
+          <span class="sb-name">BookWare</span>
+        </div>
+        <button
+          class="sb-toggle"
+          id="sidebarToggle"
+          aria-label="Toggle sidebar"
+        >
+          &#9776;
+        </button>
+      </div>
+
+      <nav>
+        <button class="ni active" data-page="library">
+          <span class="ni-icon">📚</span>
+          <span class="ni-label">Library</span>
+        </button>
+        <button class="ni" data-page="locker">
+          <span class="ni-icon">🎒</span>
+          <span class="ni-label">Locker</span>
+        </button>
+        <button class="ni" data-page="wishlist">
+          <span class="ni-icon">♡</span>
+          <span class="ni-label">Wishlist</span>
+        </button>
+        <button class="ni" data-page="profile">
+          <span class="ni-icon">👤</span>
+          <span class="ni-label">Profile</span>
+        </button>
+      </nav>
+
+      <div class="sb-foot">
+        <button class="ni" data-page="settings">
+          <span class="ni-icon">⚙️</span>
+          <span class="ni-label">Settings</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ══ MAIN ════════════════════════════════════════════════════════════ -->
+    <div class="main">
+      <!-- Top bar -->
+      <div class="tbar">
+        <div class="pt" id="pt">Library</div>
+        <div class="tbar-right">
+          <div class="av" id="userAvatar">?</div>
+          <span class="uname" id="userDisplayName">—</span>
+        </div>
+      </div>
+
+      <div class="content">
+        <!-- ════════════════════════════════════════════════════════
+           LIBRARY PAGE
+           Layout matches the mockup exactly:
+           - Full-width notifications banner
+           - r2 grid: left = library selector + books, right = col of 2 cards
+           ════════════════════════════════════════════════════════ -->
+        <div id="libraryPage" class="pg active">
+          <!-- Notifications banner — always visible -->
+          <div class="banner" id="notifBanner">
+            <div class="lbl">Notifications</div>
+            <div class="notif-grid" id="notifBannerInner">
+              <div class="nr">
+                <div class="nd dim"></div>
+                <div class="nt" style="color: var(--muted)">
+                  Loading notifications…
+                </div>
+              </div>
+              <div class="nr"></div>
+              <div class="nr"></div>
+            </div>
+          </div>
+
+          <!-- Two-column grid -->
+          <div class="r2">
+            <!-- LEFT: teacher selector + search + book list -->
+            <div class="c">
+              <div class="lbl">Select a Library</div>
+
+              <!-- Teacher chips — JS renders .btn-role buttons here -->
+              <div class="chips" id="teacherList">
+                <span style="font-size: 0.72rem; color: var(--muted)"
+                  >Loading libraries…</span
+                >
+              </div>
+
+              <!-- Search box -->
+              <div class="sbox">
+                <span class="sbox-icon">🔍</span>
+                <input
+                  id="searchInput"
+                  class="sbox-input"
+                  type="text"
+                  placeholder="Search by title, author, or ISBN…"
+                />
+              </div>
+
+              <!-- Book list — JS renders .br rows here -->
+              <div id="bookList">
+                <p class="empty-state">
+                  Select a library above to browse books.
+                </p>
+              </div>
+
+              <!-- Hidden compat element -->
+              <div id="bookListTitle" style="display: none"></div>
+            </div>
+
+            <!-- RIGHT: stacked cards column (matches mockup right column) -->
+            <div class="col" id="teacherExtras">
+              <!-- Recommendations placeholder — JS replaces these when a teacher is selected -->
+              <div class="c" id="recCardPlaceholder">
+                <div class="lbl">⭐ Recommendations</div>
+                <p class="empty-state" style="line-height: 1.6">
+                  To see what your teacher recommends, join a library using your
+                  teacher's code
+                  <span style="display: inline-block; margin-top: 6px">
+                    <button
+                      class="btn-sm"
+                      onclick="document.querySelector('[data-page=settings]').click()"
+                      style="font-size: 0.65rem"
+                    >
+                      Add a Code →
+                    </button>
+                  </span>
+                </p>
+              </div>
+
+              <!-- Now reading placeholder -->
+              <div class="c" id="readingCardPlaceholder">
+                <div class="lbl">📖 Teacher is Reading</div>
+                <p class="empty-state" style="line-height: 1.6">
+                  To see what your teacher is currently reading, join their
+                  library using their class code 🙂
+                </p>
+              </div>
+            </div>
+          </div>
+          <!-- /r2 -->
+
+          <!-- All Libraries discovery section — injected by JS below the r2 -->
+          <div id="allLibrariesSection"></div>
+        </div>
+        <!-- /libraryPage -->
+
+        <!-- ════════════════════════════════════════════════════════
+           LOCKER PAGE
+           ════════════════════════════════════════════════════════ -->
+        <div id="lockerPage" class="pg">
+          <!-- Return instructions banner -->
+          <div class="banner">
+            <div class="lbl">How to Return Books</div>
+            <div class="steps-row">
+              <div class="step">
+                <div class="step-num">1</div>
+                <span class="muted"
+                  >Hand the book back to your teacher in class</span
+                >
+              </div>
+              <div class="step">
+                <div class="step-num">2</div>
+                <span class="muted"
+                  >Your teacher signs off the return on their end</span
+                >
+              </div>
+              <div class="step">
+                <div class="step-num">3</div>
+                <span class="muted"
+                  >It'll appear as returned in your reading log below</span
+                >
+              </div>
+            </div>
+          </div>
+
+          <!-- Active loans -->
+          <div class="lbl">Active Loans</div>
+          <div id="activeLoans">
+            <p class="empty-state">Loading…</p>
+          </div>
+
+          <!-- Reading log -->
+          <div class="log-header">
+            <div class="lbl" style="margin-bottom: 0">Reading Log</div>
+            <button class="btn-sm" id="downloadLogBtn">↓ Download .MD</button>
+          </div>
+          <div id="readingLog">
+            <p class="empty-state">Loading history…</p>
           </div>
         </div>
+        <!-- /lockerPage -->
 
-        <ul class="sidebar-nav">
-          <li>
-            <button class="nav-item active" data-page="library">
-              📚 Library
-            </button>
-          </li>
-          <li>
-            <button class="nav-item" data-page="locker">🎒 Locker</button>
-          </li>
-          <li>
-            <button class="nav-item" data-page="wishlist">♡ Wishlist</button>
-          </li>
-          <li>
-            <button class="nav-item" data-page="profile">👤 Profile</button>
-          </li>
-          <li>
-            <button class="nav-item" data-page="settings">⚙️ Settings</button>
-          </li>
-        </ul>
-
-        <div class="sidebar-footer">
-          <button class="btn-ghost" id="logoutStudentBtn">Log Out</button>
-        </div>
-      </aside>
-
-      <!-- MAIN CONTENT -->
-      <main class="main-content">
-        <div class="page-wrapper">
-          <!-- PAGE: Library / Browse -->
-          <div id="libraryPage" class="page active">
-            <div class="page-top-bar">
-              <h1>Library</h1>
-            </div>
-
-            <div class="layout-split">
-              <div>
-                <div class="section-title">Select a Library</div>
-                <div id="teacherList">
-                  <p class="text-muted">Loading teachers…</p>
-                </div>
-              </div>
-
-              <div>
-                <div class="section-title" id="bookListTitle">Books</div>
-                <div class="search-row">
-                  <input
-                    id="searchInput"
-                    type="text"
-                    placeholder="Search by title, author, or ISBN…"
-                  />
-                </div>
-                <div id="bookList">
-                  <p class="text-muted">Select a teacher to browse.</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- PAGE: Locker / Current Checkout -->
-          <div id="lockerPage" class="page">
-            <div class="page-top-bar">
-              <h1>My Locker</h1>
-            </div>
-
-            <div class="layout-split">
-              <div>
-                <div class="section-title">Currently Reading</div>
-                <div class="panel" id="currentBookPanel">
-                  <div class="panel-body">
-                    <p class="text-muted">Loading…</p>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <div class="section-title">Return Instructions</div>
-                <div class="panel">
-                  <div class="panel-body">
-                    <ol class="meta-list">
-                      <li>Hand the book back to your teacher</li>
-                      <li>They'll mark it returned in their dashboard</li>
-                      <li>
-                        Click "I've Returned This Book" below once you've handed
-                        it back
-                      </li>
-                    </ol>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- PAGE: Wishlist -->
-          <div id="wishlistPage" class="page">
-            <div class="page-top-bar">
-              <h1>My Wishlist</h1>
-            </div>
-
-            <div style="max-width: 800px">
+        <!-- ════════════════════════════════════════════════════════
+           WISHLIST PAGE
+           ════════════════════════════════════════════════════════ -->
+        <div id="wishlistPage" class="pg">
+          <div class="r2">
+            <!-- Left: saved books -->
+            <div class="c">
+              <div class="lbl">My Wishlist</div>
               <div id="wishlistPanel">
-                <p class="text-muted">Your wishlist is empty.</p>
+                <p class="empty-state">
+                  Your wishlist is empty. Search for books on the right!
+                </p>
               </div>
             </div>
-          </div>
 
-          <!-- PAGE: Profile -->
-          <div id="profilePage" class="page">
-            <div class="page-top-bar">
-              <h1>Profile</h1>
-            </div>
-
-            <div style="max-width: 800px">
-              <div class="section-title">My Information</div>
-              <div class="panel" id="profilePanel">
-                <div class="panel-body">
-                  <p class="text-muted">Loading…</p>
-                </div>
+            <!-- Right: search Google Books to add -->
+            <div class="c">
+              <div class="lbl">Search Books to Wishlist</div>
+              <div class="sbox" style="margin-bottom: 10px">
+                <span class="sbox-icon">🔍</span>
+                <input
+                  id="wishlistSearchInput"
+                  class="sbox-input"
+                  type="text"
+                  placeholder="Search by title or author…"
+                />
               </div>
-
-              <div class="section-title">My Class</div>
-              <div class="panel" id="classPanel">
-                <div class="panel-body">
-                  <p class="text-muted">Loading…</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- PAGE: Settings -->
-          <div id="settingsPage" class="page">
-            <div class="page-top-bar">
-              <h1>Settings</h1>
-            </div>
-
-            <div style="max-width: 800px">
-              <div class="section-title">Preferences</div>
-              <div class="panel">
-                <div class="panel-body">
-                  <p class="text-muted">
-                    Theme and notification settings coming soon.
-                  </p>
-                </div>
-              </div>
-
-              <div class="section-title">Account</div>
-              <div class="panel">
-                <div class="panel-body">
-                  <p class="text-muted">
-                    Signed in as: <strong id="settingsEmail">—</strong>
-                  </p>
-                  <br />
-                  <button class="btn-ghost" id="logoutSettingsBtn">
-                    Log Out
-                  </button>
-                </div>
-              </div>
-
-              <div class="section-title">About</div>
-              <div class="panel">
-                <div class="panel-body">
-                  <p class="text-muted">
-                    BookWare v1.0 — Firebase-based book rental for classroom
-                    libraries.
-                  </p>
-                </div>
+              <div id="wishlistSearchResults">
+                <p class="empty-state">Type above to search Google Books.</p>
               </div>
             </div>
           </div>
         </div>
-      </main>
-    </div>
+        <!-- /wishlistPage -->
 
+        <!-- ════════════════════════════════════════════════════════
+           PROFILE PAGE
+           ════════════════════════════════════════════════════════ -->
+        <div id="profilePage" class="pg">
+          <div class="gap">
+            <div class="r2">
+              <!-- Currently reading -->
+              <div class="c">
+                <div class="lbl">📖 Currently Reading</div>
+                <div id="profileCurrentBook">
+                  <p class="empty-state">Loading…</p>
+                </div>
+              </div>
+
+              <!-- My recommendations -->
+              <div class="c">
+                <div class="lbl">⭐ My Recommendations</div>
+                <div id="myRecommendations">
+                  <p class="empty-state">No recommendations yet.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Reading stats -->
+            <div class="c">
+              <div class="lbl">Reading Stats</div>
+              <div class="sg" id="readingStats">
+                <p class="empty-state">Loading…</p>
+              </div>
+            </div>
+
+            <!-- Similar readers -->
+            <div class="c">
+              <div class="lbl">Readers with Similar Interests</div>
+              <div class="similar-grid" id="similarReaders">
+                <p class="empty-state">Loading…</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- /profilePage -->
+
+        <!-- ════════════════════════════════════════════════════════
+           SETTINGS PAGE
+           ════════════════════════════════════════════════════════ -->
+        <div id="settingsPage" class="pg">
+          <div class="settings-wrap">
+            <!-- Account -->
+            <div class="s-section">
+              <div class="s-head">
+                <div>
+                  <div class="s-title">Account</div>
+                  <div class="s-sub" id="settingsEmail">—</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- My Information -->
+            <div class="s-section">
+              <div class="s-head">
+                <div>
+                  <div class="s-title">My Information</div>
+                  <div class="s-sub">Name, email, class assignment</div>
+                </div>
+              </div>
+              <div class="s-body" id="myInfoSection">
+                <p class="empty-state">Loading…</p>
+              </div>
+            </div>
+
+            <!-- Teacher Libraries -->
+            <div class="s-section">
+              <div class="s-head">
+                <div>
+                  <div class="s-title">Teacher Libraries</div>
+                  <div class="s-sub">
+                    Add a teacher's library using their class code
+                  </div>
+                </div>
+              </div>
+              <div class="s-body">
+                <div class="s-row s-row-col">
+                  <div class="s-label">
+                    Enter the code your teacher gave you
+                  </div>
+                  <div class="s-hint">
+                    This adds their library to your selector on the Library page
+                  </div>
+                  <div class="code-input">
+                    <input
+                      type="text"
+                      id="teacherCodeInput"
+                      placeholder="e.g. MJ-2024-A3"
+                      maxlength="24"
+                    />
+                    <button class="btn-primary" id="addTeacherCodeBtn">
+                      Add Library
+                    </button>
+                  </div>
+                </div>
+                <div id="addedTeachersList"></div>
+              </div>
+            </div>
+
+            <!-- Privacy -->
+            <div class="s-section">
+              <div class="s-head">
+                <div>
+                  <div class="s-title">Privacy</div>
+                  <div class="s-sub">Control what others can see about you</div>
+                </div>
+              </div>
+              <div class="s-body">
+                <div class="s-row">
+                  <div>
+                    <div class="s-label">Show currently reading</div>
+                    <div class="s-hint">
+                      Other students can see what you're reading
+                    </div>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="privacyShowReading" checked />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div>
+                  </label>
+                </div>
+                <div class="s-row">
+                  <div>
+                    <div class="s-label">Show my recommendations</div>
+                    <div class="s-hint">
+                      Visible on your profile to classmates
+                    </div>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="privacyShowRecs" checked />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div>
+                  </label>
+                </div>
+                <div class="s-row">
+                  <div>
+                    <div class="s-label">Appear in Similar Readers</div>
+                    <div class="s-hint">
+                      Let others discover you by reading interests
+                    </div>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="privacyShowSimilar" />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Appearance -->
+            <div class="s-section">
+              <div class="s-head">
+                <div>
+                  <div class="s-title">Appearance</div>
+                  <div class="s-sub">Theme preference</div>
+                </div>
+              </div>
+              <div class="s-body">
+                <div class="s-row">
+                  <div class="s-label">Theme</div>
+                  <div class="th-row">
+                    <button class="th-btn on theme-btn" data-theme="dark">
+                      🌙 Dark
+                    </button>
+                    <button class="th-btn theme-btn" data-theme="light">
+                      ☀️ Light
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Notifications -->
+            <div class="s-section">
+              <div class="s-head">
+                <div>
+                  <div class="s-title">Notifications</div>
+                  <div class="s-sub">Wishlist and library alerts</div>
+                </div>
+              </div>
+              <div class="s-body">
+                <div class="s-row">
+                  <div>
+                    <div class="s-label">Wishlist available alerts</div>
+                    <div class="s-hint">
+                      Notify when a wishlisted book becomes free
+                    </div>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="notifWishlist" checked />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div>
+                  </label>
+                </div>
+                <div class="s-row">
+                  <div>
+                    <div class="s-label">New book announcements</div>
+                    <div class="s-hint">
+                      When your teacher adds books to their library
+                    </div>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="notifNewBooks" />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- About -->
+            <div class="s-section">
+              <div class="s-head">
+                <div>
+                  <div class="s-title">About</div>
+                  <div class="s-sub">
+                    BookWare v1.0 · Mason High School · Sarvin Sukhe
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Sign out -->
+            <div class="signout-bar" id="signoutBar">
+              <div>
+                <div class="signout-label">Sign Out</div>
+                <div class="signout-hint" id="signoutEmail">—</div>
+              </div>
+              <span class="signout-arrow">→</span>
+            </div>
+          </div>
+        </div>
+        <!-- /settingsPage -->
+      </div>
+      <!-- /content -->
+    </div>
+    <!-- /main -->
+
+    <div id="notificationContainer" class="toast-container"></div>
     <script type="module" src="/js/student.js"></script>
   </body>
 </html>

@@ -3,7 +3,6 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-
 import {
   doc,
   getDoc,
@@ -12,106 +11,83 @@ import {
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-// ─── DOM refs ─────────────────────────────────────────────────────────────────
 const statusEl = document.getElementById("statusMessage");
 const signInBtn = document.getElementById("signInBtn");
 const btnLabel = document.getElementById("btnLabel");
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 function setStatus(msg, type = "info") {
   statusEl.textContent = msg;
-  statusEl.className = type; // "info" | "error" | "success"
+  statusEl.className = type;
 }
 
-function setLoading(isLoading) {
-  signInBtn.disabled = isLoading;
-  btnLabel.innerHTML = isLoading
+function setLoading(on) {
+  signInBtn.disabled = on;
+  btnLabel.innerHTML = on
     ? '<span class="spinner"></span> Working…'
     : "Sign in with Google";
 }
 
-// ─── Step 1: Read and validate token (no auth required — rules allow public read)
-const params = new URLSearchParams(window.location.search);
-const token = params.get("token");
+// ── Step 1: Validate token from URL ─────────────────────────────────────────
+const token = new URLSearchParams(window.location.search).get("token");
 
 if (!token) {
-  setStatus("Invalid invite link: no token provided.", "error");
-  // Leave button disabled permanently — nothing to do.
+  setStatus("Invalid invite link — no token found.", "error");
 } else {
   validateToken(token);
 }
 
 async function validateToken(token) {
-  let inviteData;
-
   try {
-    const inviteRef = doc(db, "invites", token);
-    const inviteSnap = await getDoc(inviteRef);
-
-    if (!inviteSnap.exists()) {
+    const snap = await getDoc(doc(db, "invites", token));
+    if (!snap.exists()) {
       setStatus("This invite link is invalid.", "error");
       return;
     }
+    if (snap.data().used === true) {
+      setStatus("This invite link has already been used.", "error");
+      return;
+    }
+    if (snap.data().expiresAt?.toDate() < new Date()) {
+      setStatus("This invite link has expired.", "error");
+      return;
+    }
 
-    inviteData = inviteSnap.data();
+    setStatus(
+      "Invite verified! Sign in with Google to create your teacher account.",
+      "info",
+    );
+    signInBtn.disabled = false;
+    signInBtn.addEventListener("click", () => handleSignup(token), {
+      once: true,
+    });
   } catch (err) {
-    console.error("Token read failed:", err);
+    console.error(err);
     setStatus("Failed to validate invite. Please try again.", "error");
-    return;
   }
-
-  // Check already used
-  if (inviteData.used === true) {
-    setStatus("This invite link has already been used.", "error");
-    return;
-  }
-
-  // Check expiry — inviteData.expiresAt is a Firestore Timestamp
-  const now = new Date();
-  if (inviteData.expiresAt && inviteData.expiresAt.toDate() < now) {
-    setStatus("This invite link has expired.", "error");
-    return;
-  }
-
-  // Token is valid — enable the sign-in button
-  setStatus(
-    "Invite verified! Sign in with your Google account to continue.",
-    "info",
-  );
-  signInBtn.disabled = false;
-
-  // ─── Step 2: Handle sign-in click ─────────────────────────────────────────
-  signInBtn.addEventListener("click", () => handleSignup(token, inviteData), {
-    once: true,
-  });
 }
 
-// ─── Step 3: Sign in, write Firestore docs, mark invite used, redirect ────────
-async function handleSignup(token, inviteData) {
+// ── Step 2: Google sign-in + account creation ────────────────────────────────
+async function handleSignup(token) {
   setLoading(true);
-
   let user;
 
-  // Sign in with Google
   try {
-    const provider = new GoogleAuthProvider();
-    const result = await signInWithPopup(auth, provider);
+    const result = await signInWithPopup(auth, new GoogleAuthProvider());
     user = result.user;
   } catch (err) {
-    console.error("Sign-in failed:", err);
+    console.error(err);
     setStatus("Sign-in was cancelled or failed. Please try again.", "error");
     setLoading(false);
-    signInBtn.addEventListener("click", () => handleSignup(token, inviteData), {
+    signInBtn.addEventListener("click", () => handleSignup(token), {
       once: true,
     });
     return;
   }
 
   try {
-    // Check if this account already has a role (prevent overwriting)
-    const existingUserRef = doc(db, "users", user.uid);
-    const existingUserSnap = await getDoc(existingUserRef);
-    if (existingUserSnap.exists()) {
+    // Check for existing account
+    const existingSnap = await getDoc(doc(db, "users", user.uid));
+    if (existingSnap.exists()) {
       setStatus(
         "This Google account is already registered in BookWare.",
         "error",
@@ -120,8 +96,7 @@ async function handleSignup(token, inviteData) {
       return;
     }
 
-    // Write users/{uid} — exactly the fields in the schema
-    // Security rule: allow write if request.auth.uid == uid ✓
+    // Create users/{uid}
     await setDoc(doc(db, "users", user.uid), {
       name: user.displayName,
       email: user.email,
@@ -131,22 +106,19 @@ async function handleSignup(token, inviteData) {
       createdAt: serverTimestamp(),
     });
 
-    // Write teachers/{uid} — exactly the fields in the schema
-    // Security rule: allow write if request.auth.uid == teacherId ✓
+    // Create teachers/{uid} — all teachers get canInvite: true, no admin needed
     await setDoc(doc(db, "teachers", user.uid), {
       name: user.displayName,
       email: user.email,
       createdAt: serverTimestamp(),
-      canInvite: false, // Admin or existing teacher can grant this later
+      canInvite: true, // every teacher can invite others
+      libraryPublic: false,
     });
 
-    // Mark invite as used
-    // Security rule: allow write if request.auth != null ✓
-    await updateDoc(doc(db, "invites", token), {
-      used: true,
-    });
+    // Mark invite used
+    await updateDoc(doc(db, "invites", token), { used: true });
   } catch (err) {
-    console.error("Account setup failed:", err);
+    console.error(err);
     setStatus(
       "Account setup failed. Please contact an administrator.",
       "error",
@@ -156,5 +128,7 @@ async function handleSignup(token, inviteData) {
   }
 
   setStatus("Account created! Redirecting…", "success");
-  window.location.href = "/teacher.html";
+  setTimeout(() => {
+    window.location.href = "/teacher.html";
+  }, 800);
 }
