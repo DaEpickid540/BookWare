@@ -355,9 +355,6 @@ function initTheme() {
   });
 }
 
-// Kept for legacy callers
-function applyTheme() {}
-
 // ─── ARIA AI Settings ──────────────────────────────────────────────────────────
 const ARIA_ENABLED_KEY = "bw-aria-enabled";
 const ARIA_KEY_STORAGE  = "bw-aria-groq-key";
@@ -380,7 +377,7 @@ function initARIA() {
     const on = toggle.checked;
     localStorage.setItem(ARIA_ENABLED_KEY, String(on));
     panel.style.display = on ? "block" : "none";
-    toast(on ? "<i class="bi bi-robot"></i> ARIA enabled" : "ARIA disabled", on ? "success" : "info");
+    toast(on ? '<i class="bi bi-robot"></i> ARIA enabled' : "ARIA disabled", on ? "success" : "info");
   });
 
   saveBtn?.addEventListener("click", () => {
@@ -390,7 +387,7 @@ function initARIA() {
       return;
     }
     localStorage.setItem(ARIA_KEY_STORAGE, key);
-    toast("<i class="bi bi-check2"></i> Groq key saved — ARIA is ready!", "success");
+    toast('<i class="bi bi-check2"></i> Groq key saved — ARIA is ready!', "success");
   });
 }
 
@@ -624,7 +621,7 @@ async function renderNotifications() {
   if (notifs.length === 0) {
     const noLib = !classTeacherId && addedTeacherIds.length === 0;
     const msg = noLib
-      ? "To see notifications, join a library using your teacher's code <i class="bi bi-emoji-smile"></i>"
+      ? `To see notifications, join a library using your teacher's code <i class="bi bi-emoji-smile"></i>`
       : "No new notifications.";
     const div = document.createElement("div");
     div.className = "nr";
@@ -1029,21 +1026,21 @@ function renderBooks(books) {
       ? `<button class="btn-ghost" data-action="${
           isWished ? "unwishlist" : "wishlist"
         }" data-id="${escHtml(book.id)}">${
-          isWished ? "<i class="bi bi-heart-fill"></i> Wishlisted" : "<i class="bi bi-heart"></i> Wishlist"
+          isWished ? '<i class="bi bi-heart-fill"></i> Wishlisted' : '<i class="bi bi-heart"></i> Wishlist'
         }</button>`
       : "";
 
     const recBtn = `<button class="btn-ghost" data-action="${
       isReced ? "unrecommend" : "recommend"
     }" data-id="${escHtml(book.id)}" data-title="${escHtml(book.title)}" data-author="${escHtml(book.author ?? "")}" data-cover="${escHtml(book.coverUrl ?? "")}" title="${isReced ? "Remove from your recommendations" : "Add to your recommendations"}">${
-      isReced ? "<i class="bi bi-star-fill"></i> Recommended" : "<i class="bi bi-star"></i> Recommend"
+      isReced ? '<i class="bi bi-star-fill"></i> Recommended' : '<i class="bi bi-star"></i> Recommend'
     }</button>`;
 
     const readingBtn = !isActive
       ? `<button class="btn-ghost" data-action="${
           isReading ? "unset-reading" : "set-reading"
         }" data-id="${escHtml(book.id)}" data-title="${escHtml(book.title)}" data-author="${escHtml(book.author ?? "")}" data-cover="${escHtml(book.coverUrl ?? "")}" title="${isReading ? "Remove from currently reading" : "Mark as currently reading"}">${
-          isReading ? "<i class="bi bi-book-fill"></i> Reading" : "<i class="bi bi-book-fill"></i> Set Reading"
+          isReading ? '<i class="bi bi-book-fill"></i> Reading' : '<i class="bi bi-book-fill"></i> Set Reading'
         }</button>`
       : "";
 
@@ -1241,7 +1238,7 @@ async function initiateReturn(bookId) {
   filterAndRenderBooks();
   if (document.getElementById("lockerPage").classList.contains("active"))
     renderLockerPage();
-  toast("<i class="bi bi-check2"></i> Return marked. Teacher will confirm.", "success");
+  toast('<i class="bi bi-check2"></i> Return marked. Teacher will confirm.', "success");
 }
 
 // ─── Wishlist ───────────────────────────────────────────────────────────────────
@@ -1253,7 +1250,7 @@ async function addToWishlist(bookId) {
   if (!studentData.wishlist.includes(bookId)) studentData.wishlist.push(bookId);
   renderWishlist();
   filterAndRenderBooks();
-  toast("<i class="bi bi-check2"></i> Added to wishlist", "success");
+  toast('<i class="bi bi-check2"></i> Added to wishlist', "success");
 }
 
 async function removeFromWishlist(bookId) {
@@ -1315,7 +1312,7 @@ function renderWishlistSearchResults(results) {
           data-author="${escHtml(book.author)}"
           data-cover="${escHtml(book.cover)}"
           style="flex-shrink:0">
-          ${isWished ? "<i class="bi bi-heart-fill"></i> Wishlisted" : "<i class="bi bi-heart"></i> Wishlist"}
+          ${isWished ? '<i class="bi bi-heart-fill"></i> Wishlisted' : '<i class="bi bi-heart"></i> Wishlist'}
         </button>
       </div>`;
     row.querySelector("button")?.addEventListener("click", async (ev) => {
@@ -1417,7 +1414,7 @@ async function renderActiveLoans() {
       isOverdue = true;
       dueLabel = `<i class="bi bi-exclamation-triangle-fill"></i> Overdue by ${Math.abs(diffDays)} day${Math.abs(diffDays) !== 1 ? "s" : ""}`;
     } else if (diffDays === 0) {
-      dueLabel = "<i class="bi bi-calendar-event-fill"></i> Due today!";
+      dueLabel = '<i class="bi bi-calendar-event-fill"></i> Due today!';
     } else {
       dueLabel = `<i class="bi bi-calendar-event-fill"></i> Due in ${diffDays} day${diffDays !== 1 ? "s" : ""} (${due.toLocaleDateString()})`;
     }
@@ -1542,7 +1539,7 @@ downloadLogBtn?.addEventListener("click", async () => {
     .toLowerCase()}.md`;
   a.click();
   URL.revokeObjectURL(url);
-  toast("<i class="bi bi-check2"></i> Reading log downloaded", "success");
+  toast('<i class="bi bi-check2"></i> Reading log downloaded', "success");
 });
 
 // ─── Profile page ──────────────────────────────────────────────────────────────
@@ -1758,7 +1755,7 @@ async function removeFromCurrentlyReading(bookId) {
   filterAndRenderBooks();
   if (document.getElementById("profilePage")?.classList.contains("active"))
     renderProfileCurrentBook();
-  toast("<i class="bi bi-book-fill"></i> Removed from reading list", "info");
+  toast('<i class="bi bi-book-fill"></i> Removed from reading list', "info");
 }
 
 async function renderMyRecommendations() {

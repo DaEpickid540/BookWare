@@ -319,7 +319,7 @@ function initARIA() {
     const on = toggle.checked;
     localStorage.setItem(ARIA_ENABLED_KEY, String(on));
     panel.style.display = on ? "block" : "none";
-    toast(on ? "<i class="bi bi-robot"></i> ARIA enabled" : "ARIA disabled", on ? "success" : "info");
+    toast(on ? '<i class="bi bi-robot"></i> ARIA enabled' : "ARIA disabled", on ? "success" : "info");
   });
 
   saveBtn?.addEventListener("click", () => {
@@ -329,7 +329,7 @@ function initARIA() {
       return;
     }
     localStorage.setItem(ARIA_KEY_STORAGE, key);
-    toast("<i class="bi bi-check2"></i> Groq key saved — ARIA is ready!", "success");
+    toast('<i class="bi bi-check2"></i> Groq key saved — ARIA is ready!', "success");
   });
 }
 
@@ -360,7 +360,7 @@ function renderSettings() {
 
   const badge = document.getElementById("canInviteSettingsBadge");
   if (badge) {
-    badge.textContent = "<i class="bi bi-check2"></i> All teachers";
+    badge.textContent = '<i class="bi bi-check2"></i> All teachers';
     badge.style.color = "var(--success)";
   }
   const invChip = document.getElementById("canInviteStatus");
@@ -813,7 +813,6 @@ function renderLibraryList(books) {
            <button class="btn-xs danger" data-action="delete" data-id="${esc(book.id)}" data-title="${esc(book.title)}"><i class="bi bi-trash3-fill"></i> Delete</button>
          </div>
        </div>`;
-      </div>`;
     row
       .querySelector("[data-action='recommend']")
       ?.addEventListener("click", (e) =>
@@ -1066,7 +1065,7 @@ document
     a.download = `${tName.replace(/\s+/g, "_")}_checkouts_${Date.now()}.md`;
     a.click();
     URL.revokeObjectURL(url);
-    toast("<i class="bi bi-check2"></i> Exported as .MD", "success");
+    toast('<i class="bi bi-check2"></i> Exported as .MD', "success");
   });
 
 // ─── Bi-weekly notification ─────────────────────────────────────────────────────
@@ -1110,7 +1109,7 @@ function checkBiweeklyNotification() {
         const dueDate = book.dueDate?.toDate?.();
         const isOverdue = dueDate && dueDate < now;
         const dueDateStr = dueDate ? dueDate.toLocaleDateString() : "—";
-        const status = isOverdue ? "<i class="bi bi-exclamation-triangle-fill"></i> OVERDUE" : "<i class="bi bi-check2"></i> Active";
+        const status = isOverdue ? '<i class="bi bi-exclamation-triangle-fill"></i> OVERDUE' : '<i class="bi bi-check2"></i> Active';
         md += `| ${book.title} | ${book.author ?? "—"} | ${studentName} | ${fmtDate(book.checkedOutAt)} | ${dueDateStr} | ${status} |\n`;
       }
     }
@@ -1155,7 +1154,7 @@ function checkBiweeklyNotification() {
       ];
       const body = encodeURIComponent(bodyLines.join("\n"));
       window.location.href = `mailto:${tEmail}?subject=${subject}&body=${body}`;
-      toast("<i class="bi bi-check2"></i> Opening email client…", "success");
+      toast('<i class="bi bi-check2"></i> Opening email client…', "success");
     });
 
     // Download button
@@ -1167,7 +1166,7 @@ function checkBiweeklyNotification() {
       a.download = `bookware-report-${now.toISOString().slice(0, 10)}.md`;
       a.click();
       URL.revokeObjectURL(url);
-      toast("<i class="bi bi-check2"></i> Report downloaded", "success");
+      toast('<i class="bi bi-check2"></i> Report downloaded', "success");
     });
 
     // Dismiss
@@ -1490,7 +1489,7 @@ function renderRecPicker() {
       )}" data-author="${esc(book.author ?? "")}" data-cover="${esc(
         book.coverUrl ?? "",
       )}" style="flex-shrink:0">
-            ${isRec ? "<i class="bi bi-star-fill"></i> Starred" : "<i class="bi bi-star"></i> Star"}
+            ${isRec ? '<i class="bi bi-star-fill"></i> Starred' : '<i class="bi bi-star"></i> Star'}
           </button>
         </div>`;
       row.querySelector("button")?.addEventListener("click", (e) => {
@@ -1530,7 +1529,7 @@ function renderRecPicker() {
       )}" data-author="${esc(book.author ?? "")}" data-cover="${esc(
         book.cover ?? "",
       )}" style="flex-shrink:0">
-            ${isRec ? "<i class="bi bi-star-fill"></i> Starred" : "<i class="bi bi-star"></i> Star"}
+            ${isRec ? '<i class="bi bi-star-fill"></i> Starred' : '<i class="bi bi-star"></i> Star'}
           </button>
         </div>`;
       row.querySelector("button")?.addEventListener("click", (e) => {
@@ -1706,7 +1705,7 @@ document
     renderReadingDisplay();
     renderReadingPreview();
     renderRecReadingDisplay();
-    toast("<i class="bi bi-check2"></i> Cleared", "info");
+    toast('<i class="bi bi-check2"></i> Cleared', "info");
   });
 
 function renderReadingDisplay() {
@@ -1776,7 +1775,7 @@ document
     renderRecReadingDisplay();
     renderReadingDisplay();
     renderReadingPreview();
-    toast("<i class="bi bi-check2"></i> Cleared", "info");
+    toast('<i class="bi bi-check2"></i> Cleared', "info");
   });
 
 async function runRecReadingSearch() {
