@@ -14,6 +14,7 @@ import {
   collection,
   query,
   where,
+  onSnapshot,
   serverTimestamp,
   Timestamp,
   arrayRemove,
@@ -27,6 +28,7 @@ let allBooks = [];
 let recommendations = [];
 let recGoogleSearchResults = [];
 let recGoogleDebounce = null;
+let historyUnsubscribe = null;
 
 // ─── Utilities ─────────────────────────────────────────────────────────────────
 function esc(s) {
@@ -1008,41 +1010,50 @@ async function loadCheckedOut() {
 }
 
 // ─── Students: History ──────────────────────────────────────────────────────────
-async function loadHistory() {
+function loadHistory() {
   const el = document.getElementById("historyList");
   if (!el) return;
+
+  // Tear down any existing listener before re-attaching
+  if (historyUnsubscribe) { historyUnsubscribe(); historyUnsubscribe = null; }
+
   el.innerHTML = `<p class="empty-state">Loading…</p>`;
-  const snap = await getDocs(
+
+  historyUnsubscribe = onSnapshot(
     collection(db, "teachers", currentUser.uid, "history"),
+    (snap) => {
+      if (snap.empty) {
+        el.innerHTML = `<p class="empty-state">No history yet.</p>`;
+        return;
+      }
+      const entries = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0));
+      el.innerHTML = "";
+      entries.forEach((e) => {
+        const row = document.createElement("div");
+        row.className = "t-book-row";
+        row.innerHTML = `
+          <div class="t-book-info">
+            <div class="t-book-title">${esc(e.bookTitle)}</div>
+            <div class="t-book-author">${esc(e.studentName)}</div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:3px">
+              <span class="t-badge available">Out: ${fmtDate(e.dateOut)}</span>
+              ${
+                e.dateReturned
+                  ? `<span class="t-badge available">Back: ${fmtDate(e.dateReturned)}</span>`
+                  : `<span class="t-badge checked-out"><span class="t-badge-dot"></span>Still out</span>`
+              }
+            </div>
+          </div>`;
+        el.appendChild(row);
+      });
+    },
+    (err) => {
+      console.error("[teacher.js] History listener error:", err);
+      el.innerHTML = `<p class="empty-state">Could not load history.</p>`;
+    },
   );
-  if (snap.empty) {
-    el.innerHTML = `<p class="empty-state">No history yet.</p>`;
-    return;
-  }
-  const entries = snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
-    .sort((a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0));
-  el.innerHTML = "";
-  entries.forEach((e) => {
-    const row = document.createElement("div");
-    row.className = "t-book-row";
-    row.innerHTML = `
-      <div class="t-book-info">
-        <div class="t-book-title">${esc(e.bookTitle)}</div>
-        <div class="t-book-author">${esc(e.studentName)}</div>
-        <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:3px">
-          <span class="t-badge available">Out: ${fmtDate(e.dateOut)}</span>
-          ${
-            e.dateReturned
-              ? `<span class="t-badge available">Back: ${fmtDate(
-                  e.dateReturned,
-                )}</span>`
-              : `<span class="t-badge checked-out"><span class="t-badge-dot"></span>Still out</span>`
-          }
-        </div>
-      </div>`;
-    el.appendChild(row);
-  });
 }
 
 // ─── Export .MD ─────────────────────────────────────────────────────────────────
