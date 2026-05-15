@@ -53,7 +53,7 @@ async function login(role) {
       showError("Access denied. Admin login is restricted.");
       return;
     }
-    // Admin doc creation handled below — fall through with role = "admin"
+    // Ensure user doc exists and has role: "admin"
     const userRef = doc(db, "users", user.uid);
     const userSnap = await getDoc(userRef);
     if (!userSnap.exists()) {
@@ -65,6 +65,16 @@ async function login(role) {
         class: null,
         createdAt: serverTimestamp(),
       });
+    } else if (userSnap.data().role !== "admin") {
+      // Existing account (e.g. teacher) — elevate to admin
+      try {
+        await updateDoc(userRef, { role: "admin" });
+      } catch (e) {
+        console.error("[auth.js] Failed to elevate role to admin:", e);
+        showError("Could not set admin role. Contact the system administrator.");
+        await signOut(auth);
+        return;
+      }
     }
     window.location.href = "/admin.html";
     return;

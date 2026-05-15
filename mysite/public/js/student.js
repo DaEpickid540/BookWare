@@ -262,7 +262,17 @@ function setupSignout() {
 
 // ─── Theme / Brightness ──────────────────────────────────────────────────────
 const BRIGHTNESS_KEY = "bookware-brightness";
-const COLOR_KEY = "bookware-color";
+const COLOR_KEY      = "bookware-color";
+const PRESET_KEY     = "bookware-preset";
+
+const THEME_PRESETS = {
+  midnight:  { brightness: 5,  color: "crimson" },
+  night:     { brightness: 18, color: "crimson" },
+  dusk:      { brightness: 32, color: "sunset"  },
+  ash:       { brightness: 52, color: "slate"   },
+  parchment: { brightness: 72, color: "sunset"  },
+  snow:      { brightness: 95, color: "ocean"   },
+};
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
@@ -334,10 +344,31 @@ function applyColor(color) {
   });
 }
 
+function applyPreset(name) {
+  const preset = THEME_PRESETS[name];
+  if (!preset) return;
+  applyBrightness(preset.brightness);
+  applyColor(preset.color);
+  localStorage.setItem(BRIGHTNESS_KEY, String(preset.brightness));
+  localStorage.setItem(COLOR_KEY, preset.color);
+  localStorage.setItem(PRESET_KEY, name);
+  const slider = document.getElementById("brightnessSlider");
+  if (slider) slider.value = preset.brightness;
+  document.querySelectorAll(".theme-preset").forEach((p) =>
+    p.classList.toggle("active", p.dataset.preset === name),
+  );
+}
+
 function initTheme() {
   const saved = parseInt(localStorage.getItem(BRIGHTNESS_KEY) ?? "18", 10);
   applyBrightness(saved);
   applyColor(localStorage.getItem(COLOR_KEY) || "crimson");
+
+  const savedPreset = localStorage.getItem(PRESET_KEY) || "night";
+  document.querySelectorAll(".theme-preset").forEach((p) =>
+    p.classList.toggle("active", p.dataset.preset === savedPreset),
+  );
+
   const slider = document.getElementById("brightnessSlider");
   if (slider) {
     slider.value = saved;
@@ -345,13 +376,20 @@ function initTheme() {
       const val = parseInt(slider.value, 10);
       applyBrightness(val);
       localStorage.setItem(BRIGHTNESS_KEY, String(val));
+      localStorage.removeItem(PRESET_KEY);
+      document.querySelectorAll(".theme-preset").forEach((p) => p.classList.remove("active"));
     });
   }
   document.querySelectorAll(".color-swatch").forEach((swatch) => {
     swatch.addEventListener("click", () => {
       applyColor(swatch.dataset.color);
       localStorage.setItem(COLOR_KEY, swatch.dataset.color);
+      localStorage.removeItem(PRESET_KEY);
+      document.querySelectorAll(".theme-preset").forEach((p) => p.classList.remove("active"));
     });
+  });
+  document.querySelectorAll(".theme-preset").forEach((p) => {
+    p.addEventListener("click", () => applyPreset(p.dataset.preset));
   });
 }
 
@@ -1200,6 +1238,21 @@ async function requestCheckout(bookId, bookTitle) {
 
   studentData.currentBook = bookId;
   studentData.currentBookTeacherId = selectedTeacherId;
+
+  // Update the in-memory book so the UI reflects checked-out status immediately
+  const bi = allBooks.findIndex((b) => b.id === bookId);
+  if (bi !== -1) {
+    const bk = allBooks[bi];
+    const copies = bk.copies ?? 1;
+    const newCount = (bk.checkedOutCount ?? (bk.status === "checked_out" ? 1 : 0)) + 1;
+    allBooks[bi] = {
+      ...bk,
+      checkedOutCount: newCount,
+      status: newCount >= copies ? "checked_out" : "available",
+      checkedOutBy: currentUser.uid,
+    };
+  }
+
   filterAndRenderBooks();
   toast(`<i class="bi bi-check2"></i> "${te(bookTitle)}" checked out — due ${dueDate.toLocaleDateString()}`, "success");
 }
@@ -1458,13 +1511,17 @@ async function renderReadingLog() {
   addedTeacherIds.forEach((id) => teacherIds.add(id));
 
   for (const tid of teacherIds) {
-    const snap = await getDocs(
-      query(
-        collection(db, "teachers", tid, "history"),
-        where("studentId", "==", currentUser.uid),
-      ),
-    );
-    snap.forEach((d) => entries.push({ ...d.data(), teacherId: tid }));
+    try {
+      const snap = await getDocs(
+        query(
+          collection(db, "teachers", tid, "history"),
+          where("studentId", "==", currentUser.uid),
+        ),
+      );
+      snap.forEach((d) => entries.push({ ...d.data(), teacherId: tid }));
+    } catch (e) {
+      console.warn("[student.js] Could not load history for", tid, e);
+    }
   }
 
   if (entries.length === 0) {

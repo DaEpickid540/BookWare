@@ -437,13 +437,56 @@
               <div class="s-head">
                 <div>
                   <div class="s-title">Appearance</div>
-                  <div class="s-sub">Theme preference</div>
+                  <div class="s-sub">Theme &amp; brightness</div>
                 </div>
               </div>
               <div class="s-body">
+                <!-- Named theme presets -->
+                <div class="s-row" style="flex-direction:column;align-items:flex-start;gap:10px">
+                  <div class="s-label">Color Themes</div>
+                  <div class="theme-preset-grid">
+                    <button class="theme-preset" data-preset="midnight">
+                      <div class="theme-preset-preview" style="background:#0d0d0d">
+                        <div class="theme-preset-accent" style="background:#e74c3c"></div>
+                      </div>
+                      <span>Midnight</span>
+                    </button>
+                    <button class="theme-preset active" data-preset="night">
+                      <div class="theme-preset-preview" style="background:#2e2e2e">
+                        <div class="theme-preset-accent" style="background:#e74c3c"></div>
+                      </div>
+                      <span>Night</span>
+                    </button>
+                    <button class="theme-preset" data-preset="dusk">
+                      <div class="theme-preset-preview" style="background:#525252">
+                        <div class="theme-preset-accent" style="background:#e67e22"></div>
+                      </div>
+                      <span>Dusk</span>
+                    </button>
+                    <button class="theme-preset" data-preset="ash">
+                      <div class="theme-preset-preview" style="background:#858585">
+                        <div class="theme-preset-accent" style="background:#607d8b"></div>
+                      </div>
+                      <span>Ash</span>
+                    </button>
+                    <button class="theme-preset" data-preset="parchment">
+                      <div class="theme-preset-preview" style="background:#b8b8b8">
+                        <div class="theme-preset-accent" style="background:#e67e22"></div>
+                      </div>
+                      <span>Parchment</span>
+                    </button>
+                    <button class="theme-preset" data-preset="snow">
+                      <div class="theme-preset-preview" style="background:#f2f2f2">
+                        <div class="theme-preset-accent" style="background:#2980b9"></div>
+                      </div>
+                      <span>Snow</span>
+                    </button>
+                  </div>
+                </div>
+                <!-- Fine-tune brightness -->
                 <div class="s-row" style="flex-direction:column;align-items:flex-start;gap:10px">
                   <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
-                    <div class="s-label">Background Brightness</div>
+                    <div class="s-label">Fine-tune Brightness</div>
                     <span id="brightnessLabel" style="font-size:0.72rem;color:var(--muted)">Dark</span>
                   </div>
                   <div style="width:100%;display:flex;align-items:center;gap:10px">
@@ -458,6 +501,7 @@
                     <i class="bi bi-sun-fill" style="color:var(--muted);font-size:0.9rem;flex-shrink:0"></i>
                   </div>
                 </div>
+                <!-- Accent color -->
                 <div class="s-row">
                   <div>
                     <div class="s-label">Accent Color</div>
