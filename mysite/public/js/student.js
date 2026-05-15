@@ -1234,7 +1234,13 @@ async function requestCheckout(bookId, bookTitle) {
       dateOut: serverTimestamp(),
       dateReturned: null,
     });
-  } catch (e) { console.warn("[student.js] History write failed:", e); }
+  } catch (e) {
+    console.error("[student.js] History write failed:", e?.code ?? e);
+    // Surface permission errors so they're not invisible during testing
+    if (e?.code === "permission-denied") {
+      console.error("[student.js] Firestore denied history write — check rules for teachers/{id}/history");
+    }
+  }
 
   studentData.currentBook = bookId;
   studentData.currentBookTeacherId = selectedTeacherId;
