@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(firebase deploy *)",
+      "Bash(git -C \"c:\\\\Users\\\\daepi\\\\OneDrive\\\\Pictures\\\\Documents\\\\GitHub\\\\BookWare\" status)",
+      "Bash(git -C \"c:\\\\Users\\\\daepi\\\\OneDrive\\\\Pictures\\\\Documents\\\\GitHub\\\\BookWare\" diff --stat)",
+      "Bash(git -C \"c:\\\\Users\\\\daepi\\\\OneDrive\\\\Pictures\\\\Documents\\\\GitHub\\\\BookWare\" add mysite/firestore.rules mysite/public/css/student.css mysite/public/css/teacher.css mysite/public/js/admin.js mysite/public/js/auth.js mysite/public/js/student.js mysite/public/js/teacher.js mysite/public/student.html mysite/public/teacher-signup.html mysite/public/teacher.html)",
+      "Bash(git -C 'c:\\\\Users\\\\daepi\\\\OneDrive\\\\Pictures\\\\Documents\\\\GitHub\\\\BookWare' commit -m ' *)",
+      "Bash(git -C \"c:\\\\Users\\\\daepi\\\\OneDrive\\\\Pictures\\\\Documents\\\\GitHub\\\\BookWare\" push)",
+      "Bash(git -C \"c:\\\\Users\\\\daepi\\\\OneDrive\\\\Pictures\\\\Documents\\\\GitHub\\\\BookWare\" add mysite/public/js/teacher.js)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)"
+    ]
+  }
+}
