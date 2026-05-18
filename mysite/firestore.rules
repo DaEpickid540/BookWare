@@ -61,12 +61,6 @@ service cloud.firestore {
 
       // Users can update their own non-sensitive fields; admins can update anything
       allow update: if isAdmin() ||
-        // Hardcoded admin emails can promote their own account to role: "admin"
-        (isSignedIn() && uid() == userId &&
-         request.auth.token.email.lower() in ["sarvin.sukhe@gmail.com", "daepickid540@gmail.com"] &&
-         request.resource.data.role == "admin" &&
-         !request.resource.data.diff(resource.data).affectedKeys()
-           .hasAny(["banned", "banExpiry", "banReason", "bannedBy"])) ||
         (isSignedIn() && uid() == userId &&
          // Students/teachers cannot change their own role or ban status
          !request.resource.data.diff(resource.data).affectedKeys()
@@ -142,8 +136,7 @@ service cloud.firestore {
       // ── teachers/{uid}/history/{histId} ─────────────────────────────────
       match /history/{histId} {
         allow read: if isSignedIn() &&
-          (uid() == teacherId || isAdmin() ||
-           (isStudent() && resource.data.studentId == uid()));
+          (uid() == teacherId || isAdmin());
         allow create: if isSignedIn() && isStudent() && notBanned();
         allow update: if (isSignedIn() && uid() == teacherId && isTeacher()) ||
           isAdmin();

@@ -118,12 +118,10 @@ onAuthStateChanged(auth, async (user) => {
 
   const userRef = doc(db, "users", user.uid);
   const userSnap = await getDoc(userRef);
-  const isHardcodedAdmin = ADMIN_EMAILS.includes(user.email?.toLowerCase());
+  if (!userSnap.exists() || userSnap.data().role !== "admin" || !ADMIN_EMAILS.includes(user.email?.toLowerCase())) {
 
-  if (!userSnap.exists() || userSnap.data().role !== "admin" || !isHardcodedAdmin) {
-
-    // ── 3-strike auto-ban — never applies to the two hardcoded admin emails ──
-    if (userSnap.exists() && !isHardcodedAdmin) {
+    // ── 3-strike auto-ban for unauthorized admin access attempts ─────────────
+    if (userSnap.exists()) {
       const ATTEMPT_KEY = `bw-admin-attempts-${user.uid}`;
       const ONE_HOUR = 60 * 60 * 1000;
       const now = Date.now();

@@ -14,7 +14,6 @@ import {
   collection,
   query,
   where,
-  onSnapshot,
   serverTimestamp,
   Timestamp,
   arrayRemove,
@@ -28,7 +27,6 @@ let allBooks = [];
 let recommendations = [];
 let recGoogleSearchResults = [];
 let recGoogleDebounce = null;
-let historyUnsubscribe = null;
 
 // ─── Utilities ─────────────────────────────────────────────────────────────────
 function esc(s) {
@@ -204,17 +202,7 @@ function populateTopBar() {
 
 // ─── Theme / Brightness ──────────────────────────────────────────────────────
 const BRIGHTNESS_KEY = "bookware-brightness";
-const COLOR_KEY      = "bookware-color";
-const PRESET_KEY     = "bookware-preset";
-
-const THEME_PRESETS = {
-  midnight:  { brightness: 5,  color: "crimson" },
-  night:     { brightness: 18, color: "crimson" },
-  dusk:      { brightness: 32, color: "sunset"  },
-  ash:       { brightness: 52, color: "slate"   },
-  parchment: { brightness: 72, color: "sunset"  },
-  snow:      { brightness: 95, color: "ocean"   },
-};
+const COLOR_KEY = "bookware-color";
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
@@ -286,31 +274,10 @@ function applyColor(color) {
   });
 }
 
-function applyPreset(name) {
-  const preset = THEME_PRESETS[name];
-  if (!preset) return;
-  applyBrightness(preset.brightness);
-  applyColor(preset.color);
-  localStorage.setItem(BRIGHTNESS_KEY, String(preset.brightness));
-  localStorage.setItem(COLOR_KEY, preset.color);
-  localStorage.setItem(PRESET_KEY, name);
-  const slider = document.getElementById("brightnessSlider");
-  if (slider) slider.value = preset.brightness;
-  document.querySelectorAll(".theme-preset").forEach((p) =>
-    p.classList.toggle("active", p.dataset.preset === name),
-  );
-}
-
 function initTheme() {
   const saved = parseInt(localStorage.getItem(BRIGHTNESS_KEY) ?? "18", 10);
   applyBrightness(saved);
   applyColor(localStorage.getItem(COLOR_KEY) || "crimson");
-
-  const savedPreset = localStorage.getItem(PRESET_KEY) || "night";
-  document.querySelectorAll(".theme-preset").forEach((p) =>
-    p.classList.toggle("active", p.dataset.preset === savedPreset),
-  );
-
   const slider = document.getElementById("brightnessSlider");
   if (slider) {
     slider.value = saved;
@@ -318,20 +285,13 @@ function initTheme() {
       const val = parseInt(slider.value, 10);
       applyBrightness(val);
       localStorage.setItem(BRIGHTNESS_KEY, String(val));
-      localStorage.removeItem(PRESET_KEY);
-      document.querySelectorAll(".theme-preset").forEach((p) => p.classList.remove("active"));
     });
   }
   document.querySelectorAll(".color-swatch").forEach((swatch) => {
     swatch.addEventListener("click", () => {
       applyColor(swatch.dataset.color);
       localStorage.setItem(COLOR_KEY, swatch.dataset.color);
-      localStorage.removeItem(PRESET_KEY);
-      document.querySelectorAll(".theme-preset").forEach((p) => p.classList.remove("active"));
     });
-  });
-  document.querySelectorAll(".theme-preset").forEach((p) => {
-    p.addEventListener("click", () => applyPreset(p.dataset.preset));
   });
 }
 
@@ -1010,50 +970,41 @@ async function loadCheckedOut() {
 }
 
 // ─── Students: History ──────────────────────────────────────────────────────────
-function loadHistory() {
+async function loadHistory() {
   const el = document.getElementById("historyList");
   if (!el) return;
-
-  // Tear down any existing listener before re-attaching
-  if (historyUnsubscribe) { historyUnsubscribe(); historyUnsubscribe = null; }
-
   el.innerHTML = `<p class="empty-state">Loading…</p>`;
-
-  historyUnsubscribe = onSnapshot(
+  const snap = await getDocs(
     collection(db, "teachers", currentUser.uid, "history"),
-    (snap) => {
-      if (snap.empty) {
-        el.innerHTML = `<p class="empty-state">No history yet.</p>`;
-        return;
-      }
-      const entries = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0));
-      el.innerHTML = "";
-      entries.forEach((e) => {
-        const row = document.createElement("div");
-        row.className = "t-book-row";
-        row.innerHTML = `
-          <div class="t-book-info">
-            <div class="t-book-title">${esc(e.bookTitle)}</div>
-            <div class="t-book-author">${esc(e.studentName)}</div>
-            <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:3px">
-              <span class="t-badge available">Out: ${fmtDate(e.dateOut)}</span>
-              ${
-                e.dateReturned
-                  ? `<span class="t-badge available">Back: ${fmtDate(e.dateReturned)}</span>`
-                  : `<span class="t-badge checked-out"><span class="t-badge-dot"></span>Still out</span>`
-              }
-            </div>
-          </div>`;
-        el.appendChild(row);
-      });
-    },
-    (err) => {
-      console.error("[teacher.js] History listener error:", err);
-      el.innerHTML = `<p class="empty-state">Could not load history.</p>`;
-    },
   );
+  if (snap.empty) {
+    el.innerHTML = `<p class="empty-state">No history yet.</p>`;
+    return;
+  }
+  const entries = snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0));
+  el.innerHTML = "";
+  entries.forEach((e) => {
+    const row = document.createElement("div");
+    row.className = "t-book-row";
+    row.innerHTML = `
+      <div class="t-book-info">
+        <div class="t-book-title">${esc(e.bookTitle)}</div>
+        <div class="t-book-author">${esc(e.studentName)}</div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:3px">
+          <span class="t-badge available">Out: ${fmtDate(e.dateOut)}</span>
+          ${
+            e.dateReturned
+              ? `<span class="t-badge available">Back: ${fmtDate(
+                  e.dateReturned,
+                )}</span>`
+              : `<span class="t-badge checked-out"><span class="t-badge-dot"></span>Still out</span>`
+          }
+        </div>
+      </div>`;
+    el.appendChild(row);
+  });
 }
 
 // ─── Export .MD ─────────────────────────────────────────────────────────────────
