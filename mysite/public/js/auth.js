@@ -102,19 +102,6 @@ async function login(role) {
   // ─── Create role-specific docs ──────────────────────────────────────────
   const finalRole = (await getDoc(userRef)).data().role;
 
-  // ─── Ban check on login ─────────────────────────────────────────────────
-  const latestUserData = (await getDoc(userRef)).data();
-  if (latestUserData.banned === true) {
-    const expiry = latestUserData.banExpiry?.toDate?.();
-    if (!expiry || expiry > new Date()) {
-      await signOut(auth);
-      const days = expiry ? Math.ceil((expiry - new Date()) / 86400000) : "permanently";
-      const reason = latestUserData.banReason ?? "Policy violation";
-      window.location.href = `/?banned=1&reason=${encodeURIComponent(reason)}&days=${days}`;
-      return;
-    }
-  }
-
   if (finalRole === "student") {
     // Create students/{uid} doc if it doesn't exist — schema: { name, email, currentBook, wishlist, banned }
     const studentRef = doc(db, "students", user.uid);

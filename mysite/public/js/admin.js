@@ -119,41 +119,6 @@ onAuthStateChanged(auth, async (user) => {
   const userRef = doc(db, "users", user.uid);
   const userSnap = await getDoc(userRef);
   if (!userSnap.exists() || userSnap.data().role !== "admin" || !ADMIN_EMAILS.includes(user.email?.toLowerCase())) {
-
-    // ── 3-strike auto-ban for unauthorized admin access attempts ─────────────
-    if (userSnap.exists()) {
-      const ATTEMPT_KEY = `bw-admin-attempts-${user.uid}`;
-      const ONE_HOUR = 60 * 60 * 1000;
-      const now = Date.now();
-
-      // Load existing attempts, prune those older than 1 hour
-      let attempts = [];
-      try { attempts = JSON.parse(localStorage.getItem(ATTEMPT_KEY) || "[]"); } catch (_) {}
-      attempts = attempts.filter(t => now - t < ONE_HOUR);
-      attempts.push(now);
-      localStorage.setItem(ATTEMPT_KEY, JSON.stringify(attempts));
-
-      if (attempts.length >= 3) {
-        // Issue a 24-hour ban
-        const banExpiry = new Date(now + 24 * 60 * 60 * 1000);
-        try {
-          await updateDoc(userRef, {
-            banned: true,
-            banExpiry: Timestamp.fromDate(banExpiry),
-            banReason: "Repeated unauthorized admin access attempts (auto-ban)",
-            bannedBy: "system",
-            bannedAt: serverTimestamp(),
-          });
-        } catch (e) {
-          console.error("[admin.js] Failed to write auto-ban:", e);
-        }
-        localStorage.removeItem(ATTEMPT_KEY);
-        await signOut(auth);
-        window.location.href = "/?banned=admin";
-        return;
-      }
-    }
-
     await signOut(auth);
     window.location.href = "/";
     return;
@@ -161,9 +126,6 @@ onAuthStateChanged(auth, async (user) => {
 
   currentUser = user;
   if (adminEmail) adminEmail.textContent = user.email;
-
-  // Auth confirmed — reveal page
-  document.body.style.visibility = "visible";
 
   setupPageRouting();
   await loadSystemSettings();
@@ -183,7 +145,7 @@ function escHtml(str) {
 function showToast(message, type = "info") {
   const toast = document.createElement("div");
   toast.className = `toast ${type}`;
-  toast.innerHTML = message;
+  toast.textContent = message;
   toastContainer.appendChild(toast);
 
   setTimeout(() => {
@@ -359,7 +321,6 @@ function renderUsersTable(users) {
                   user.uid,
                 )}" style="padding: 4px 8px; font-size: 0.75rem;">Unban</button>`
           }
-          <button class="btn-danger" data-action="delete" data-uid="${escHtml(user.uid)}" style="padding:4px 8px;font-size:0.75rem;margin-left:2px;opacity:0.75">Delete</button>
         </td>
       </tr>`;
   });
@@ -376,26 +337,8 @@ function renderUsersTable(users) {
       if (action === "ban") openBanModal(uid);
       if (action === "unban") unbanUser(uid);
       if (action === "view") viewUserDetails(uid);
-      if (action === "delete") deleteUser(uid);
     });
   });
-}
-
-async function deleteUser(uid) {
-  const user = allUsers.find((u) => u.uid === uid);
-  const label = user?.name || user?.email || uid;
-  if (!confirm(`Permanently delete "${label}"?\n\nThis removes their account from BookWare. Cannot be undone.`)) return;
-  try {
-    await deleteDoc(doc(db, "users", uid));
-    // Clean up role-specific docs
-    try { await deleteDoc(doc(db, "students", uid)); } catch (_) {}
-    try { await deleteDoc(doc(db, "teachers", uid)); } catch (_) {}
-    showToast(`Deleted ${label}`, "success");
-    await loadAllUsers();
-    await loadSystemStats();
-  } catch (err) {
-    showToast(`Delete failed: ${err.message}`, "warning");
-  }
 }
 
 function viewUserDetails(uid) {
