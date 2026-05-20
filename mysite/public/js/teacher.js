@@ -125,13 +125,6 @@ onAuthStateChanged(auth, async (user) => {
     return;
   }
 
-  // Allowlist gate
-  if (!isEmailAllowed(user.email)) {
-    await signOut(auth);
-    window.location.href = "/";
-    return;
-  }
-
   const userSnap = await getDoc(doc(db, "users", user.uid));
   if (!userSnap.exists() || userSnap.data().role !== "teacher") {
     await signOut(auth);

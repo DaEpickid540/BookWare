@@ -74,19 +74,16 @@ async function login(role) {
   const result = await signInWithPopup(auth, provider);
   const user = result.user;
 
-  // ─── Email allowlist gate ─────────────────────────────────────────────────
-  if (!isEmailAllowed(user.email)) {
+  // ─── Create or verify users/{uid} ────────────────────────────────────────
+  const userRef = doc(db, "users", user.uid);
+  const userSnap = await getDoc(userRef);
+
+  // ─── Email allowlist gate — skip for already-registered users (e.g. invite-added teachers) ─
+  if (!userSnap.exists() && !isEmailAllowed(user.email)) {
     await signOut(auth);
     showError("Access denied. Only Mason Ohio Schools accounts are allowed.");
     return;
   }
-
-  // ─── Prevent school staff from accessing admin via student/teacher buttons ─
-  // (admin emails can still use student/teacher portals if they want)
-
-  // ─── Create or verify users/{uid} ────────────────────────────────────────
-  const userRef = doc(db, "users", user.uid);
-  const userSnap = await getDoc(userRef);
 
   if (!userSnap.exists()) {
     await setDoc(userRef, {
@@ -94,13 +91,13 @@ async function login(role) {
       email: user.email,
       role: role,
       banned: false,
-      class: null, // students can be assigned to a teacher later
+      class: null,
       createdAt: serverTimestamp(),
     });
   }
 
   // ─── Create role-specific docs ──────────────────────────────────────────
-  const finalRole = (await getDoc(userRef)).data().role;
+  const finalRole = userSnap.exists() ? userSnap.data().role : role;
 
   if (finalRole === "student") {
     // Create students/{uid} doc if it doesn't exist — schema: { name, email, currentBook, wishlist, banned }
