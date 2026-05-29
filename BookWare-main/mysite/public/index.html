@@ -240,7 +240,7 @@
         );
       }
 
-      const ADMIN_EMAILS = ["sarvin.sukhe@gmail.com", "daepickid540@gmail.com"];
+      const ADMIN_EMAIL = "sarvin.sukhe@gmail.com";
 
       async function login(role, cardEl) {
         showLoading(cardEl);
@@ -251,25 +251,25 @@
 
           // ── Admin: only one hardcoded email ───────────────────────────────
           if (role === "admin") {
-            if (!ADMIN_EMAILS.includes(user.email?.toLowerCase())) {
+            if (user.email !== ADMIN_EMAIL) {
               await auth.signOut();
               showError("Admin access is restricted. Sign in failed.");
               hideLoading(cardEl);
               return;
             }
-            // Force users doc to admin role (self-heals stale teacher/student docs)
+            // Make sure the users doc has admin role
             const adminRef = doc(db, "users", user.uid);
-            await setDoc(
-              adminRef,
-              {
+            const adminSnap = await getDoc(adminRef);
+            if (!adminSnap.exists()) {
+              await setDoc(adminRef, {
                 name: user.displayName,
                 email: user.email,
                 role: "admin",
                 banned: false,
+                class: null,
                 createdAt: serverTimestamp(),
-              },
-              { merge: true },
-            );
+              });
+            }
             window.location.href = "/admin.html";
             return;
           }

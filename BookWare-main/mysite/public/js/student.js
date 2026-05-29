@@ -155,6 +155,9 @@ onAuthStateChanged(auth, async (user) => {
   // Auth confirmed — reveal page
   document.body.style.visibility = "visible";
 
+  // Load recommendation IDs for button state
+  await loadMyRecIds();
+
   // ── Ban check ────────────────────────────────────────────────────────────
   if (userData.banned) {
     const expiry = userData.banExpiry?.toDate?.();
@@ -191,9 +194,6 @@ onAuthStateChanged(auth, async (user) => {
   }
   studentData = sSnap.data();
   addedTeacherIds = studentData.addedTeachers ?? [];
-
-  // Load recommendation IDs for button state (needs studentData to exist first)
-  await loadMyRecIds();
 
   // ── Init ─────────────────────────────────────────────────────────────────
   populateTopBar();

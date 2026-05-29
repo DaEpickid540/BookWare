@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BookWare — Student</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/css/student.css" />
+    <style>body{visibility:hidden}</style>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <script>
+      // Apply brightness before first paint to avoid flash
+      (function() {
+        var val = parseInt(localStorage.getItem("bookware-brightness") || "18", 10);
+        var t = val / 100;
+        function lerp(a,b,t){return a+(b-a)*t;}
+        function clamp(v){return Math.max(0,Math.min(255,Math.round(v)));}
+        function hex(v){v=clamp(v);return"#"+v.toString(16).padStart(2,"0").repeat(3);}
+        var base=lerp(0,255,t);
+        var offAlt=lerp(16,-8,t);
+        var r = document.documentElement;
+        r.style.setProperty("--bg", hex(base));
+        r.style.setProperty("--bg-alt", hex(base+offAlt));
+        r.style.setProperty("--bg-light", hex(base+lerp(28,-18,t)));
+        r.style.setProperty("--card", hex(base+lerp(-8,8,t)));
+        r.style.setProperty("--border", hex(base+offAlt*0.6));
+        var textV = val<=45 ? lerp(240,200,val/45) : val>=55 ? lerp(200,26,(val-55)/45) : 200;
+        r.style.setProperty("--text", hex(textV));
+        if(val>=50) r.setAttribute("data-theme","light");
+        var color = localStorage.getItem("bookware-color");
+        if(color && color !== "crimson") r.setAttribute("data-color", color);
+      })();
+    </script>
+  </head>
+  <body>
+    <!-- ══ SIDEBAR ══════════════════════════════════════════════════════════ -->
+    <aside class="sb" id="sidebar">
+      <div class="sb-head">
+        <div class="sb-logo">
+          <div class="sb-dot"></div>
+          <span class="sb-name">BookWare</span>
+        </div>
+        <button
+          class="sb-toggle"
+          id="sidebarToggle"
+          aria-label="Toggle sidebar"
+        >
+          &#9776;
+        </button>
+      </div>
+
+      <nav>
+        <button class="ni active" data-page="library">
+          <span class="ni-icon"><i class="bi bi-collection-fill"></i></span>
+          <span class="ni-label">Library</span>
+        </button>
+        <button class="ni" data-page="locker">
+          <span class="ni-icon"><i class="bi bi-backpack-fill"></i></span>
+          <span class="ni-label">Locker</span>
+        </button>
+        <button class="ni" data-page="wishlist">
+          <span class="ni-icon"><i class="bi bi-heart"></i></span>
+          <span class="ni-label">Wishlist</span>
+        </button>
+        <button class="ni" data-page="profile">
+          <span class="ni-icon"><i class="bi bi-person-fill"></i></span>
+          <span class="ni-label">Profile</span>
+        </button>
+      </nav>
+
+      <div class="sb-foot">
+        <button class="ni" data-page="settings">
+          <span class="ni-icon"><i class="bi bi-gear-fill"></i></span>
+          <span class="ni-label">Settings</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ══ MAIN ════════════════════════════════════════════════════════════ -->
+    <div class="main">
+      <!-- Top bar -->
+      <div class="tbar">
+        <div class="pt" id="pt">Library</div>
+        <div class="tbar-right">
+          <div class="av" id="userAvatar">?</div>
+          <span class="uname" id="userDisplayName">—</span>
+        </div>
+      </div>
+
+      <div class="content">
+        <!-- ════════════════════════════════════════════════════════
+           LIBRARY PAGE
+           Layout matches the mockup exactly:
+           - Full-width notifications banner
+           - r2 grid: left = library selector + books, right = col of 2 cards
+           ════════════════════════════════════════════════════════ -->
+        <div id="libraryPage" class="pg active">
+          <!-- Notifications banner — always visible -->
+          <div class="banner" id="notifBanner">
+            <div class="lbl">Notifications</div>
+            <div class="notif-grid" id="notifBannerInner">
+              <div class="nr">
+                <div class="nd dim"></div>
+                <div class="nt" style="color: var(--muted)">
+                  Loading notifications…
+                </div>
+              </div>
+              <div class="nr"></div>
+              <div class="nr"></div>
+            </div>
+          </div>
+
+          <!-- Two-column grid -->
+          <div class="r2">
+            <!-- LEFT: teacher selector + search + book list -->
+            <div class="c">
+              <div class="lbl">Select a Library</div>
+
+              <!-- Teacher chips — JS renders .btn-role buttons here -->
+              <div class="chips" id="teacherList">
+                <span style="font-size: 0.72rem; color: var(--muted)"
+                  >Loading libraries…</span
+                >
+              </div>
+
+              <!-- Search box -->
+              <div class="sbox">
+                <span class="sbox-icon"><i class="bi bi-search"></i></span>
+                <input
+                  id="searchInput"
+                  class="sbox-input"
+                  type="text"
+                  placeholder="Search by title, author, or ISBN…"
+                />
+              </div>
+
+              <!-- Book list — JS renders .br rows here -->
+              <div id="bookList">
+                <p class="empty-state">
+                  Select a library above to browse books.
+                </p>
+              </div>
+
+              <!-- Hidden compat element -->
+              <div id="bookListTitle" style="display: none"></div>
+            </div>
+
+            <!-- RIGHT: stacked cards column (matches mockup right column) -->
+            <div class="col" id="teacherExtras">
+              <!-- Recommendations placeholder — JS replaces these when a teacher is selected -->
+              <div class="c" id="recCardPlaceholder">
+                <div class="lbl"><i class="bi bi-star-fill"></i> Recommendations</div>
+                <p class="empty-state" style="line-height: 1.6">
+                  To see what your teacher recommends, join a library using your
+                  teacher's code
+                  <span style="display: inline-block; margin-top: 6px">
+                    <button
+                      class="btn-sm"
+                      onclick="document.querySelector('[data-page=settings]').click()"
+                      style="font-size: 0.65rem"
+                    >
+                      Add a Code <i class="bi bi-arrow-right"></i>
+                    </button>
+                  </span>
+                </p>
+              </div>
+
+              <!-- Now reading placeholder -->
+              <div class="c" id="readingCardPlaceholder">
+                <div class="lbl"><i class="bi bi-book-fill"></i> Teacher is Reading</div>
+                <p class="empty-state" style="line-height: 1.6">
+                  To see what your teacher is currently reading, join their
+                  library using their class code <i class="bi bi-emoji-smile"></i>
+                </p>
+              </div>
+            </div>
+          </div>
+          <!-- /r2 -->
+
+          <!-- All Libraries discovery section — injected by JS below the r2 -->
+          <div id="allLibrariesSection"></div>
+        </div>
+        <!-- /libraryPage -->
+
+        <!-- ════════════════════════════════════════════════════════
+           LOCKER PAGE
+           ════════════════════════════════════════════════════════ -->
+        <div id="lockerPage" class="pg">
+          <!-- Return instructions banner -->
+          <div class="banner">
+            <div class="lbl">How to Return Books</div>
+            <div class="steps-row">
+              <div class="step">
+                <div class="step-num">1</div>
+                <span class="muted"
+                  >Hand the book back to your teacher in class</span
+                >
+              </div>
+              <div class="step">
+                <div class="step-num">2</div>
+                <span class="muted"
+                  >Your teacher signs off the return on their end</span
+                >
+              </div>
+              <div class="step">
+                <div class="step-num">3</div>
+                <span class="muted"
+                  >It'll appear as returned in your reading log below</span
+                >
+              </div>
+            </div>
+          </div>
+
+          <!-- Active loans -->
+          <div class="lbl">Active Loans</div>
+          <div id="activeLoans">
+            <p class="empty-state">Loading…</p>
+          </div>
+
+          <!-- Reading log -->
+          <div class="log-header">
+            <div class="lbl" style="margin-bottom: 0">Reading Log</div>
+            <button class="btn-sm" id="downloadLogBtn"><i class="bi bi-arrow-down"></i> Download .MD</button>
+          </div>
+          <div id="readingLog">
+            <p class="empty-state">Loading history…</p>
+          </div>
+        </div>
+        <!-- /lockerPage -->
+
+        <!-- ════════════════════════════════════════════════════════
+           WISHLIST PAGE
+           ════════════════════════════════════════════════════════ -->
+        <div id="wishlistPage" class="pg">
+          <div class="r2">
+            <!-- Left: saved books -->
+            <div class="c">
+              <div class="lbl">My Wishlist</div>
+              <div id="wishlistPanel">
+                <p class="empty-state">
+                  Your wishlist is empty. Search for books on the right!
+                </p>
+              </div>
+            </div>
+
+            <!-- Right: search Google Books to add -->
+            <div class="c">
+              <div class="lbl">Search Books to Wishlist</div>
+              <div class="sbox" style="margin-bottom: 10px">
+                <span class="sbox-icon"><i class="bi bi-search"></i></span>
+                <input
+                  id="wishlistSearchInput"
+                  class="sbox-input"
+                  type="text"
+                  placeholder="Search by title or author…"
+                />
+              </div>
+              <div id="wishlistSearchResults">
+                <p class="empty-state">Type above to search Google Books.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- /wishlistPage -->
+
+        <!-- ════════════════════════════════════════════════════════
+           PROFILE PAGE
+           ════════════════════════════════════════════════════════ -->
+        <div id="profilePage" class="pg">
+          <div class="gap">
+            <div class="r2">
+              <!-- Currently reading -->
+              <div class="c">
+                <div class="lbl"><i class="bi bi-book-fill"></i> Currently Reading</div>
+                <div id="profileCurrentBook">
+                  <p class="empty-state">Loading…</p>
+                </div>
+              </div>
+
+              <!-- My recommendations -->
+              <div class="c">
+                <div class="lbl"><i class="bi bi-star-fill"></i> My Recommendations</div>
+                <div id="myRecommendations">
+                  <p class="empty-state">No recommendations yet.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Reading stats -->
+            <div class="c">
+              <div class="lbl">Reading Stats</div>
+              <div class="sg" id="readingStats">
+                <p class="empty-state">Loading…</p>
+              </div>
+            </div>
+
+            <!-- Similar readers -->
+            <div class="c">
+              <div class="lbl">Readers with Similar Interests</div>
+              <div class="similar-grid" id="similarReaders">
+                <p class="empty-state">Loading…</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- /profilePage -->
+
+        <!-- ════════════════════════════════════════════════════════
+           SETTINGS PAGE
+           ════════════════════════════════════════════════════════ -->
+        <div id="settingsPage" class="pg">
+          <div class="settings-wrap">
+            <!-- Account -->
+            <div class="s-section">
+              <div class="s-head">
+                <div>
+                  <div class="s-title">Account</div>
+                  <div class="s-sub" id="settingsEmail">—</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- My Information -->
+            <div class="s-section">
+              <div class="s-head">
+                <div>
+                  <div class="s-title">My Information</div>
+                  <div class="s-sub">Name, email, class assignment</div>
+                </div>
+              </div>
+              <div class="s-body" id="myInfoSection">
+                <p class="empty-state">Loading…</p>
+              </div>
+            </div>
+
+            <!-- Teacher Libraries -->
+            <div class="s-section">
+              <div class="s-head">
+                <div>
+                  <div class="s-title">Teacher Libraries</div>
+                  <div class="s-sub">
+                    Add a teacher's library using their class code
+                  </div>
+                </div>
+              </div>
+              <div class="s-body">
+                <div class="s-row s-row-col">
+                  <div class="s-label">
+                    Enter the code your teacher gave you
+                  </div>
+                  <div class="s-hint">
+                    This adds their library to your selector on the Library page
+                  </div>
+                  <div class="code-input">
+                    <input
+                      type="text"
+                      id="teacherCodeInput"
+                      placeholder="e.g. MJ-2024-A3"
+                      maxlength="24"
+                    />
+                    <button class="btn-primary" id="addTeacherCodeBtn">
+                      Add Library
+                    </button>
+                  </div>
+                </div>
+                <div id="addedTeachersList"></div>
+              </div>
+            </div>
+
+            <!-- Privacy -->
+            <div class="s-section">
+              <div class="s-head">
+                <div>
+                  <div class="s-title">Privacy</div>
+                  <div class="s-sub">Control what others can see about you</div>
+                </div>
+              </div>
+              <div class="s-body">
+                <div class="s-row">
+                  <div>
+                    <div class="s-label">Show currently reading</div>
+                    <div class="s-hint">
+                      Other students can see what you're reading
+                    </div>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="privacyShowReading" checked />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div>
+                  </label>
+                </div>
+                <div class="s-row">
+                  <div>
+                    <div class="s-label">Show my recommendations</div>
+                    <div class="s-hint">
+                      Visible on your profile to classmates
+                    </div>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="privacyShowRecs" checked />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div>
+                  </label>
+                </div>
+                <div class="s-row">
+                  <div>
+                    <div class="s-label">Appear in Similar Readers</div>
+                    <div class="s-hint">
+                      Let others discover you by reading interests
+                    </div>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="privacyShowSimilar" />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Appearance -->
+            <div class="s-section">
+              <div class="s-head">
+                <div>
+                  <div class="s-title">Appearance</div>
+                  <div class="s-sub">Theme &amp; brightness</div>
+                </div>
+              </div>
+              <div class="s-body">
+                <!-- Named theme presets -->
+                <div class="s-row" style="flex-direction:column;align-items:flex-start;gap:10px">
+                  <div class="s-label">Color Themes</div>
+                  <div class="theme-preset-grid">
+                    <button class="theme-preset" data-preset="midnight">
+                      <div class="theme-preset-preview" style="background:#0d0d0d">
+                        <div class="theme-preset-accent" style="background:#e74c3c"></div>
+                      </div>
+                      <span>Midnight</span>
+                    </button>
+                    <button class="theme-preset active" data-preset="night">
+                      <div class="theme-preset-preview" style="background:#2e2e2e">
+                        <div class="theme-preset-accent" style="background:#e74c3c"></div>
+                      </div>
+                      <span>Night</span>
+                    </button>
+                    <button class="theme-preset" data-preset="dusk">
+                      <div class="theme-preset-preview" style="background:#525252">
+                        <div class="theme-preset-accent" style="background:#e67e22"></div>
+                      </div>
+                      <span>Dusk</span>
+                    </button>
+                    <button class="theme-preset" data-preset="ash">
+                      <div class="theme-preset-preview" style="background:#858585">
+                        <div class="theme-preset-accent" style="background:#607d8b"></div>
+                      </div>
+                      <span>Ash</span>
+                    </button>
+                    <button class="theme-preset" data-preset="parchment">
+                      <div class="theme-preset-preview" style="background:#b8b8b8">
+                        <div class="theme-preset-accent" style="background:#e67e22"></div>
+                      </div>
+                      <span>Parchment</span>
+                    </button>
+                    <button class="theme-preset" data-preset="snow">
+                      <div class="theme-preset-preview" style="background:#f2f2f2">
+                        <div class="theme-preset-accent" style="background:#2980b9"></div>
+                      </div>
+                      <span>Snow</span>
+                    </button>
+                  </div>
+                </div>
+                <!-- Fine-tune brightness -->
+                <div class="s-row" style="flex-direction:column;align-items:flex-start;gap:10px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
+                    <div class="s-label">Fine-tune Brightness</div>
+                    <span id="brightnessLabel" style="font-size:0.72rem;color:var(--muted)">Dark</span>
+                  </div>
+                  <div style="width:100%;display:flex;align-items:center;gap:10px">
+                    <i class="bi bi-moon-stars-fill" style="color:var(--muted);font-size:0.9rem;flex-shrink:0"></i>
+                    <input
+                      type="range"
+                      id="brightnessSlider"
+                      min="0" max="100" value="18"
+                      class="brightness-slider"
+                      style="flex:1"
+                    />
+                    <i class="bi bi-sun-fill" style="color:var(--muted);font-size:0.9rem;flex-shrink:0"></i>
+                  </div>
+                </div>
+                <!-- Accent color -->
+                <div class="s-row">
+                  <div>
+                    <div class="s-label">Accent Color</div>
+                    <div class="s-hint">Changes buttons, badges, and highlights</div>
+                  </div>
+                  <div class="color-swatch-row">
+                    <button class="color-swatch active" data-color="crimson"  title="Crimson"></button>
+                    <button class="color-swatch"        data-color="ocean"    title="Ocean"></button>
+                    <button class="color-swatch"        data-color="forest"   title="Forest"></button>
+                    <button class="color-swatch"        data-color="amethyst" title="Amethyst"></button>
+                    <button class="color-swatch"        data-color="sunset"   title="Sunset"></button>
+                    <button class="color-swatch"        data-color="slate"    title="Slate"></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Notifications -->
+            <div class="s-section">
+              <div class="s-head">
+                <div>
+                  <div class="s-title">Notifications</div>
+                  <div class="s-sub">Wishlist and library alerts</div>
+                </div>
+              </div>
+              <div class="s-body">
+                <div class="s-row">
+                  <div>
+                    <div class="s-label">Wishlist available alerts</div>
+                    <div class="s-hint">
+                      Notify when a wishlisted book becomes free
+                    </div>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="notifWishlist" checked />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div>
+                  </label>
+                </div>
+                <div class="s-row">
+                  <div>
+                    <div class="s-label">New book announcements</div>
+                    <div class="s-hint">
+                      When your teacher adds books to their library
+                    </div>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="notifNewBooks" />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- ARIA AI -->
+            <div class="s-section">
+              <div class="s-head">
+                <div>
+                  <div class="s-title"><i class="bi bi-robot"></i> ARIA AI</div>
+                  <div class="s-sub">Personal AI reading assistant</div>
+                </div>
+              </div>
+              <div class="s-body">
+                <div class="s-row">
+                  <div>
+                    <div class="s-label">Enable ARIA</div>
+                    <div class="s-hint">Adds an AI chat button to your library</div>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="ariaEnabled" />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div>
+                  </label>
+                </div>
+                <div id="ariaSetupPanel" style="display:none">
+                  <div class="s-row" style="flex-direction:column;align-items:flex-start;gap:10px">
+                    <div>
+                      <div class="s-label">Groq API Key</div>
+                      <div class="s-hint">ARIA runs on Groq's free tier — fast and private</div>
+                    </div>
+                    <input type="password" id="ariaApiKey" class="t-input" placeholder="gsk_..." style="width:100%;font-family:monospace;font-size:0.78rem" autocomplete="off" />
+                    <button class="btn-sm" id="ariaSaveKeyBtn">Save Key</button>
+                  </div>
+                  <div class="banner" style="margin-top:10px;padding:12px 14px">
+                    <div class="lbl" style="font-size:0.78rem;margin-bottom:8px">How to get your free Groq key</div>
+                    <ol style="font-size:0.72rem;color:var(--muted);margin:0;padding-left:16px;line-height:1.8">
+                      <li>Go to <strong>console.groq.com</strong> and sign up (free)</li>
+                      <li>Click <strong>API Keys</strong> in the left sidebar</li>
+                      <li>Click <strong>Create API Key</strong>, name it "BookWare"</li>
+                      <li>Copy the key (starts with <code>gsk_</code>) and paste it above</li>
+                      <li>Hit <strong>Save Key</strong> — ARIA is ready!</li>
+                    </ol>
+                    <p style="font-size:0.68rem;color:var(--muted);margin-top:8px;margin-bottom:0">Your key is stored only in your browser. It never touches our servers.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- About -->
+            <div class="s-section">
+              <div class="s-head">
+                <div>
+                  <div class="s-title">About</div>
+                  <div class="s-sub">
+                    BookWare v1.0 · Mason High School · Sarvin Sukhe
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Sign out -->
+            <div class="signout-bar" id="signoutBar">
+              <div>
+                <div class="signout-label">Sign Out</div>
+                <div class="signout-hint" id="signoutEmail">—</div>
+              </div>
+              <span class="signout-arrow"><i class="bi bi-arrow-right"></i></span>
+            </div>
+          </div>
+        </div>
+        <!-- /settingsPage -->
+      </div>
+      <!-- /content -->
+    </div>
+    <!-- /main -->
+
+    <div id="notificationContainer" class="toast-container"></div>
+    <script type="module" src="/js/student.js"></script>
+  </body>
+</html>

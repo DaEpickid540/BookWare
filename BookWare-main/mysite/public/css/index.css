@@ -1,0 +1,22 @@
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* BookWare CSS Architecture */
+/* ARIA Pattern: Modular CSS imports */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+/* 1. Variables & design tokens */
+@import url("./variables.css");
+
+/* 2. Global styles & resets */
+@import url("./base.css");
+
+/* 3. Layout structures */
+@import url("./layout.css");
+
+/* 4. Reusable components */
+@import url("./components.css");
+
+/* 5. Admin-specific styles */
+@import url("./admin.css");
+
+/* 6. Responsive design */
+@import url("./responsive.css");

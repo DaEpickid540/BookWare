@@ -1,0 +1,724 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   teacher.css — Teacher portal additions
+   Imports student.css for the full design system, adds teacher-only pieces
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── PAGE ACTIONS BAR ──────────────────────────────────────────────────────── */
+.t-page-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 13px;
+}
+
+/* ── INPUT HELPERS ─────────────────────────────────────────────────────────── */
+.t-input {
+  flex: 1;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 12px;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color var(--tr);
+  min-width: 0;
+}
+.t-input:focus {
+  border-color: var(--accent);
+}
+.t-input::placeholder {
+  color: var(--muted);
+}
+.t-input-sm {
+  width: 80px !important;
+  flex: none;
+}
+
+.t-input-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.t-btn-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.t-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 14px 0;
+}
+
+.t-hint {
+  font-size: 0.68rem;
+  color: var(--muted);
+  line-height: 1.55;
+  margin-bottom: 4px;
+}
+
+.t-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.t-row-title {
+  font-size: 0.76rem;
+  color: var(--text);
+  font-weight: 500;
+}
+.t-row-sub {
+  font-size: 0.68rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* ── STUDENT CODE BOX ──────────────────────────────────────────────────────── */
+.code-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-top: 6px;
+}
+
+.code-val {
+  font-family: "Courier New", monospace;
+  font-size: 1.1rem;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.code-box-btns {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ── BOOK ROW (library list) ───────────────────────────────────────────────── */
+/* teacher uses .br/.bc/.bi/.bt from student.css but needs a wrapper in .c */
+.t-book-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+.t-book-row:last-child {
+  border-bottom: none;
+}
+
+.t-book-cover {
+  width: 32px;
+  height: 46px;
+  object-fit: cover;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.t-book-cover-ph {
+  width: 32px;
+  height: 46px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+}
+
+.t-book-info {
+  flex: 1;
+  min-width: 0;
+}
+.t-book-title {
+  font-size: 0.78rem;
+  color: var(--text);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.t-book-author {
+  font-size: 0.66rem;
+  color: var(--muted);
+  margin-top: 1px;
+  margin-bottom: 5px;
+}
+.t-book-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+/* ── LIBRARY COUNT CHIP ────────────────────────────────────────────────────── */
+.t-count-chip {
+  font-size: 0.62rem;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 2px 9px;
+}
+
+/* ── BOOK STATUS BADGES ────────────────────────────────────────────────────── */
+.t-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.58rem;
+  padding: 2px 7px;
+  border-radius: 9px;
+  margin-top: 3px;
+}
+.t-badge.available {
+  background: rgba(46, 204, 113, 0.1);
+  color: var(--success);
+  border: 1px solid rgba(46, 204, 113, 0.2);
+}
+.t-badge.checked-out {
+  background: rgba(231, 76, 60, 0.1);
+  color: var(--accent);
+  border: 1px solid rgba(231, 76, 60, 0.2);
+}
+.t-badge.recommended {
+  background: rgba(243, 156, 18, 0.1);
+  color: #f39c12;
+  border: 1px solid rgba(243, 156, 18, 0.2);
+}
+.t-badge-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* ── XS BUTTONS ────────────────────────────────────────────────────────────── */
+.btn-xs {
+  font-size: 0.64rem;
+  padding: 3px 9px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all var(--tr);
+  font-family: inherit;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.btn-xs:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(231, 76, 60, 0.05);
+}
+.btn-xs.starred {
+  color: #f39c12;
+  border-color: rgba(243, 156, 18, 0.35);
+}
+.btn-xs.starred:hover {
+  background: rgba(243, 156, 18, 0.08);
+}
+.btn-xs.success {
+  color: var(--success);
+  border-color: rgba(46, 204, 113, 0.35);
+}
+.btn-xs.success:hover {
+  background: rgba(46, 204, 113, 0.08);
+}
+.btn-xs.danger {
+  color: var(--danger);
+  border-color: rgba(192, 57, 43, 0.35);
+}
+.btn-xs.danger:hover {
+  background: rgba(192, 57, 43, 0.08);
+}
+
+/* Danger button (bans) */
+.danger-btn {
+  color: var(--danger) !important;
+  border-color: rgba(192, 57, 43, 0.5) !important;
+  flex-shrink: 0;
+}
+.danger-btn:hover {
+  background: rgba(192, 57, 43, 0.1) !important;
+}
+
+/* ── BAN FORM ───────────────────────────────────────────────────────────────── */
+.t-ban-form {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* ── BAN ITEM ───────────────────────────────────────────────────────────────── */
+.ban-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+.ban-item:last-child {
+  border-bottom: none;
+}
+.ban-name {
+  font-size: 0.76rem;
+  color: var(--text);
+  font-weight: 500;
+}
+.ban-meta {
+  font-size: 0.65rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.ban-reason {
+  font-size: 0.65rem;
+  color: var(--danger);
+  margin-top: 2px;
+}
+
+/* ── NOW READING PREVIEW ────────────────────────────────────────────────────── */
+.reading-preview-card {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 14px;
+  background: var(--bg-inset);
+  border: 1px solid var(--accent);
+  border-radius: var(--r);
+  box-shadow: 0 0 14px rgba(231, 76, 60, 0.15);
+}
+.reading-preview-label {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.reading-preview-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.reading-preview-author {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+/* ── SELECT ─────────────────────────────────────────────────────────────────── */
+.t-select {
+  width: 100%;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 12px;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--tr);
+}
+.t-select:focus {
+  border-color: var(--accent);
+}
+
+/* ── PERMISSION BADGE ────────────────────────────────────────────────────────── */
+.t-perm-badge {
+  font-size: 0.64rem;
+  padding: 3px 9px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+/* ── INVITE LINK BOX ─────────────────────────────────────────────────────────── */
+.invite-link-box {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 12px;
+  margin-top: 10px;
+}
+.invite-link-box input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--muted);
+  font-size: 0.72rem;
+  min-width: 0;
+  font-family: inherit;
+}
+
+/* ── PAST INVITE ROWS ────────────────────────────────────────────────────────── */
+.invite-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+.invite-row:last-child {
+  border-bottom: none;
+}
+.invite-token {
+  font-size: 0.72rem;
+  color: var(--text);
+  font-weight: 500;
+}
+.invite-meta {
+  font-size: 0.64rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.inv-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.inv-dot.active {
+  background: var(--success);
+  box-shadow: 0 0 5px rgba(46, 204, 113, 0.5);
+}
+.inv-dot.used {
+  background: var(--muted);
+}
+.inv-dot.expired {
+  background: var(--danger);
+}
+
+/* ── VIS BADGE (library card top-right) ──────────────────────────────────────── */
+.vis-badge {
+  font-size: 0.58rem;
+  padding: 2px 8px;
+  border-radius: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.vis-badge.public {
+  background: rgba(52, 152, 219, 0.12);
+  color: #3498db;
+  border: 1px solid rgba(52, 152, 219, 0.3);
+}
+.vis-badge.class-only {
+  background: rgba(46, 204, 113, 0.1);
+  color: var(--success);
+  border: 1px solid rgba(46, 204, 113, 0.3);
+}
+
+/* ── CURRENTLY READING DISPLAY (in set card) ─────────────────────────────────── */
+.reading-set-card {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.reading-set-cover {
+  width: 36px;
+  height: 52px;
+  object-fit: cover;
+  border-radius: 3px;
+  border: 1px solid var(--accent);
+  flex-shrink: 0;
+}
+.reading-set-title {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.reading-set-author {
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+.reading-set-note {
+  font-size: 0.62rem;
+  color: var(--muted);
+  margin-top: 4px;
+  opacity: 0.7;
+}
+
+/* ── ISBN RESULT ─────────────────────────────────────────────────────────────── */
+.t-isbn-result {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.t-isbn-cover {
+  width: 52px;
+  height: 74px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.t-isbn-fields {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── S-VALUE (settings rows) ─────────────────────────────────────────────────── */
+.s-value {
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+/* ── BOOK SEARCH GRID (add to library) ──────────────────────────────────────── */
+.book-search-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.book-search-card {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  transition: border-color var(--tr);
+}
+.book-search-card:hover {
+  border-color: var(--accent);
+}
+
+.book-search-cover {
+  width: 40px;
+  height: 58px;
+  object-fit: cover;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.book-search-cover-ph {
+  width: 40px;
+  height: 58px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.book-search-info {
+  flex: 1;
+  min-width: 0;
+}
+.book-search-title {
+  font-size: 0.74rem;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 2px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.book-search-author {
+  font-size: 0.64rem;
+  color: var(--muted);
+}
+.book-search-isbn {
+  font-size: 0.6rem;
+  color: var(--muted);
+  margin-top: 2px;
+  opacity: 0.7;
+}
+
+@media (max-width: 700px) {
+  .book-search-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ─── Multi-Class Cards ─────────────────────────────────────────────────────── */
+.class-card {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  transition: border-color var(--transition);
+}
+.class-card:hover {
+  border-color: var(--accent);
+}
+.class-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.class-card-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.class-card-meta {
+  font-size: 0.68rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* ── COLOR THEME SWATCHES ─────────────────────────────────────────────────── */
+.color-swatch-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.color-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2.5px solid transparent;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+  outline: none;
+  position: relative;
+}
+.color-swatch:hover { transform: scale(1.15); }
+.color-swatch.active {
+  border-color: var(--text);
+  transform: scale(1.15);
+}
+.color-swatch.active::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.35);
+}
+.color-swatch[data-color="crimson"]  { background: #e74c3c; }
+.color-swatch[data-color="ocean"]    { background: #2980b9; }
+.color-swatch[data-color="forest"]   { background: #27ae60; }
+.color-swatch[data-color="amethyst"] { background: #8e44ad; }
+.color-swatch[data-color="sunset"]   { background: #e67e22; }
+.color-swatch[data-color="slate"]    { background: #607d8b; }
+
+/* ── BRIGHTNESS SLIDER ────────────────────────────────────────────────────── */
+.brightness-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(to right, #000000, #ffffff);
+  outline: none;
+  cursor: pointer;
+  border: 1px solid rgba(128,128,128,0.3);
+}
+.brightness-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2.5px solid var(--text);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.brightness-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2.5px solid var(--text);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  cursor: pointer;
+}
+.brightness-slider::-webkit-slider-thumb:hover,
+.brightness-slider:active::-webkit-slider-thumb {
+  transform: scale(1.2);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
+
+/* ── THEME PRESET CARDS ───────────────────────────────────────────────────── */
+.theme-preset-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+}
+.theme-preset {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 5px 7px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+  flex-shrink: 0;
+}
+.theme-preset:hover { border-color: var(--text-muted); transform: translateY(-2px); }
+.theme-preset.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.theme-preset-preview {
+  width: 48px;
+  height: 34px;
+  border-radius: 5px;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid rgba(128,128,128,0.2);
+}
+.theme-preset-accent {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 7px;
+}
+.theme-preset span {
+  font-size: 0.63rem;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.theme-preset.active span { color: var(--accent); font-weight: 600; }

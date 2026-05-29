@@ -1,0 +1,236 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ────────────────────────────────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function uid() {
+      return request.auth.uid;
+    }
+
+    function userRole() {
+      return get(/databases/$(database)/documents/users/$(uid())).data.role;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && userRole() == "admin";
+    }
+
+    function isTeacher() {
+      return isSignedIn() && userRole() == "teacher";
+    }
+
+    function isStudent() {
+      return isSignedIn() && userRole() == "student";
+    }
+
+    function isBanned() {
+      let u = get(/databases/$(database)/documents/users/$(uid())).data;
+      return u.get("banned", false) == true &&
+        (u.get("banExpiry", null) == null ||
+         u.banExpiry > request.time);
+    }
+
+    function notBanned() {
+      return !isBanned();
+    }
+
+    function allowedEmail() {
+      return request.auth.token.email.matches(".*@masonohioschools\\.com") ||
+        request.auth.token.email in [
+          "sarvin.sukhe@gmail.com",
+          "daepickid540@gmail.com"
+        ];
+    }
+
+    // ── users/{uid} ────────────────────────────────────────────────────────────
+    match /users/{userId} {
+      // Anyone can read their own doc; admins can read all
+      allow read: if isSignedIn() && (uid() == userId || isAdmin());
+
+      // Only the system (auth.js setDoc) can create — role must match one of the 3 valid values
+      allow create: if isSignedIn() &&
+        uid() == userId &&
+        allowedEmail() &&
+        request.resource.data.role in ["student", "teacher", "admin"] &&
+        request.resource.data.banned == false;
+
+      // Users can update their own non-sensitive fields; admins can update anything
+      allow update: if isAdmin() ||
+        // Hardcoded admin emails can promote their own account to role: "admin"
+        (isSignedIn() && uid() == userId &&
+         request.auth.token.email.lower() in ["sarvin.sukhe@gmail.com", "daepickid540@gmail.com"] &&
+         request.resource.data.role == "admin" &&
+         !request.resource.data.diff(resource.data).affectedKeys()
+           .hasAny(["banned", "banExpiry", "banReason", "bannedBy"])) ||
+        (isSignedIn() && uid() == userId &&
+         // Students/teachers cannot change their own role or ban status
+         !request.resource.data.diff(resource.data).affectedKeys()
+           .hasAny(["role", "banned", "banExpiry", "banReason", "bannedBy"]));
+
+      // Only admins can delete users
+      allow delete: if isAdmin();
+    }
+
+    // ── students/{uid} ─────────────────────────────────────────────────────────
+    match /students/{studentId} {
+      // Student reads own doc; teachers read any student doc; admins read all
+      allow read: if isSignedIn() &&
+        (uid() == studentId || isTeacher() || isAdmin());
+
+      // Student creates/updates own doc (not ban fields)
+      allow create: if isSignedIn() && uid() == studentId && allowedEmail();
+      allow update: if (isSignedIn() && uid() == studentId && notBanned() &&
+         !request.resource.data.diff(resource.data).affectedKeys()
+           .hasAny(["banned", "banExpiry", "banReason"])) ||
+        isTeacher() || isAdmin();
+
+      allow delete: if isAdmin();
+
+      // Student recommendations subcollection
+      match /recommendations/{recId} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn() && uid() == studentId && notBanned();
+      }
+    }
+
+    // ── teachers/{uid} ─────────────────────────────────────────────────────────
+    match /teachers/{teacherId} {
+      // Any signed-in user can read teacher profile (for library browsing)
+      allow read: if isSignedIn() && allowedEmail();
+
+      // Only the teacher themselves or admin can write their profile
+      allow create: if isSignedIn() && uid() == teacherId &&
+        (userRole() == "teacher" || isAdmin()) && allowedEmail();
+      allow update: if (isSignedIn() && uid() == teacherId && isTeacher()) ||
+        isAdmin();
+      allow delete: if isAdmin();
+
+      // ── teachers/{uid}/books/{bookId} ────────────────────────────────────
+      match /books/{bookId} {
+        // Students can read books if:
+        //   (a) the library is public (libraryPublic == true), OR
+        //   (b) they are enrolled in any of this teacher's classes
+        // Teachers and admins always have access.
+        allow read: if isAdmin() ||
+          (isSignedIn() && uid() == teacherId && isTeacher()) ||
+          (isSignedIn() && allowedEmail() &&
+            (get(/databases/$(database)/documents/teachers/$(teacherId)).data.get("libraryPublic", false) == true ||
+             exists(/databases/$(database)/documents/teachers/$(teacherId)/students/$(uid()))));
+
+        // Only the owning teacher or admin can create/delete books
+        allow create: if (isSignedIn() && uid() == teacherId && isTeacher()) ||
+          isAdmin();
+        allow delete: if (isSignedIn() && uid() == teacherId && isTeacher()) ||
+          isAdmin();
+
+        // Students can update checkout-related fields only when enrolled OR library is public
+        allow update: if isAdmin() ||
+          (isSignedIn() && uid() == teacherId && isTeacher()) ||
+          (isSignedIn() && isStudent() && notBanned() &&
+           request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(["status", "checkedOutBy", "checkedOutAt",
+                       "dueDate", "checkedOutCount"]) &&
+           (get(/databases/$(database)/documents/teachers/$(teacherId)).data.get("libraryPublic", false) == true ||
+            exists(/databases/$(database)/documents/teachers/$(teacherId)/students/$(uid()))));
+      }
+
+      // ── teachers/{uid}/history/{histId} ─────────────────────────────────
+      match /history/{histId} {
+        allow read: if isSignedIn() &&
+          (uid() == teacherId || isAdmin() ||
+           (isStudent() && resource.data.studentId == uid()));
+        allow create: if isSignedIn() && isStudent() && notBanned();
+        allow update: if (isSignedIn() && uid() == teacherId && isTeacher()) ||
+          isAdmin();
+        allow delete: if isAdmin();
+      }
+
+      // ── teachers/{uid}/classes/{classId} ────────────────────────────────
+      match /classes/{classId} {
+        allow read: if isSignedIn() && allowedEmail();
+        allow write: if (isSignedIn() && uid() == teacherId && isTeacher()) ||
+          isAdmin();
+
+        // ── teachers/{uid}/classes/{classId}/students/{sid} ─────────────
+        match /students/{sid} {
+          allow read: if isSignedIn() &&
+            (uid() == teacherId || uid() == sid || isAdmin());
+          // Students enroll themselves; teachers manage their own roster
+          allow create: if isSignedIn() &&
+            (uid() == sid || uid() == teacherId) && allowedEmail();
+          allow delete: if isSignedIn() &&
+            (uid() == teacherId || uid() == sid || isAdmin());
+          allow update: if isAdmin();
+        }
+      }
+
+      // ── teachers/{uid}/recommendations/{recId} ──────────────────────────
+      match /recommendations/{recId} {
+        allow read: if isSignedIn() && allowedEmail();
+        allow write: if (isSignedIn() && uid() == teacherId && isTeacher()) ||
+          isAdmin();
+      }
+
+      // ── Legacy flat roster (teachers/{uid}/students/{sid}) ───────────────
+      match /students/{sid} {
+        allow read: if isSignedIn() &&
+          (uid() == teacherId || uid() == sid || isAdmin());
+        allow create: if isSignedIn() &&
+          (uid() == sid || uid() == teacherId) && allowedEmail();
+        allow delete: if isSignedIn() &&
+          (uid() == teacherId || uid() == sid || isAdmin());
+        allow update: if isAdmin();
+      }
+    }
+
+    // ── invites/{token} ────────────────────────────────────────────────────────
+    match /invites/{token} {
+      // Anyone can read to validate a token (needed for signup page — no auth yet)
+      allow read: if true;
+
+      // Only teachers and admins can create invites
+      // recipientEmail must be provided and match the allowed domain
+      allow create: if isSignedIn() && (isTeacher() || isAdmin()) &&
+        request.resource.data.keys().hasAll(["recipientEmail", "used", "expiresAt", "createdBy"]) &&
+        request.resource.data.used == false &&
+        (request.resource.data.recipientEmail.matches(".*@masonohioschools\\.com") ||
+         request.resource.data.recipientEmail in [
+           "sarvin.sukhe@gmail.com", "daepickid540@gmail.com"
+         ]);
+
+      // Claim: signed-in user whose email matches recipientEmail can mark used
+      // Revoke: the teacher who created it or an admin can also mark used
+      allow update: if isSignedIn() &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(["used", "claimedBy", "claimedAt", "revokedAt", "revokedBy"]) &&
+        request.resource.data.used == true &&
+        (request.auth.token.email.lower() == resource.data.recipientEmail.lower() ||
+         request.auth.uid == resource.data.createdBy ||
+         isAdmin());
+
+      allow delete: if isAdmin();
+    }
+
+    // ── admin/settings ─────────────────────────────────────────────────────────
+    match /admin/{doc} {
+      allow read: if isSignedIn();     // maintenance mode check needs read
+      allow write: if isAdmin();
+    }
+
+    // ── notifications (future FCM) ─────────────────────────────────────────────
+    match /notifications/{userId}/{document=**} {
+      allow read: if isSignedIn() && uid() == userId;
+      allow write: if isAdmin() || isTeacher();
+    }
+
+    // ── Deny everything else ───────────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
