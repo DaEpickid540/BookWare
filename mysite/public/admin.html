@@ -5,6 +5,31 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BookWare — Admin</title>
     <link rel="stylesheet" href="/css/index.css" />
+    <style>body{visibility:hidden}</style>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <script>
+      // Apply brightness before first paint to avoid flash
+      (function() {
+        var val = parseInt(localStorage.getItem("bookware-brightness") || "18", 10);
+        var t = val / 100;
+        function lerp(a,b,t){return a+(b-a)*t;}
+        function clamp(v){return Math.max(0,Math.min(255,Math.round(v)));}
+        function hex(v){v=clamp(v);return"#"+v.toString(16).padStart(2,"0").repeat(3);}
+        var base=lerp(0,255,t);
+        var offAlt=lerp(16,-8,t);
+        var r = document.documentElement;
+        r.style.setProperty("--bg", hex(base));
+        r.style.setProperty("--bg-alt", hex(base+offAlt));
+        r.style.setProperty("--bg-light", hex(base+lerp(28,-18,t)));
+        r.style.setProperty("--card", hex(base+lerp(-8,8,t)));
+        r.style.setProperty("--border", hex(base+offAlt*0.6));
+        var textV = val<=45 ? lerp(240,200,val/45) : val>=55 ? lerp(200,26,(val-55)/45) : 200;
+        r.style.setProperty("--text", hex(textV));
+        if(val>=50) r.setAttribute("data-theme","light");
+        var color = localStorage.getItem("bookware-color");
+        if(color && color !== "crimson") r.setAttribute("data-color", color);
+      })();
+    </script>
   </head>
   <body>
     <div class="app-container">
@@ -20,15 +45,15 @@
         <ul class="sidebar-nav">
           <li>
             <button class="nav-item active" data-page="dashboard">
-              📊 Dashboard
+              <i class="bi bi-bar-chart-fill"></i> Dashboard
             </button>
           </li>
-          <li><button class="nav-item" data-page="users">👥 Users</button></li>
-          <li><button class="nav-item" data-page="bans">🚫 Bans</button></li>
+          <li><button class="nav-item" data-page="users"><i class="bi bi-people-fill"></i> Users</button></li>
+          <li><button class="nav-item" data-page="bans"><i class="bi bi-slash-circle-fill"></i> Bans</button></li>
           <li>
-            <button class="nav-item" data-page="settings">⚙️ Settings</button>
+            <button class="nav-item" data-page="settings"><i class="bi bi-gear-fill"></i> Settings</button>
           </li>
-          <li><button class="nav-item" data-page="debug">🐛 Debug</button></li>
+          <li><button class="nav-item" data-page="debug"><i class="bi bi-bug-fill"></i> Debug</button></li>
         </ul>
 
         <div class="sidebar-footer">

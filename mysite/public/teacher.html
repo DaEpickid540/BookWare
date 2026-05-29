@@ -12,6 +12,31 @@
     />
     <link rel="stylesheet" href="/css/student.css" />
     <link rel="stylesheet" href="/css/teacher.css" />
+    <style>body{visibility:hidden}</style>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <script>
+      // Apply brightness before first paint to avoid flash
+      (function() {
+        var val = parseInt(localStorage.getItem("bookware-brightness") || "18", 10);
+        var t = val / 100;
+        function lerp(a,b,t){return a+(b-a)*t;}
+        function clamp(v){return Math.max(0,Math.min(255,Math.round(v)));}
+        function hex(v){v=clamp(v);return"#"+v.toString(16).padStart(2,"0").repeat(3);}
+        var base=lerp(0,255,t);
+        var offAlt=lerp(16,-8,t);
+        var r = document.documentElement;
+        r.style.setProperty("--bg", hex(base));
+        r.style.setProperty("--bg-alt", hex(base+offAlt));
+        r.style.setProperty("--bg-light", hex(base+lerp(28,-18,t)));
+        r.style.setProperty("--card", hex(base+lerp(-8,8,t)));
+        r.style.setProperty("--border", hex(base+offAlt*0.6));
+        var textV = val<=45 ? lerp(240,200,val/45) : val>=55 ? lerp(200,26,(val-55)/45) : 200;
+        r.style.setProperty("--text", hex(textV));
+        if(val>=50) r.setAttribute("data-theme","light");
+        var color = localStorage.getItem("bookware-color");
+        if(color && color !== "crimson") r.setAttribute("data-color", color);
+      })();
+    </script>
   </head>
   <body>
     <!-- ══ SIDEBAR ══════════════════════════════════════════════════════════ -->
@@ -31,27 +56,27 @@
       </div>
       <nav>
         <button class="ni active" data-page="library">
-          <span class="ni-icon">📚</span><span class="ni-label">Library</span>
+          <span class="ni-icon"><i class="bi bi-collection-fill"></i></span><span class="ni-label">Library</span>
         </button>
         <button class="ni" data-page="students">
-          <span class="ni-icon">👥</span><span class="ni-label">Students</span>
+          <span class="ni-icon"><i class="bi bi-people-fill"></i></span><span class="ni-label">Students</span>
         </button>
         <button class="ni" data-page="reading">
-          <span class="ni-icon">📖</span
+          <span class="ni-icon"><i class="bi bi-book-fill"></i></span
           ><span class="ni-label">Now Reading</span>
         </button>
         <button class="ni" data-page="recommendations">
-          <span class="ni-icon">⭐</span
+          <span class="ni-icon"><i class="bi bi-star-fill"></i></span
           ><span class="ni-label">Recommendations</span>
         </button>
         <button class="ni" data-page="invites">
-          <span class="ni-icon">🔗</span
+          <span class="ni-icon"><i class="bi bi-link-45deg"></i></span
           ><span class="ni-label">Invite Teachers</span>
         </button>
       </nav>
       <div class="sb-foot">
         <button class="ni" data-page="settings">
-          <span class="ni-icon">⚙️</span><span class="ni-label">Settings</span>
+          <span class="ni-icon"><i class="bi bi-gear-fill"></i></span><span class="ni-label">Settings</span>
         </button>
       </div>
     </aside>
@@ -70,7 +95,7 @@
         <!-- ══ LIBRARY ══ -->
         <div id="libraryPage" class="pg active">
           <div class="banner" id="biweeklyBanner" style="display: none">
-            <div class="lbl">📋 Bi-Weekly Check-In — Books Currently Out</div>
+            <div class="lbl"><i class="bi bi-clipboard2-fill"></i> Bi-Weekly Check-In — Books Currently Out</div>
             <div id="biweeklyContent"></div>
           </div>
 
@@ -90,18 +115,13 @@
 
               <div class="t-divider"></div>
 
-              <div class="lbl">Student Access Code</div>
-              <p class="t-hint">
-                Refreshing the code keeps existing students enrolled.
+              <div class="lbl">Classes & Access Codes</div>
+              <p class="t-hint" style="margin-bottom:10px">
+                Each class gets its own code. All classes share the same book library.
+                Students enter their class code to join and access your books.
               </p>
-              <div class="code-box">
-                <span class="code-val" id="studentCodeValue">—</span>
-                <div class="code-box-btns">
-                  <button class="btn-sm" id="copyStudentCodeBtn">Copy</button>
-                  <button class="btn-sm" id="refreshStudentCodeBtn">
-                    ↻ New
-                  </button>
-                </div>
+              <div id="classManagerContainer">
+                <p class="empty-state">Loading classes…</p>
               </div>
 
               <div class="t-divider"></div>
@@ -110,9 +130,7 @@
               <div class="t-toggle-row">
                 <div>
                   <div class="t-row-title">Who can see this library</div>
-                  <div class="t-row-sub" id="visibilityHint">
-                    Only your class
-                  </div>
+                  <div class="t-row-sub" id="visibilityHint">Only your class</div>
                 </div>
                 <label class="toggle">
                   <input type="checkbox" id="libraryPublicToggle" />
@@ -120,9 +138,12 @@
                   <div class="toggle-thumb"></div>
                 </label>
               </div>
-              <p class="t-hint">
-                When <strong>Public</strong>, any student can discover and
-                request books — even outside your class.
+              <div id="visibilityDetail" style="margin-top:10px;padding:10px 12px;background:var(--bg-alt);border:1px solid var(--border);border-radius:var(--radius);font-size:0.72rem;color:var(--muted);display:none">
+                <div id="visibilityDetailInner"></div>
+              </div>
+              <p class="t-hint" style="margin-top:8px">
+                <strong>Class Only</strong> — students must join via your class code. Books are hidden from the discovery grid.<br>
+                <strong>Public</strong> — any Mason student can discover and browse your library. They can only <em>check out</em> if enrolled in your class.
               </p>
             </div>
 
@@ -139,7 +160,7 @@
                 <span class="t-count-chip" id="libraryCountChip">—</span>
               </div>
               <div class="sbox">
-                <span class="sbox-icon">🔍</span>
+                <span class="sbox-icon"><i class="bi bi-search"></i></span>
                 <input
                   id="librarySearchInput"
                   class="sbox-input"
@@ -155,7 +176,7 @@
         <!-- ══ STUDENTS ══ -->
         <div id="studentsPage" class="pg">
           <div class="t-page-actions">
-            <button class="btn-sm" id="exportCheckoutsBtn">↓ Export .MD</button>
+            <button class="btn-sm" id="exportCheckoutsBtn"><i class="bi bi-arrow-down"></i> Export .MD</button>
           </div>
 
           <div class="r2">
@@ -179,7 +200,7 @@
                 margin-bottom: 10px;
               "
             >
-              <div class="lbl" style="margin-bottom: 0">👥 My Class Roster</div>
+              <div class="lbl" style="margin-bottom: 0"><i class="bi bi-people-fill"></i> My Class Roster</div>
               <span class="t-count-chip" id="rosterCount">— students</span>
             </div>
             <p class="t-hint" style="margin-bottom: 10px">
@@ -191,7 +212,7 @@
           </div>
 
           <div class="c" style="margin-top: 13px">
-            <div class="lbl">⚠️ Temporary Bans</div>
+            <div class="lbl"><i class="bi bi-exclamation-triangle-fill"></i> Temporary Bans</div>
             <p class="t-hint" style="margin-bottom: 10px">
               Issue a temporary ban if a student is misusing the system (e.g.
               inappropriate content, harassment).
@@ -285,7 +306,7 @@
               "
             >
               <div class="lbl" style="margin-bottom: 0">
-                📖 Currently Reading
+                <i class="bi bi-book-fill"></i> Currently Reading
               </div>
               <button class="btn-sm" id="recClearReadingBtn">Clear</button>
             </div>
@@ -323,7 +344,7 @@
                 Search your library or Google Books to recommend a book.
               </p>
               <div class="sbox" style="margin-bottom: 10px">
-                <span class="sbox-icon">🔍</span>
+                <span class="sbox-icon"><i class="bi bi-search"></i></span>
                 <input
                   id="recSearchInput"
                   class="sbox-input"
@@ -338,21 +359,34 @@
           </div>
         </div>
 
-        <!-- ══ INVITE TEACHERS ══ -->
+        <!-- ══ INVITE TEACHERS ══ -->\
         <div id="invitesPage" class="pg">
           <div class="gap" style="max-width: 640px">
             <div class="c">
-              <div class="lbl">Generate an Invite Link</div>
+              <div class="lbl">Invite a Teacher</div>
               <p class="t-hint" style="margin-bottom: 14px">
-                Creates a one-time sign-up link valid for 7 days. The new
-                teacher uses it to create their account — no need to ask an
-                admin. Requires <strong>canInvite</strong> permission.
+                Enter the new teacher's school email. A one-time sign-up link
+                is generated and locked to that address — only they can use it.
+                Valid for 7 days.
               </p>
-              <div style="display: flex; align-items: center; gap: 10px">
-                <button class="btn-primary" id="createInviteBtn">
-                  Generate Link
-                </button>
-                <span class="t-perm-badge" id="canInviteStatus"></span>
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <div class="sbox">
+                  <span class="sbox-icon"><i class="bi bi-envelope-fill"></i></span>
+                  <input
+                    id="inviteEmailInput"
+                    class="sbox-input"
+                    type="email"
+                    placeholder="colleague@masonohioschools.com"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                </div>
+                <div style="display:flex;align-items:center;gap:10px">
+                  <button class="btn-primary" id="createInviteBtn">
+                    <i class="bi bi-link-45deg"></i> Generate &amp; Copy Link
+                  </button>
+                  <span class="t-perm-badge" id="canInviteStatus"></span>
+                </div>
               </div>
               <div id="inviteOutput"></div>
             </div>
@@ -403,19 +437,127 @@
               <div class="s-head">
                 <div>
                   <div class="s-title">Appearance</div>
-                  <div class="s-sub">Theme preference</div>
+                  <div class="s-sub">Theme &amp; brightness</div>
+                </div>
+              </div>
+              <div class="s-body">
+                <!-- Named theme presets -->
+                <div class="s-row" style="flex-direction:column;align-items:flex-start;gap:10px">
+                  <div class="s-label">Color Themes</div>
+                  <div class="theme-preset-grid">
+                    <button class="theme-preset" data-preset="midnight">
+                      <div class="theme-preset-preview" style="background:#0d0d0d">
+                        <div class="theme-preset-accent" style="background:#e74c3c"></div>
+                      </div>
+                      <span>Midnight</span>
+                    </button>
+                    <button class="theme-preset active" data-preset="night">
+                      <div class="theme-preset-preview" style="background:#2e2e2e">
+                        <div class="theme-preset-accent" style="background:#e74c3c"></div>
+                      </div>
+                      <span>Night</span>
+                    </button>
+                    <button class="theme-preset" data-preset="dusk">
+                      <div class="theme-preset-preview" style="background:#525252">
+                        <div class="theme-preset-accent" style="background:#e67e22"></div>
+                      </div>
+                      <span>Dusk</span>
+                    </button>
+                    <button class="theme-preset" data-preset="ash">
+                      <div class="theme-preset-preview" style="background:#858585">
+                        <div class="theme-preset-accent" style="background:#607d8b"></div>
+                      </div>
+                      <span>Ash</span>
+                    </button>
+                    <button class="theme-preset" data-preset="parchment">
+                      <div class="theme-preset-preview" style="background:#b8b8b8">
+                        <div class="theme-preset-accent" style="background:#e67e22"></div>
+                      </div>
+                      <span>Parchment</span>
+                    </button>
+                    <button class="theme-preset" data-preset="snow">
+                      <div class="theme-preset-preview" style="background:#f2f2f2">
+                        <div class="theme-preset-accent" style="background:#2980b9"></div>
+                      </div>
+                      <span>Snow</span>
+                    </button>
+                  </div>
+                </div>
+                <!-- Fine-tune brightness -->
+                <div class="s-row" style="flex-direction:column;align-items:flex-start;gap:10px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
+                    <div class="s-label">Fine-tune Brightness</div>
+                    <span id="brightnessLabel" style="font-size:0.72rem;color:var(--muted)">Dark</span>
+                  </div>
+                  <div style="width:100%;display:flex;align-items:center;gap:10px">
+                    <i class="bi bi-moon-stars-fill" style="color:var(--muted);font-size:0.9rem;flex-shrink:0"></i>
+                    <input
+                      type="range"
+                      id="brightnessSlider"
+                      min="0" max="100" value="18"
+                      class="brightness-slider"
+                      style="flex:1"
+                    />
+                    <i class="bi bi-sun-fill" style="color:var(--muted);font-size:0.9rem;flex-shrink:0"></i>
+                  </div>
+                </div>
+                <!-- Accent color -->
+                <div class="s-row">
+                  <div>
+                    <div class="s-label">Accent Color</div>
+                    <div class="s-hint">Changes buttons, badges, and highlights</div>
+                  </div>
+                  <div class="color-swatch-row">
+                    <button class="color-swatch active" data-color="crimson"  title="Crimson"></button>
+                    <button class="color-swatch"        data-color="ocean"    title="Ocean"></button>
+                    <button class="color-swatch"        data-color="forest"   title="Forest"></button>
+                    <button class="color-swatch"        data-color="amethyst" title="Amethyst"></button>
+                    <button class="color-swatch"        data-color="sunset"   title="Sunset"></button>
+                    <button class="color-swatch"        data-color="slate"    title="Slate"></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- ARIA AI -->
+            <div class="s-section">
+              <div class="s-head">
+                <div>
+                  <div class="s-title"><i class="bi bi-robot"></i> ARIA AI</div>
+                  <div class="s-sub">Personal AI reading assistant</div>
                 </div>
               </div>
               <div class="s-body">
                 <div class="s-row">
-                  <div class="s-label">Theme</div>
-                  <div class="th-row">
-                    <button class="th-btn on theme-btn" data-theme="dark">
-                      🌙 Dark
-                    </button>
-                    <button class="th-btn theme-btn" data-theme="light">
-                      ☀️ Light
-                    </button>
+                  <div>
+                    <div class="s-label">Enable ARIA</div>
+                    <div class="s-hint">Adds an AI assistant to your library view</div>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="ariaEnabled" />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div>
+                  </label>
+                </div>
+                <div id="ariaSetupPanel" style="display:none">
+                  <div class="s-row" style="flex-direction:column;align-items:flex-start;gap:10px">
+                    <div>
+                      <div class="s-label">Groq API Key</div>
+                      <div class="s-hint">ARIA runs on Groq's free tier — fast and private</div>
+                    </div>
+                    <input type="password" id="ariaApiKey" class="t-input" placeholder="gsk_..." style="width:100%;font-family:monospace;font-size:0.78rem" autocomplete="off" />
+                    <button class="btn-sm" id="ariaSaveKeyBtn">Save Key</button>
+                  </div>
+                  <div class="banner" style="margin-top:10px;padding:12px 14px">
+                    <div class="lbl" style="font-size:0.78rem;margin-bottom:8px">How to get your free Groq key</div>
+                    <ol style="font-size:0.72rem;color:var(--muted);margin:0;padding-left:16px;line-height:1.8">
+                      <li>Go to <strong>console.groq.com</strong> and sign up (free)</li>
+                      <li>Click <strong>API Keys</strong> in the left sidebar</li>
+                      <li>Click <strong>Create API Key</strong>, name it "BookWare"</li>
+                      <li>Copy the key (starts with <code>gsk_</code>) and paste it above</li>
+                      <li>Hit <strong>Save Key</strong> — ARIA is ready!</li>
+                    </ol>
+                    <p style="font-size:0.68rem;color:var(--muted);margin-top:8px;margin-bottom:0">Your key is stored only in your browser. It never touches our servers.</p>
                   </div>
                 </div>
               </div>
@@ -438,7 +580,7 @@
               <div class="signout-label">Sign Out</div>
               <div class="signout-hint" id="signoutEmail">—</div>
             </div>
-            <span class="signout-arrow">→</span>
+            <span class="signout-arrow"><i class="bi bi-arrow-right"></i></span>
           </div>
         </div>
       </div>

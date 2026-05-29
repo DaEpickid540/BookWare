@@ -53,7 +53,7 @@ async function login(role) {
       showError("Access denied. Admin login is restricted.");
       return;
     }
-    // Admin doc creation handled below — fall through with role = "admin"
+    // Ensure user doc exists and has role: "admin"
     const userRef = doc(db, "users", user.uid);
     const userSnap = await getDoc(userRef);
     if (!userSnap.exists()) {
@@ -65,6 +65,16 @@ async function login(role) {
         class: null,
         createdAt: serverTimestamp(),
       });
+    } else if (userSnap.data().role !== "admin") {
+      // Existing account (e.g. teacher) — elevate to admin
+      try {
+        await updateDoc(userRef, { role: "admin" });
+      } catch (e) {
+        console.error("[auth.js] Failed to elevate role to admin:", e);
+        showError("Could not set admin role. Contact the system administrator.");
+        await signOut(auth);
+        return;
+      }
     }
     window.location.href = "/admin.html";
     return;
@@ -74,16 +84,19 @@ async function login(role) {
   const result = await signInWithPopup(auth, provider);
   const user = result.user;
 
-  // ─── Create or verify users/{uid} ────────────────────────────────────────
-  const userRef = doc(db, "users", user.uid);
-  const userSnap = await getDoc(userRef);
-
-  // ─── Email allowlist gate — skip for already-registered users (e.g. invite-added teachers) ─
-  if (!userSnap.exists() && !isEmailAllowed(user.email)) {
+  // ─── Email allowlist gate ─────────────────────────────────────────────────
+  if (!isEmailAllowed(user.email)) {
     await signOut(auth);
     showError("Access denied. Only Mason Ohio Schools accounts are allowed.");
     return;
   }
+
+  // ─── Prevent school staff from accessing admin via student/teacher buttons ─
+  // (admin emails can still use student/teacher portals if they want)
+
+  // ─── Create or verify users/{uid} ────────────────────────────────────────
+  const userRef = doc(db, "users", user.uid);
+  const userSnap = await getDoc(userRef);
 
   if (!userSnap.exists()) {
     await setDoc(userRef, {
@@ -91,13 +104,26 @@ async function login(role) {
       email: user.email,
       role: role,
       banned: false,
-      class: null,
+      class: null, // students can be assigned to a teacher later
       createdAt: serverTimestamp(),
     });
   }
 
   // ─── Create role-specific docs ──────────────────────────────────────────
-  const finalRole = userSnap.exists() ? userSnap.data().role : role;
+  const finalRole = (await getDoc(userRef)).data().role;
+
+  // ─── Ban check on login ─────────────────────────────────────────────────
+  const latestUserData = (await getDoc(userRef)).data();
+  if (latestUserData.banned === true) {
+    const expiry = latestUserData.banExpiry?.toDate?.();
+    if (!expiry || expiry > new Date()) {
+      await signOut(auth);
+      const days = expiry ? Math.ceil((expiry - new Date()) / 86400000) : "permanently";
+      const reason = latestUserData.banReason ?? "Policy violation";
+      window.location.href = `/?banned=1&reason=${encodeURIComponent(reason)}&days=${days}`;
+      return;
+    }
+  }
 
   if (finalRole === "student") {
     // Create students/{uid} doc if it doesn't exist — schema: { name, email, currentBook, wishlist, banned }
