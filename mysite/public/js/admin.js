@@ -105,72 +105,67 @@ let systemSettings = {};
 logoutBtn?.addEventListener("click", () => signOut(auth));
 logoutSettingsBtn?.addEventListener("click", () => signOut(auth));
 
-onAuthStateChanged(auth, (user) => {
-  if (!user) window.location.href = "/";
-});
-
 // ─── Auth + Initialization ──────────────────────────────────────────────────────
 onAuthStateChanged(auth, async (user) => {
-  if (!user) {
-    window.location.href = "/";
-    return;
-  }
+  if (!user) { window.location.href = "/"; return; }
 
-  const userRef = doc(db, "users", user.uid);
-  const userSnap = await getDoc(userRef);
-  const isHardcodedAdmin = ADMIN_EMAILS.includes(user.email?.toLowerCase());
-
-  if (!userSnap.exists() || userSnap.data().role !== "admin" || !isHardcodedAdmin) {
-
-    // ── 3-strike auto-ban — never applies to the two hardcoded admin emails ──
-    if (userSnap.exists() && !isHardcodedAdmin) {
-      const ATTEMPT_KEY = `bw-admin-attempts-${user.uid}`;
-      const ONE_HOUR = 60 * 60 * 1000;
-      const now = Date.now();
-
-      // Load existing attempts, prune those older than 1 hour
-      let attempts = [];
-      try { attempts = JSON.parse(localStorage.getItem(ATTEMPT_KEY) || "[]"); } catch (_) {}
-      attempts = attempts.filter(t => now - t < ONE_HOUR);
-      attempts.push(now);
-      localStorage.setItem(ATTEMPT_KEY, JSON.stringify(attempts));
-
-      if (attempts.length >= 3) {
-        // Issue a 24-hour ban
-        const banExpiry = new Date(now + 24 * 60 * 60 * 1000);
-        try {
-          await updateDoc(userRef, {
-            banned: true,
-            banExpiry: Timestamp.fromDate(banExpiry),
-            banReason: "Repeated unauthorized admin access attempts (auto-ban)",
-            bannedBy: "system",
-            bannedAt: serverTimestamp(),
-          });
-        } catch (e) {
-          console.error("[admin.js] Failed to write auto-ban:", e);
-        }
-        localStorage.removeItem(ATTEMPT_KEY);
-        await signOut(auth);
-        window.location.href = "/?banned=admin";
-        return;
-      }
-    }
-
-    await signOut(auth);
-    window.location.href = "/";
-    return;
-  }
-
-  currentUser = user;
-  if (adminEmail) adminEmail.textContent = user.email;
-
-  // Auth confirmed — reveal page
+  // Reveal immediately — any error below is visible, never a silent gray screen
   document.body.style.visibility = "visible";
 
-  setupPageRouting();
-  await loadSystemSettings();
-  await loadDashboard();
-  setupEventListeners();
+  try {
+    const userRef = doc(db, "users", user.uid);
+    const userSnap = await getDoc(userRef);
+    const isHardcodedAdmin = ADMIN_EMAILS.includes(user.email?.toLowerCase());
+
+    if (!userSnap.exists() || userSnap.data().role !== "admin" || !isHardcodedAdmin) {
+
+      // ── 3-strike auto-ban — never applies to the two hardcoded admin emails ──
+      if (userSnap.exists() && !isHardcodedAdmin) {
+        const ATTEMPT_KEY = `bw-admin-attempts-${user.uid}`;
+        const ONE_HOUR = 60 * 60 * 1000;
+        const now = Date.now();
+        let attempts = [];
+        try { attempts = JSON.parse(localStorage.getItem(ATTEMPT_KEY) || "[]"); } catch (_) {}
+        attempts = attempts.filter(t => now - t < ONE_HOUR);
+        attempts.push(now);
+        localStorage.setItem(ATTEMPT_KEY, JSON.stringify(attempts));
+
+        if (attempts.length >= 3) {
+          const banExpiry = new Date(now + 24 * 60 * 60 * 1000);
+          try {
+            await updateDoc(userRef, {
+              banned: true,
+              banExpiry: Timestamp.fromDate(banExpiry),
+              banReason: "Repeated unauthorized admin access attempts (auto-ban)",
+              bannedBy: "system",
+              bannedAt: serverTimestamp(),
+            });
+          } catch (e) {
+            console.error("[admin.js] Failed to write auto-ban:", e);
+          }
+          localStorage.removeItem(ATTEMPT_KEY);
+          await signOut(auth);
+          window.location.href = "/?banned=admin";
+          return;
+        }
+      }
+
+      await signOut(auth);
+      window.location.href = "/";
+      return;
+    }
+
+    currentUser = user;
+    if (adminEmail) adminEmail.textContent = user.email;
+
+    setupPageRouting();
+    await loadSystemSettings();
+    await loadDashboard();
+    setupEventListeners();
+  } catch (err) {
+    console.error("[admin.js] Init failed:", err);
+    showToast(`Failed to load admin portal: ${err.message ?? err.code ?? "unknown error"}. Try refreshing.`, "danger");
+  }
 });
 
 // ─── Utilities ──────────────────────────────────────────────────────────────────

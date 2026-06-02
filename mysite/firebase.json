@@ -27,8 +27,12 @@
             "value": "camera=(), microphone=(), geolocation=()"
           },
           {
+            "key": "Cross-Origin-Opener-Policy",
+            "value": "same-origin-allow-popups"
+          },
+          {
             "key": "Content-Security-Policy",
-            "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: https://covers.openlibrary.org https://books.google.com https://lh3.googleusercontent.com; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://openlibrary.org https://www.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com wss://*.firebaseio.com; frame-src https://accounts.google.com https://*.firebaseapp.com; object-src 'none'; base-uri 'self';"
+            "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' https://cdn.jsdelivr.net https://fonts.gstatic.com; img-src 'self' data: https://covers.openlibrary.org https://books.google.com https://lh3.googleusercontent.com; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://openlibrary.org https://www.googleapis.com wss://*.firebaseio.com; frame-src https://accounts.google.com https://*.firebaseapp.com; object-src 'none'; base-uri 'self';"
           }
         ]
       }

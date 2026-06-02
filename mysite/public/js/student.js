@@ -116,44 +116,42 @@ function isEmailAllowed(email) {
 
 // ─── Auth ──────────────────────────────────────────────────────────────────────
 onAuthStateChanged(auth, async (user) => {
-  if (!user) {
-    window.location.href = "/";
-    return;
-  }
+  if (!user) { window.location.href = "/"; return; }
 
-  // Allowlist gate — boot anyone not from the school domain or admin list
-  if (!isEmailAllowed(user.email)) {
-    await signOut(auth);
-    window.location.href = "/";
-    return;
-  }
+  // Reveal immediately — any error below is now visible, never a silent gray screen
+  document.body.style.visibility = "visible";
 
-  // Maintenance mode check
   try {
-    const settingsSnap = await getDoc(doc(db, "admin", "settings"));
-    if (settingsSnap.exists() && settingsSnap.data().maintenanceMode === true) {
+    // Allowlist gate
+    if (!isEmailAllowed(user.email)) {
       await signOut(auth);
-      alert("BookWare is currently undergoing maintenance. Please check back soon.");
       window.location.href = "/";
       return;
     }
-  } catch (_) { /* if we can't read settings, allow through */ }
 
-  const userRef = doc(db, "users", user.uid);
-  const userSnap = await getDoc(userRef);
+    // Maintenance mode check
+    try {
+      const settingsSnap = await getDoc(doc(db, "admin", "settings"));
+      if (settingsSnap.exists() && settingsSnap.data().maintenanceMode === true) {
+        await signOut(auth);
+        alert("BookWare is currently undergoing maintenance. Please check back soon.");
+        window.location.href = "/";
+        return;
+      }
+    } catch (_) { /* allow through if unreadable */ }
 
-  if (!userSnap.exists() || userSnap.data().role !== "student") {
-    await signOut(auth);
-    window.location.href = "/";
-    return;
-  }
+    const userRef = doc(db, "users", user.uid);
+    const userSnap = await getDoc(userRef);
 
-  userData = userSnap.data();
-  currentUser = user;
-  classTeacherId = userData.class ?? null;
+    if (!userSnap.exists() || userSnap.data().role !== "student") {
+      await signOut(auth);
+      window.location.href = "/";
+      return;
+    }
 
-  // Auth confirmed — reveal page
-  document.body.style.visibility = "visible";
+    userData = userSnap.data();
+    currentUser = user;
+    classTeacherId = userData.class ?? null;
 
   // ── Ban check ────────────────────────────────────────────────────────────
   if (userData.banned) {
@@ -221,6 +219,13 @@ onAuthStateChanged(auth, async (user) => {
     } catch (e) {
       console.warn("[student.js] Could not auto-select first library:", e);
     }
+  }
+  } catch (err) {
+    console.error("[student.js] Init failed:", err);
+    // Body is already visible — toast or alert so the user isn't left stranded
+    const msg = `Failed to load student portal: ${err.message ?? err.code ?? "unknown error"}. Try refreshing.`;
+    if (typeof toast === "function") toast(msg, "danger");
+    else alert(msg);
   }
 });
 

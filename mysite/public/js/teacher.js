@@ -124,48 +124,46 @@ function isEmailAllowed(email) {
 
 // ─── Auth ───────────────────────────────────────────────────────────────────────
 onAuthStateChanged(auth, async (user) => {
-  if (!user) {
-    window.location.href = "/";
-    return;
-  }
+  if (!user) { window.location.href = "/"; return; }
 
-  // Allowlist gate
-  if (!isEmailAllowed(user.email)) {
-    await signOut(auth);
-    window.location.href = "/";
-    return;
-  }
-
-  // Maintenance mode check (admins bypass)
-  if (!ADMIN_EMAILS.includes(user.email?.toLowerCase())) {
-    try {
-      const settingsSnap = await getDoc(doc(db, "admin", "settings"));
-      if (settingsSnap.exists() && settingsSnap.data().maintenanceMode === true) {
-        await signOut(auth);
-        alert("BookWare is currently undergoing maintenance. Please check back soon.");
-        window.location.href = "/";
-        return;
-      }
-    } catch (_) { /* allow through if unreadable */ }
-  }
-
-  const userSnap = await getDoc(doc(db, "users", user.uid));
-  if (!userSnap.exists() || userSnap.data().role !== "teacher") {
-    await signOut(auth);
-    window.location.href = "/";
-    return;
-  }
-
-  currentUser = user;
-  const teacherSnap = await getDoc(doc(db, "teachers", user.uid));
-  if (!teacherSnap.exists()) {
-    toast("Teacher record not found.", "danger");
-    return;
-  }
-  teacherData = teacherSnap.data();
-
-  // Auth confirmed — reveal page
+  // Reveal immediately — any error below is visible, never a silent gray screen
   document.body.style.visibility = "visible";
+
+  try {
+    // Allowlist gate
+    if (!isEmailAllowed(user.email)) {
+      await signOut(auth);
+      window.location.href = "/";
+      return;
+    }
+
+    // Maintenance mode check (admins bypass)
+    if (!ADMIN_EMAILS.includes(user.email?.toLowerCase())) {
+      try {
+        const settingsSnap = await getDoc(doc(db, "admin", "settings"));
+        if (settingsSnap.exists() && settingsSnap.data().maintenanceMode === true) {
+          await signOut(auth);
+          alert("BookWare is currently undergoing maintenance. Please check back soon.");
+          window.location.href = "/";
+          return;
+        }
+      } catch (_) { /* allow through if unreadable */ }
+    }
+
+    const userSnap = await getDoc(doc(db, "users", user.uid));
+    if (!userSnap.exists() || userSnap.data().role !== "teacher") {
+      await signOut(auth);
+      window.location.href = "/";
+      return;
+    }
+
+    currentUser = user;
+    const teacherSnap = await getDoc(doc(db, "teachers", user.uid));
+    if (!teacherSnap.exists()) {
+      toast("Teacher record not found. Ask an admin or another teacher for an invite link.", "danger");
+      return;
+    }
+    teacherData = teacherSnap.data();
 
   populateTopBar();
   if (!sessionStorage.getItem("bw-welcomed")) {
@@ -181,6 +179,10 @@ onAuthStateChanged(auth, async (user) => {
   await loadCurrentlyReading();
   initVisibilityToggle();
   checkBiweeklyNotification();
+  } catch (err) {
+    console.error("[teacher.js] Init failed:", err);
+    toast(`Failed to load teacher portal: ${err.message ?? err.code ?? "unknown error"}. Try refreshing.`, "danger");
+  }
 });
 
 document

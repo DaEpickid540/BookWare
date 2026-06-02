@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "bookware",
+      "runtimeExecutable": "firebase",
+      "runtimeArgs": ["serve", "--only", "hosting", "--port", "5050"],
+      "cwd": "mysite",
+      "port": 5050
+    }
+  ]
+}
