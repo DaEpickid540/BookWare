@@ -40,11 +40,7 @@ service cloud.firestore {
     }
 
     function allowedEmail() {
-      return request.auth.token.email.matches(".*@masonohioschools\\.com") ||
-        request.auth.token.email in [
-          "sarvin.sukhe@gmail.com",
-          "daepickid540@gmail.com"
-        ];
+      return isSignedIn();
     }
 
     // ── users/{uid} ────────────────────────────────────────────────────────────
@@ -197,11 +193,7 @@ service cloud.firestore {
       // recipientEmail must be provided and match the allowed domain
       allow create: if isSignedIn() && (isTeacher() || isAdmin()) &&
         request.resource.data.keys().hasAll(["recipientEmail", "used", "expiresAt", "createdBy"]) &&
-        request.resource.data.used == false &&
-        (request.resource.data.recipientEmail.matches(".*@masonohioschools\\.com") ||
-         request.resource.data.recipientEmail in [
-           "sarvin.sukhe@gmail.com", "daepickid540@gmail.com"
-         ]);
+        request.resource.data.used == false;
 
       // Claim: signed-in user whose email matches recipientEmail can mark used
       // Revoke: the teacher who created it or an admin can also mark used

@@ -16,8 +16,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const ALLOWED_DOMAIN = "@masonohioschools.com";
-const ADMIN_EMAILS   = ["sarvin.sukhe@gmail.com", "daepickid540@gmail.com"];
+const ADMIN_EMAILS = ["sarvin.sukhe@gmail.com", "daepickid540@gmail.com"];
 
 // ─── DOM refs ─────────────────────────────────────────────────────────────────
 const overlay    = document.getElementById("signinOverlay");
@@ -25,11 +24,6 @@ const errorToast = document.getElementById("errorToast");
 let   errorTimer = null;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-const isAllowed = (email) => {
-  if (!email) return false;
-  const e = email.toLowerCase();
-  return e.endsWith(ALLOWED_DOMAIN) || ADMIN_EMAILS.includes(e);
-};
 const isAdmin = (email) => ADMIN_EMAILS.includes(email?.toLowerCase());
 
 function showLoading(card) {
@@ -84,13 +78,6 @@ async function login(role, cardEl) {
       }
       await ensureUserDoc(user, "admin");
       window.location.href = "/admin.html";
-      return;
-    }
-
-    // ── Email gate (teacher + student) ───────────────────────────────────────
-    if (!isAllowed(user.email)) {
-      await signOut(auth);
-      showError("Only Mason Ohio Schools accounts are allowed.");
       return;
     }
 

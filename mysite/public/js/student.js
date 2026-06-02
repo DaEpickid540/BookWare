@@ -104,125 +104,121 @@ function showPage(pageName) {
   if (pageName === "profile") renderProfilePage();
 }
 
-// ─── Email allowlist ───────────────────────────────────────────────────────────
-const ALLOWED_DOMAIN = "@masonohioschools.com";
-const ADMIN_EMAILS = ["sarvin.sukhe@gmail.com", "daepickid540@gmail.com"];
-
-function isEmailAllowed(email) {
-  if (!email) return false;
-  const lower = email.toLowerCase();
-  return lower.endsWith(ALLOWED_DOMAIN) || ADMIN_EMAILS.includes(lower);
-}
-
 // ─── Auth ──────────────────────────────────────────────────────────────────────
-onAuthStateChanged(auth, async (user) => {
-  if (!user) { window.location.href = "/"; return; }
+// Safety net: if onAuthStateChanged never fires (cold init stall), reveal after 5s
+const _safeReveal = setTimeout(() => {
+  document.body.style.visibility = "visible";
+}, 5000);
 
-  // Reveal immediately — any error below is now visible, never a silent gray screen
+onAuthStateChanged(auth, async (user) => {
+  clearTimeout(_safeReveal);
+
+  if (!user) {
+    document.body.style.visibility = "visible";
+    window.location.href = "/";
+    return;
+  }
+
+  // Reveal the page immediately — any subsequent error will be visible
   document.body.style.visibility = "visible";
 
   try {
-    // Allowlist gate
-    if (!isEmailAllowed(user.email)) {
-      await signOut(auth);
-      window.location.href = "/";
-      return;
-    }
-
-    // Maintenance mode check
+    // Maintenance mode check (non-fatal)
     try {
       const settingsSnap = await getDoc(doc(db, "admin", "settings"));
       if (settingsSnap.exists() && settingsSnap.data().maintenanceMode === true) {
         await signOut(auth);
-        alert("BookWare is currently undergoing maintenance. Please check back soon.");
-        window.location.href = "/";
+        window.location.href = "/?maintenance=1";
         return;
       }
-    } catch (_) { /* allow through if unreadable */ }
+    } catch (_) {}
 
     const userRef = doc(db, "users", user.uid);
-    const userSnap = await getDoc(userRef);
+    let userSnap = await getDoc(userRef);
 
-    if (!userSnap.exists() || userSnap.data().role !== "student") {
-      await signOut(auth);
-      window.location.href = "/";
-      return;
-    }
-
-    userData = userSnap.data();
-    currentUser = user;
-    classTeacherId = userData.class ?? null;
-
-  // ── Ban check ────────────────────────────────────────────────────────────
-  if (userData.banned) {
-    const expiry = userData.banExpiry?.toDate?.();
-    if (expiry && expiry < new Date()) {
-      await updateDoc(userRef, {
-        banned: false,
-        banExpiry: null,
-        banReason: null,
+    // Auto-create user doc on first sign-in (no doc = brand new account or migration)
+    if (!userSnap.exists()) {
+      await setDoc(userRef, {
+        name:      user.displayName ?? "",
+        email:     user.email       ?? "",
+        role:      "student",
+        banned:    false,
+        class:     null,
+        createdAt: serverTimestamp(),
       });
-    } else {
-      const days = expiry
-        ? Math.ceil((expiry - new Date()) / 86400000)
-        : "permanently";
-      const reason = userData.banReason ?? "Not specified";
-      await signOut(auth);
-      window.location.href = `/?banned=1&reason=${encodeURIComponent(reason)}&days=${days}`;
-      return;
+      userSnap = await getDoc(userRef);
     }
-  }
 
-  // ── Load student doc ─────────────────────────────────────────────────────
-  let sSnap = await getDoc(doc(db, "students", user.uid));
-  if (!sSnap.exists()) {
-    // Auto-create student doc for first-time Google sign-in
-    await setDoc(doc(db, "students", user.uid), {
-      name: user.displayName ?? "",
-      email: user.email ?? "",
-      currentBook: null,
-      wishlist: [],
-      wishlistMeta: {},
-      banned: false,
-    });
-    sSnap = await getDoc(doc(db, "students", user.uid));
-  }
-  studentData = sSnap.data();
-  addedTeacherIds = studentData.addedTeachers ?? [];
+    // Redirect wrong roles to their correct portal
+    const role = userSnap.data().role;
+    if (role === "teacher") { window.location.href = "/teacher.html"; return; }
+    if (role === "admin")   { window.location.href = "/admin.html";   return; }
 
-  // Load recommendation IDs for button state (needs studentData to exist first)
-  await loadMyRecIds();
+    userData        = userSnap.data();
+    currentUser     = user;
+    classTeacherId  = userData.class ?? null;
 
-  // ── Init ─────────────────────────────────────────────────────────────────
-  populateTopBar();
-  // Welcome toast — shown once per session
-  if (!sessionStorage.getItem("bw-welcomed")) {
-    const firstName = (currentUser.displayName ?? "").split(" ")[0] || "there";
-    setTimeout(() => toast(`Welcome back, ${te(firstName)} <i class="bi bi-hand-wave-fill"></i>`, "success"), 800);
-    sessionStorage.setItem("bw-welcomed", "1");
-  }
-  initTheme();
-  initARIA();
-  setupSignout();
-  populateSettingsInfo();
-  renderWishlist();
-  await loadTeachers();
-  await renderNotifications();
-
-  // Auto-select first available library on load.
-  // Prefer classTeacherId (from userData.class), fall back to first addedTeacherId
-  const firstTeacherId = classTeacherId ?? addedTeacherIds[0] ?? null;
-  if (firstTeacherId) {
-    try {
-      const tSnap = await getDoc(doc(db, "teachers", firstTeacherId));
-      if (tSnap.exists()) await setSelectedTeacher(firstTeacherId, tSnap.data().name);
-    } catch (e) {
-      console.warn("[student.js] Could not auto-select first library:", e);
+    // ── Ban check ──────────────────────────────────────────────────────────
+    if (userData.banned) {
+      const expiry = userData.banExpiry?.toDate?.();
+      if (expiry && expiry < new Date()) {
+        await updateDoc(userRef, { banned: false, banExpiry: null, banReason: null });
+      } else {
+        const days   = expiry ? Math.ceil((expiry - new Date()) / 86400000) : "permanently";
+        const reason = userData.banReason ?? "Not specified";
+        await signOut(auth);
+        window.location.href = `/?banned=1&reason=${encodeURIComponent(reason)}&days=${days}`;
+        return;
+      }
     }
-  }
+
+    // ── Load / create student doc ──────────────────────────────────────────
+    const sRef = doc(db, "students", user.uid);
+    let sSnap  = await getDoc(sRef);
+    if (!sSnap.exists()) {
+      await setDoc(sRef, {
+        name:         user.displayName ?? "",
+        email:        user.email       ?? "",
+        currentBook:  null,
+        wishlist:     [],
+        wishlistMeta: {},
+        banned:       false,
+      });
+      sSnap = await getDoc(sRef);
+    }
+    studentData      = sSnap.data();
+    addedTeacherIds  = studentData.addedTeachers ?? [];
+
+    await loadMyRecIds();
+
+    // ── Init UI ────────────────────────────────────────────────────────────
+    populateTopBar();
+    if (!sessionStorage.getItem("bw-welcomed")) {
+      const firstName = (currentUser.displayName ?? "").split(" ")[0] || "there";
+      setTimeout(() => toast(`Welcome back, ${te(firstName)} <i class="bi bi-hand-wave-fill"></i>`, "success"), 800);
+      sessionStorage.setItem("bw-welcomed", "1");
+    }
+    initTheme();
+    initARIA();
+    setupSignout();
+    populateSettingsInfo();
+    renderWishlist();
+    await loadTeachers();
+    await renderNotifications();
+
+    // Auto-select first linked library
+    const firstTeacherId = classTeacherId ?? addedTeacherIds[0] ?? null;
+    if (firstTeacherId) {
+      try {
+        const tSnap = await getDoc(doc(db, "teachers", firstTeacherId));
+        if (tSnap.exists()) await setSelectedTeacher(firstTeacherId, tSnap.data().name);
+      } catch (e) {
+        console.warn("[student.js] Could not auto-select first library:", e);
+      }
+    }
+
   } catch (err) {
     console.error("[student.js] Init failed:", err);
-    // Body is already visible — toast or alert so the user isn't left stranded
     const msg = `Failed to load student portal: ${err.message ?? err.code ?? "unknown error"}. Try refreshing.`;
     if (typeof toast === "function") toast(msg, "danger");
     else alert(msg);
