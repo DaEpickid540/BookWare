@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": [
+      "Bash (*)",
+      "PowerShell (*)",
+      "Write (**)",
+      "Edit (**)",
+      "Read (**)"
+    ],
+    "deny": [
+      "Bash (rm -rf *)",
+      "Bash (sudo *)",
+      "PowerShell (Remove-Item -Recurse -Force *)"
+    ]
+  }
+}

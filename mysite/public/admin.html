@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BookWare — Admin</title>
-  <meta name="description" content="BookWare Admin Portal — manage users, bans, and system settings." />
+  <meta name="description" content="BookWare Admin Portal — manage users, bans, libraries, and system settings." />
   <meta name="theme-color" content="#1a1a1e" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="/favicon.svg" />
@@ -29,6 +29,8 @@
       var tv = val <= 45 ? lerp(240, 200, val / 45) : val >= 55 ? lerp(200, 26, (val - 55) / 45) : 200;
       r.style.setProperty('--text', hex(tv));
       if (val >= 50) r.setAttribute('data-theme', 'light');
+      var color = localStorage.getItem('bookware-color');
+      if (color && color !== 'crimson') r.setAttribute('data-color', color);
       document.documentElement.style.visibility = 'hidden';
     })();
   </script>
@@ -55,6 +57,14 @@
         <button class="nav-item" data-page="users">
           <i class="bi bi-people-fill" aria-hidden="true"></i>
           <span>Users</span>
+        </button>
+        <button class="nav-item" data-page="libraries">
+          <i class="bi bi-collection-fill" aria-hidden="true"></i>
+          <span>Libraries</span>
+        </button>
+        <button class="nav-item" data-page="rentals">
+          <i class="bi bi-journal-bookmark-fill" aria-hidden="true"></i>
+          <span>Rentals</span>
         </button>
         <button class="nav-item" data-page="bans">
           <i class="bi bi-slash-circle-fill" aria-hidden="true"></i>
@@ -84,6 +94,9 @@
       <section id="dashboardPage" class="page active" aria-label="Dashboard">
         <div class="page-header">
           <h1>Dashboard</h1>
+          <button class="btn btn--ghost" id="refreshStatsBtn">
+            <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Refresh
+          </button>
         </div>
 
         <div class="stats-row" id="statsGrid">
@@ -92,11 +105,11 @@
             <div class="stat-value" id="statTotalUsers">—</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Active Today</div>
-            <div class="stat-value" id="statActiveToday">—</div>
+            <div class="stat-label">Teachers</div>
+            <div class="stat-value" id="statTeachers">—</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Global Bans</div>
+            <div class="stat-label">Active Bans</div>
             <div class="stat-value" id="statBannedUsers">—</div>
           </div>
           <div class="stat-card">
@@ -112,12 +125,11 @@
               <button class="btn btn--primary" id="toggleMaintenanceBtn">
                 <i class="bi bi-wrench-adjustable" aria-hidden="true"></i> Toggle Maintenance Mode
               </button>
-              <button class="btn btn--ghost" id="refreshStatsBtn">
-                <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Refresh Stats
+              <button class="btn btn--ghost" id="exportDataBtn">
+                <i class="bi bi-download" aria-hidden="true"></i> Export All Data (JSON)
               </button>
             </div>
           </div>
-
           <div class="panel-card">
             <div class="panel-title">Recent Activity</div>
             <div id="activityFeed">
@@ -156,6 +168,78 @@
       </section>
 
 
+      <!-- ════════════ LIBRARIES ════════════════════════════════════════ -->
+      <section id="librariesPage" class="page" aria-label="All Libraries">
+        <div class="page-header">
+          <h1>All Libraries</h1>
+          <button class="btn btn--ghost" id="refreshLibrariesBtn">
+            <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Refresh
+          </button>
+        </div>
+
+        <div class="filter-bar">
+          <div class="search-box">
+            <i class="bi bi-search search-box-icon" aria-hidden="true"></i>
+            <input type="search" id="librarySearchInput" class="search-box-input" placeholder="Search teacher name or email…" aria-label="Search libraries" />
+          </div>
+          <select id="libraryVisFilter" class="select-input" aria-label="Filter by visibility">
+            <option value="">All</option>
+            <option value="public">Public</option>
+            <option value="class">Class Only</option>
+          </select>
+        </div>
+
+        <div id="librariesContainer">
+          <p class="empty-state">Loading libraries…</p>
+        </div>
+      </section>
+
+
+      <!-- ════════════ RENTALS ═════════════════════════════════════════ -->
+      <section id="rentalsPage" class="page" aria-label="All Rentals">
+        <div class="page-header">
+          <h1>All Rentals</h1>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="rentalsStatusFilter" class="select-input" aria-label="Filter by status">
+              <option value="">All Statuses</option>
+              <option value="active">Active</option>
+              <option value="returned">Returned</option>
+              <option value="overdue">Overdue</option>
+            </select>
+            <button class="btn btn--ghost" id="exportRentalsBtn">
+              <i class="bi bi-download" aria-hidden="true"></i> Export CSV
+            </button>
+            <button class="btn btn--ghost" id="refreshRentalsBtn">
+              <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Refresh
+            </button>
+          </div>
+        </div>
+
+        <div id="rentalsStatsRow" class="stats-row" style="margin-bottom:16px">
+          <div class="stat-card">
+            <div class="stat-label">Total Rentals</div>
+            <div class="stat-value" id="statTotalRentals">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Active Now</div>
+            <div class="stat-value" id="statActiveRentals">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Overdue</div>
+            <div class="stat-value" id="statOverdueRentals" style="color:var(--danger)">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Returned</div>
+            <div class="stat-value" id="statReturnedRentals">—</div>
+          </div>
+        </div>
+
+        <div id="rentalsTableContainer">
+          <p class="empty-state">Loading rentals…</p>
+        </div>
+      </section>
+
+
       <!-- ════════════ BANS ═════════════════════════════════════════════ -->
       <section id="bansPage" class="page" aria-label="Ban Management">
         <div class="page-header">
@@ -182,84 +266,107 @@
 
         <div class="settings-stack">
 
+          <!-- System panel -->
           <div class="panel-card">
-            <div class="panel-title">Appearance</div>
-            <div class="theme-preset-grid" role="group" aria-label="Theme presets" style="margin-bottom:14px">
-              <button class="theme-preset" data-preset="midnight" aria-label="Midnight theme">
-                <div class="theme-preset-swatch" style="background:#0d0d0d"><div class="theme-preset-accent" style="background:#e74c3c"></div></div>
-                <span>Midnight</span>
-              </button>
-              <button class="theme-preset active" data-preset="night" aria-label="Night theme" aria-pressed="true">
-                <div class="theme-preset-swatch" style="background:#2e2e2e"><div class="theme-preset-accent" style="background:#e74c3c"></div></div>
-                <span>Night</span>
-              </button>
-              <button class="theme-preset" data-preset="dusk" aria-label="Dusk theme">
-                <div class="theme-preset-swatch" style="background:#525252"><div class="theme-preset-accent" style="background:#e67e22"></div></div>
-                <span>Dusk</span>
-              </button>
-              <button class="theme-preset" data-preset="ash" aria-label="Ash theme">
-                <div class="theme-preset-swatch" style="background:#858585"><div class="theme-preset-accent" style="background:#607d8b"></div></div>
-                <span>Ash</span>
-              </button>
-              <button class="theme-preset" data-preset="parchment" aria-label="Parchment theme">
-                <div class="theme-preset-swatch" style="background:#b8b8b8"><div class="theme-preset-accent" style="background:#e67e22"></div></div>
-                <span>Parchment</span>
-              </button>
-              <button class="theme-preset" data-preset="snow" aria-label="Snow theme">
-                <div class="theme-preset-swatch" style="background:#f2f2f2"><div class="theme-preset-accent" style="background:#2980b9"></div></div>
-                <span>Snow</span>
-              </button>
-            </div>
-            <div class="brightness-header" style="margin-bottom:8px">
-              <span class="settings-label">Brightness</span>
-              <span id="brightnessLabel" class="settings-hint">Dark</span>
-            </div>
-            <div class="brightness-slider-row">
-              <i class="bi bi-moon-stars-fill" aria-hidden="true"></i>
-              <input type="range" id="brightnessSlider" min="0" max="100" value="18" class="brightness-slider" aria-label="Brightness" />
-              <i class="bi bi-sun-fill" aria-hidden="true"></i>
-            </div>
-          </div>
-
-          <div class="panel-card">
-            <div class="panel-title">Maintenance Mode</div>
-            <div class="settings-row">
-              <div>
-                <div class="settings-label">Enable Maintenance Mode</div>
-                <div class="settings-hint">Disable all user access except admin.</div>
+            <div class="panel-title"><i class="bi bi-server" aria-hidden="true"></i> System</div>
+            <div class="settings-panel-body">
+              <div class="settings-row">
+                <div>
+                  <div class="settings-label">Maintenance Mode</div>
+                  <div class="settings-hint">Disables all user access except admin.</div>
+                </div>
+                <label class="toggle" aria-label="Maintenance mode">
+                  <input type="checkbox" id="maintenanceModeToggle" />
+                  <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+                </label>
               </div>
-              <label class="toggle" aria-label="Maintenance mode">
-                <input type="checkbox" id="maintenanceModeToggle" />
-                <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
-              </label>
+              <div class="settings-row" style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px">
+                <div>
+                  <div class="settings-label">Signed in as</div>
+                  <div class="settings-hint" id="adminEmail">—</div>
+                </div>
+                <button class="btn btn--ghost btn--sm" id="logoutSettingsBtn">
+                  <i class="bi bi-box-arrow-right" aria-hidden="true"></i> Log Out
+                </button>
+              </div>
             </div>
           </div>
 
+          <!-- Appearance panel -->
           <div class="panel-card">
-            <div class="panel-title">Global Ban List</div>
-            <p class="empty-state" style="margin-bottom:12px">View or edit the global ban list.</p>
-            <button class="btn btn--ghost" id="viewGlobalBansBtn">View Ban List</button>
+            <div class="panel-title"><i class="bi bi-palette-fill" aria-hidden="true"></i> Appearance</div>
+            <div class="settings-panel-body">
+              <div class="settings-label" style="margin-bottom:8px">Color Theme</div>
+              <div class="theme-preset-grid" role="group" aria-label="Theme presets" style="margin-bottom:16px">
+                <button class="theme-preset" data-preset="midnight" aria-label="Midnight theme">
+                  <div class="theme-preset-swatch" style="background:#0d0d0d"><div class="theme-preset-accent" style="background:#e74c3c"></div></div>
+                  <span>Midnight</span>
+                </button>
+                <button class="theme-preset active" data-preset="night" aria-label="Night theme" aria-pressed="true">
+                  <div class="theme-preset-swatch" style="background:#2e2e2e"><div class="theme-preset-accent" style="background:#e74c3c"></div></div>
+                  <span>Night</span>
+                </button>
+                <button class="theme-preset" data-preset="dusk" aria-label="Dusk theme">
+                  <div class="theme-preset-swatch" style="background:#525252"><div class="theme-preset-accent" style="background:#e67e22"></div></div>
+                  <span>Dusk</span>
+                </button>
+                <button class="theme-preset" data-preset="ash" aria-label="Ash theme">
+                  <div class="theme-preset-swatch" style="background:#858585"><div class="theme-preset-accent" style="background:#607d8b"></div></div>
+                  <span>Ash</span>
+                </button>
+                <button class="theme-preset" data-preset="parchment" aria-label="Parchment theme">
+                  <div class="theme-preset-swatch" style="background:#b8b8b8"><div class="theme-preset-accent" style="background:#e67e22"></div></div>
+                  <span>Parchment</span>
+                </button>
+                <button class="theme-preset" data-preset="snow" aria-label="Snow theme">
+                  <div class="theme-preset-swatch" style="background:#f2f2f2"><div class="theme-preset-accent" style="background:#2980b9"></div></div>
+                  <span>Snow</span>
+                </button>
+              </div>
+              <div class="brightness-header" style="margin-bottom:8px">
+                <span class="settings-label">Brightness</span>
+                <span id="brightnessLabel" class="settings-hint">Dark</span>
+              </div>
+              <div class="brightness-slider-row">
+                <i class="bi bi-moon-stars-fill" aria-hidden="true"></i>
+                <input type="range" id="brightnessSlider" min="0" max="100" value="18" class="brightness-slider" aria-label="Brightness" />
+                <i class="bi bi-sun-fill" aria-hidden="true"></i>
+              </div>
+            </div>
           </div>
 
+          <!-- Data panel -->
+          <div class="panel-card">
+            <div class="panel-title"><i class="bi bi-database-fill" aria-hidden="true"></i> Data</div>
+            <div class="settings-panel-body">
+              <div class="settings-row">
+                <div>
+                  <div class="settings-label">Export All User Data</div>
+                  <div class="settings-hint">Download a full JSON export of all users.</div>
+                </div>
+                <button class="btn btn--ghost btn--sm" id="exportDataBtn">
+                  <i class="bi bi-download" aria-hidden="true"></i> Export
+                </button>
+              </div>
+              <div class="settings-row" style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px">
+                <div>
+                  <div class="settings-label">View Global Ban List</div>
+                  <div class="settings-hint">Navigate to Bans page to see all active bans.</div>
+                </div>
+                <button class="btn btn--ghost btn--sm" id="viewGlobalBansBtn">View</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Danger zone panel -->
           <div class="panel-card panel-card--danger">
-            <div class="panel-title" style="color:var(--danger)">Danger Zone</div>
-            <p class="empty-state" style="margin-bottom:16px">These actions cannot be undone.</p>
-            <div class="action-row">
-              <button class="btn btn--danger" id="exportDataBtn">
-                <i class="bi bi-download" aria-hidden="true"></i> Export All Data
-              </button>
-              <button class="btn btn--danger" id="logoutAllBtn">
+            <div class="panel-title" style="color:var(--danger)"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> Danger Zone</div>
+            <div class="settings-panel-body">
+              <p class="settings-hint" style="margin-bottom:14px">These actions affect all users and cannot be undone.</p>
+              <button class="btn btn--danger" id="logoutAllBtn" style="width:100%">
                 <i class="bi bi-box-arrow-right" aria-hidden="true"></i> Force Logout All Users
               </button>
             </div>
-          </div>
-
-          <div class="panel-card">
-            <div class="panel-title">Account</div>
-            <p class="empty-state">Signed in as: <strong id="adminEmail">—</strong></p>
-            <button class="btn btn--ghost" id="logoutSettingsBtn" style="margin-top:12px">
-              <i class="bi bi-box-arrow-right" aria-hidden="true"></i> Log Out
-            </button>
           </div>
 
         </div>
@@ -294,7 +401,7 @@
             </table>
           </div>
 
-          <div class="panel-card">
+          <div class="panel-card" style="grid-column:span 2">
             <div class="panel-title">Error Log</div>
             <div id="errorLog">
               <p class="empty-state">No errors logged.</p>
@@ -303,8 +410,8 @@
         </div>
       </section>
 
-    </main><!-- /main-area -->
-  </div><!-- /app-shell -->
+    </main>
+  </div>
 
   <!-- ═══ BAN MODAL ══════════════════════════════════════════════════════ -->
   <div id="banModalOverlay" class="modal-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="banModalTitle">
@@ -318,7 +425,7 @@
       <div class="modal-body">
         <div class="form-group">
           <label for="banUserEmail" class="form-label">User Email</label>
-          <input type="email" id="banUserEmail" class="text-input" placeholder="student@school.edu" />
+          <input type="email" id="banUserEmail" class="text-input" placeholder="user@school.edu" />
         </div>
         <div class="form-group">
           <label for="banReason" class="form-label">Reason</label>
@@ -336,6 +443,7 @@
           <select id="banDuration" class="select-input">
             <option value="24h">24 Hours</option>
             <option value="7d">7 Days</option>
+            <option value="30d">30 Days</option>
             <option value="permanent">Permanent</option>
           </select>
         </div>
@@ -343,6 +451,22 @@
       <div class="modal-footer">
         <button class="btn btn--ghost" id="banModalCancelBtn2">Cancel</button>
         <button class="btn btn--danger" id="banModalConfirmBtn">Create Ban</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ CONFIRM MODAL ════════════════════════════════════════════════ -->
+  <div id="confirmModalOverlay" class="modal-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
+    <div class="modal modal--sm">
+      <div class="modal-header">
+        <h2 class="modal-title" id="confirmModalTitle">Confirm</h2>
+      </div>
+      <div class="modal-body">
+        <p id="confirmModalMsg" class="settings-hint" style="font-size:0.82rem;line-height:1.6"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn--ghost" id="confirmModalCancelBtn">Cancel</button>
+        <button class="btn btn--danger" id="confirmModalOkBtn">Confirm</button>
       </div>
     </div>
   </div>

@@ -65,7 +65,7 @@ function showPage(name) {
   navBtn?.setAttribute('aria-current', 'page');
   const pt = document.getElementById('pageTitle');
   if (pt) pt.textContent = PAGE_TITLES[name] ?? name;
-  if (name === 'students')        { loadCheckedOut(); loadHistory(); loadActiveBans(); loadRoster(); }
+  if (name === 'students')        { loadCheckedOut(); loadHistory(); loadActiveBans(); loadRoster(); loadPendingRequests(); }
   if (name === 'recommendations') { renderRecommendationsList(); renderRecPicker(); renderRecReadingDisplay(); }
   if (name === 'invites')         { loadPastInvites(); }
   if (name === 'reading')         { renderReadingPicker(); renderReadingDisplay(); renderReadingPreview(); }
@@ -118,6 +118,7 @@ onAuthStateChanged(auth, async (user) => {
     await loadStudentCode();
     await loadCurrentlyReading();
     initVisibilityToggle();
+    initApprovalToggle();
     checkBiweeklyNotification();
 
   } catch (err) {
@@ -318,6 +319,121 @@ async function updateVisUI(isPublic) {
   } catch (_) {
     detail.innerHTML = `<p class='empty-state'><i class='bi bi-exclamation-triangle-fill'></i> Could not load stats.</p>`;
   }
+}
+
+// ── Checkout approval toggle ──────────────────────────────────────────────────
+function initApprovalToggle() {
+  const toggle = document.getElementById('requireApprovalToggle');
+  if (!toggle) return;
+  toggle.checked = teacherData?.requireApproval ?? false;
+  toggle.addEventListener('change', async () => {
+    const on = toggle.checked;
+    await updateDoc(doc(db, 'teachers', currentUser.uid), { requireApproval: on });
+    teacherData.requireApproval = on;
+    toast(on
+      ? `<i class='bi bi-hourglass-split'></i> Checkout approval <strong>enabled</strong> — students will request, you approve`
+      : `<i class='bi bi-lightning-fill'></i> Checkout approval <strong>disabled</strong> — students check out instantly`,
+      'success');
+  });
+}
+
+// ── Pending checkout requests ─────────────────────────────────────────────────
+async function loadPendingRequests() {
+  const card     = document.getElementById('pendingRequestsCard');
+  const listEl   = document.getElementById('pendingRequestsList');
+  const countEl  = document.getElementById('pendingRequestsCount');
+  if (!card || !listEl) return;
+
+  const snap     = await getDocs(
+    query(collection(db, 'teachers', currentUser.uid, 'requests'), where('status', '==', 'pending'))
+  );
+
+  if (snap.empty) {
+    card.hidden = true;
+    return;
+  }
+
+  card.hidden = false;
+  if (countEl) countEl.textContent = `${snap.size} pending`;
+  listEl.innerHTML = '';
+
+  for (const d of snap.docs) {
+    const req  = { id: d.id, ...d.data() };
+    const book = allBooks.find(b => b.id === req.bookId);
+    const row  = document.createElement('div');
+    row.className = 'request-card';
+    row.setAttribute('role', 'listitem');
+    row.innerHTML = `
+      ${(book?.coverUrl || req.coverUrl) ? `<img src='${esc(book?.coverUrl ?? req.coverUrl)}' class='book-cover' alt='' loading='lazy'>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
+      <div class='book-info' style='flex:1;min-width:0'>
+        <div class='book-title'>${esc(req.bookTitle)}</div>
+        <div class='book-author'>Requested by <strong>${esc(req.studentName)}</strong> · ${fmtDate(req.requestedAt)}</div>
+      </div>
+      <div style='display:flex;gap:6px;flex-shrink:0'>
+        <button class='btn btn--xs success' data-action='approve' data-reqid='${esc(req.id)}' data-bookid='${esc(req.bookId)}' data-studentid='${esc(req.studentId)}' data-booktitle='${esc(req.bookTitle)}'>
+          <i class='bi bi-check2'></i> Approve
+        </button>
+        <button class='btn btn--xs danger' data-action='deny' data-reqid='${esc(req.id)}'>
+          <i class='bi bi-x'></i> Deny
+        </button>
+      </div>`;
+    row.querySelector('[data-action="approve"]')?.addEventListener('click', e => {
+      const { reqid, bookid, studentid, booktitle } = e.currentTarget.dataset;
+      approveRequest(reqid, bookid, studentid, booktitle);
+    });
+    row.querySelector('[data-action="deny"]')?.addEventListener('click', e => {
+      denyRequest(e.currentTarget.dataset.reqid);
+    });
+    listEl.appendChild(row);
+  }
+}
+
+async function approveRequest(reqId, bookId, studentId, bookTitle) {
+  const bookRef    = doc(db, 'teachers', currentUser.uid, 'books', bookId);
+  const studentRef = doc(db, 'students', studentId);
+  const reqRef     = doc(db, 'teachers', currentUser.uid, 'requests', reqId);
+
+  try {
+    const [bSnap, sSnap] = await Promise.all([getDoc(bookRef), getDoc(studentRef)]);
+    if (!bSnap.exists())  { toast('Book not found.', 'danger'); return; }
+    if (!sSnap.exists())  { toast('Student not found.', 'danger'); return; }
+    if (sSnap.data().currentBook) { toast('Student already has a book checked out.', 'danger'); return; }
+
+    const bData  = bSnap.data();
+    const copies = bData.copies ?? 1;
+    const out    = bData.checkedOutCount ?? (bData.status === 'checked_out' ? 1 : 0);
+    if (out >= copies) { toast('All copies are checked out.', 'danger'); return; }
+
+    const dueDate  = new Date();
+    dueDate.setDate(dueDate.getDate() + 14);
+    const newCount = out + 1;
+
+    await Promise.all([
+      updateDoc(bookRef, { checkedOutCount: newCount, status: newCount >= copies ? 'checked_out' : 'available', checkedOutBy: studentId, checkedOutAt: serverTimestamp(), dueDate: Timestamp.fromDate(dueDate) }),
+      updateDoc(studentRef, { currentBook: bookId, currentBookTeacherId: currentUser.uid }),
+      updateDoc(reqRef, { status: 'approved', respondedAt: serverTimestamp() }),
+    ]);
+    await addDoc(collection(db, 'teachers', currentUser.uid, 'history'), {
+      bookId, bookTitle, author: bData.author ?? '',
+      studentId, studentName: sSnap.data().name ?? '',
+      dateOut: serverTimestamp(), dateReturned: null,
+    });
+    toast(`<i class='bi bi-check2'></i> Approved — "${esc(bookTitle)}" checked out`, 'success');
+  } catch (err) {
+    toast(`Approval failed: ${esc(err.message ?? 'unknown')}`, 'danger');
+    return;
+  }
+  await loadLibrary();
+  loadPendingRequests();
+  if (document.getElementById('studentsPage')?.classList.contains('active')) { loadCheckedOut(); loadHistory(); }
+}
+
+async function denyRequest(reqId) {
+  await updateDoc(doc(db, 'teachers', currentUser.uid, 'requests', reqId), {
+    status: 'denied', respondedAt: serverTimestamp(),
+  });
+  toast('Request denied.', 'info');
+  loadPendingRequests();
 }
 
 // ── Book search + add library ─────────────────────────────────────────────────
@@ -593,7 +709,7 @@ function loadHistory() {
 }
 
 // ── Export .MD ────────────────────────────────────────────────────────────────
-document.getElementById('exportCheckoutsBtn')?.addEventListener('click', async () => {
+document.getElementById('exportCheckoutsMdBtn')?.addEventListener('click', async () => {
   const histSnap = await getDocs(collection(db, 'teachers', currentUser.uid, 'history'));
   const entries  = histSnap.docs.map(d => d.data()).sort((a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0));
   const tName    = teacherData?.name ?? 'Teacher';
@@ -619,6 +735,35 @@ document.getElementById('exportCheckoutsBtn')?.addEventListener('click', async (
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([md], { type: 'text/markdown' })), download: `${tName.replace(/\s+/g, '_')}_checkouts_${Date.now()}.md` });
   a.click(); URL.revokeObjectURL(a.href);
   toast(`<i class='bi bi-check2'></i> Exported as .MD`, 'success');
+});
+
+// ── Export CSV ────────────────────────────────────────────────────────────────
+document.getElementById('exportCheckoutsCsvBtn')?.addEventListener('click', async () => {
+  const histSnap = await getDocs(collection(db, 'teachers', currentUser.uid, 'history'));
+  const entries  = histSnap.docs.map(d => d.data()).sort((a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0));
+  const tName    = teacherData?.name ?? 'Teacher';
+  const rows     = [['Book Title','Author','Student','Date Out','Due Date','Date Returned','Status']];
+  const now      = new Date();
+  entries.forEach(e => {
+    const dueDate   = e.dueDate ? (e.dueDate.toDate ? e.dueDate.toDate() : new Date(e.dueDate)) : null;
+    const isOverdue = !e.dateReturned && dueDate && dueDate < now;
+    rows.push([
+      e.bookTitle ?? '',
+      e.author ?? '',
+      e.studentName ?? '',
+      fmtDate(e.dateOut),
+      dueDate ? dueDate.toLocaleDateString() : '',
+      e.dateReturned ? fmtDate(e.dateReturned) : '',
+      e.dateReturned ? 'Returned' : isOverdue ? 'Overdue' : 'Active',
+    ]);
+  });
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const a   = Object.assign(document.createElement('a'), {
+    href:     URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
+    download: `${(tName).replace(/\s+/g, '_')}_checkouts_${new Date().toISOString().slice(0, 10)}.csv`,
+  });
+  a.click(); URL.revokeObjectURL(a.href);
+  toast(`<i class='bi bi-check2'></i> Exported as .CSV`, 'success');
 });
 
 // ── Class Roster ──────────────────────────────────────────────────────────────
@@ -997,10 +1142,17 @@ document.getElementById('recReadingInput')?.addEventListener('keydown', e => { i
 document.getElementById('recClearReadingBtn')?.addEventListener('click', clearCurrentlyReading);
 
 // ── Invite Teachers ───────────────────────────────────────────────────────────
+// Stores the last generated invite link for email-share button
+let _lastInviteLink = '';
+let _lastInviteEmail = '';
+
 document.getElementById('createInviteBtn')?.addEventListener('click', async () => {
-  const emailInput = document.getElementById('inviteEmailInput');
-  const output     = document.getElementById('inviteOutput');
-  const email      = emailInput?.value.trim().toLowerCase();
+  const emailInput   = document.getElementById('inviteEmailInput');
+  const output       = document.getElementById('inviteOutput');
+  const qrContainer  = document.getElementById('inviteQrContainer');
+  const qrImg        = document.getElementById('inviteQrImg');
+  const emailBtn     = document.getElementById('emailInviteBtn');
+  const email        = emailInput?.value.trim().toLowerCase();
   if (!email || !email.includes('@')) { toast('Enter a valid email address.', 'danger'); return; }
 
   const expiresAt = new Date(Date.now() + 7 * 86400000);
@@ -1012,14 +1164,47 @@ document.getElementById('createInviteBtn')?.addEventListener('click', async () =
       createdAt:      serverTimestamp(),
     });
     const link = `${window.location.origin}/teacher-signup.html?token=${ref.id}`;
+    _lastInviteLink  = link;
+    _lastInviteEmail = email;
+
     await navigator.clipboard.writeText(link).catch(() => {});
-    if (output) output.innerHTML = `<div class='invite-link-box'>${esc(link)}</div><p class='muted-text small-text' style='margin-top:8px'><i class='bi bi-check2'></i> Link copied! Valid 7 days — locked to ${esc(email)}</p>`;
+    if (output) output.innerHTML = `
+      <div class='invite-link-box'>${esc(link)}</div>
+      <p class='muted-text small-text' style='margin-top:8px'>
+        <i class='bi bi-check2'></i> Link copied! Valid 7 days — locked to ${esc(email)}
+      </p>`;
+
+    // Show QR code via Google Charts API
+    if (qrImg && qrContainer) {
+      const qrUrl = `https://chart.googleapis.com/chart?chs=240x240&cht=qr&chl=${encodeURIComponent(link)}&choe=UTF-8`;
+      qrImg.src       = qrUrl;
+      qrImg.alt       = 'QR code for invite link';
+      qrContainer.hidden = false;
+    }
+
+    // Show email share button
+    if (emailBtn) emailBtn.hidden = false;
+
     if (emailInput) emailInput.value = '';
     toast(`<i class='bi bi-check2'></i> Invite link created &amp; copied`, 'success');
     loadPastInvites();
   } catch (err) {
     toast(`Failed to create invite: ${esc(err.message ?? 'unknown')}`, 'danger');
   }
+});
+
+// Email share button
+document.getElementById('emailInviteBtn')?.addEventListener('click', () => {
+  if (!_lastInviteLink) return;
+  const tName   = teacherData?.name ?? 'a teacher';
+  const subject = encodeURIComponent('You\'ve been invited to BookWare');
+  const body    = encodeURIComponent(
+    `Hi,\n\nYou've been invited to join BookWare as a teacher at Mason High School.\n\n` +
+    `Click the link below to create your account:\n${_lastInviteLink}\n\n` +
+    `This invite is locked to ${_lastInviteEmail} and expires in 7 days.\n\n— ${tName}`
+  );
+  window.open(`mailto:${_lastInviteEmail}?subject=${subject}&body=${body}`);
+  toast(`<i class='bi bi-envelope-fill'></i> Opening email client…`, 'info');
 });
 
 async function loadPastInvites() {

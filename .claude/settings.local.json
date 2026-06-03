@@ -12,7 +12,12 @@
       "Bash(git commit -m ' *)",
       "Bash(git push *)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "mcp__Claude_Preview__preview_start"
+      "mcp__Claude_Preview__preview_start",
+      "Bash(git rm *)",
+      "Bash(mkdir -p \"C:/Users/daepi/OneDrive/Pictures/Documents/GitHub/BookWare/.claude\")",
+      "Bash(firebase use *)",
+      "Bash(firebase projects:list)",
+      "Bash(firebase hosting:sites:list --project bookware-site2)"
     ]
   }
 }

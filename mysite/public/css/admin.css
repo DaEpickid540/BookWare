@@ -603,6 +603,25 @@ input, select { font-family: inherit; font-size: inherit; }
 .toast.warning { border-left-color: var(--warning); }
 @keyframes toastIn { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
 
+/* ── SETTINGS PANEL BODY ─────────────────────────────────────── */
+.settings-panel-body {
+  padding: 4px 0 6px;
+}
+
+/* ── SCREEN READER ONLY ──────────────────────────────────────── */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── SMALL MODAL ─────────────────────────────────────────────── */
+.modal--sm { max-width: 380px; }
+
 /* ── EMPTY STATE ─────────────────────────────────────────────── */
 .empty-state { font-size: 0.75rem; color: var(--text-3); line-height: 1.6; }
 

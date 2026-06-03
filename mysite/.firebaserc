@@ -1,5 +1,12 @@
 {
   "projects": {
     "default": "bookware-site2"
+  },
+  "targets": {
+    "bookware-site2": {
+      "hosting": {
+        "bookware-site2": ["bookware-site2"]
+      }
+    }
   }
 }

@@ -126,8 +126,9 @@
             </div>
 
             <div class="panel-card">
-              <div class="section-label">Library Visibility</div>
-              <div class="settings-row" style="padding:0">
+              <div class="section-label">Library Settings</div>
+              <!-- Visibility -->
+              <div class="settings-row" style="padding:0 0 10px">
                 <div>
                   <div class="settings-label">Who can see this library</div>
                   <div class="settings-hint" id="visibilityHint">Only your class</div>
@@ -138,9 +139,20 @@
                 </label>
               </div>
               <div id="visibilityDetail" hidden></div>
+              <!-- Checkout approval -->
+              <div class="settings-row" style="border-top:1px solid var(--border);padding-top:10px">
+                <div>
+                  <div class="settings-label">Require Checkout Approval</div>
+                  <div class="settings-hint">Students submit requests; you approve or deny before checkout</div>
+                </div>
+                <label class="toggle" aria-label="Require checkout approval">
+                  <input type="checkbox" id="requireApprovalToggle" />
+                  <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+                </label>
+              </div>
               <p class="muted-text small-text" style="margin-top:10px">
                 <strong>Class Only</strong> — students must join via your class code.<br>
-                <strong>Public</strong> — any Mason student can discover and browse your library. They can only check out if enrolled.
+                <strong>Public</strong> — any Mason student can discover and browse. Checkout still requires class enrollment.
               </p>
             </div>
 
@@ -169,9 +181,25 @@
       <section id="studentsPage" class="page" aria-label="Students">
 
         <div class="page-actions">
-          <button class="btn btn--sm" id="exportCheckoutsBtn">
+          <button class="btn btn--sm" id="exportCheckoutsMdBtn">
             <i class="bi bi-download" aria-hidden="true"></i> Export .MD
           </button>
+          <button class="btn btn--sm" id="exportCheckoutsCsvBtn">
+            <i class="bi bi-filetype-csv" aria-hidden="true"></i> Export .CSV
+          </button>
+        </div>
+
+        <!-- Pending checkout requests -->
+        <div class="panel-card" id="pendingRequestsCard" hidden style="margin-bottom:16px;border-color:var(--accent-border)">
+          <div class="panel-card-header">
+            <div class="section-label" style="margin-bottom:0;color:var(--accent)">
+              <i class="bi bi-hourglass-split" aria-hidden="true"></i> Pending Checkout Requests
+            </div>
+            <span class="count-badge" id="pendingRequestsCount">—</span>
+          </div>
+          <div id="pendingRequestsList" role="list">
+            <p class="empty-state">No pending requests.</p>
+          </div>
         </div>
 
         <div class="split-grid">
@@ -309,14 +337,25 @@
                 <i class="bi bi-envelope-fill search-box-icon" aria-hidden="true"></i>
                 <input type="email" id="inviteEmailInput" class="search-box-input" placeholder="colleague@masonohioschools.com" autocomplete="off" aria-label="Teacher email to invite" />
               </div>
-              <div style="display:flex;align-items:center;gap:10px">
+              <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px">
                 <button class="btn btn--primary" id="createInviteBtn">
                   <i class="bi bi-link-45deg" aria-hidden="true"></i> Generate &amp; Copy Link
+                </button>
+                <button class="btn btn--ghost" id="emailInviteBtn" hidden>
+                  <i class="bi bi-envelope-fill" aria-hidden="true"></i> Share via Email
                 </button>
                 <span class="status-badge" id="canInviteStatus"></span>
               </div>
             </div>
             <div id="inviteOutput" style="margin-top:12px"></div>
+            <!-- QR code display -->
+            <div id="inviteQrContainer" hidden style="margin-top:12px;display:flex;align-items:flex-start;gap:16px">
+              <div>
+                <div class="section-label" style="margin-bottom:8px">QR Code</div>
+                <img id="inviteQrImg" src="" alt="QR code for invite link" class="qr-code-img" />
+                <p class="muted-text small-text" style="margin-top:6px">Scan to open invite</p>
+              </div>
+            </div>
           </div>
 
           <div class="panel-card">

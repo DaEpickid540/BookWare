@@ -168,12 +168,74 @@ URL: https://bookware-site.web.app
 
 ---
 
+## Feature Implementation Pass (Task 2)
+
+**Full feature spec implemented. See UPGRADES.md for complete audit.**
+
+### Rental Request / Approval Workflow ✅
+- New `teachers/{uid}/requests/{reqId}` Firestore collection with rules
+- Teacher: **"Require Checkout Approval"** toggle in Library Settings — when ON, students see "Request Checkout" instead of "Check Out"
+- Teacher: **Pending Requests** panel on Students page — approve triggers checkout transaction, deny marks request denied
+- Student: `submitRentalRequest()` creates pending request doc
+- Student: **Rental Requests** section in Locker page shows pending/approved/denied status with color-coded cards
+- Firestore rules: students can create requests for enrolled/public libraries; teachers can approve/deny; students read their own
+
+### CSV Export ✅
+- Teacher Students page: **Export .CSV** button alongside .MD
+- Format: Book Title, Author, Student, Date Out, Due Date, Date Returned, Status
+- Admin Rentals page: global CSV export across all teachers
+
+### QR Code for Invites ✅
+- After generating an invite link, a QR code appears using Google Charts API (`chart.googleapis.com`)
+- CSP img-src updated to allow `chart.googleapis.com`
+- QR shows immediately; resolves to invite URL when scanned
+
+### Email Share for Invites ✅
+- **Share via Email** button appears after invite is generated
+- Opens `mailto:` with pre-filled subject and body including the invite link, locked email, and teacher name
+
+### Admin — All Libraries Page ✅
+- New **Libraries** nav item in admin sidebar
+- Table: teacher name, email, book count, visibility (Public/Class Only), approval mode
+- Click "View Books" to drill into a teacher's library with copy/status breakdown
+
+### Admin — All Rentals Page ✅
+- New **Rentals** nav item in admin sidebar
+- Stats row: Total Rentals, Active Now, Overdue (red), Returned
+- Filterable table: all checkout history across all teachers
+- CSV export of all rentals
+
+### Admin — Organized Settings Panels ✅
+- Settings page redesigned into 4 labeled card panels: System, Appearance, Data, Danger Zone
+- Each panel has clear icon, label, and subsettings rows
+- Signed-in email moved into System panel
+- Danger zone has warning-colored border
+
+### Admin — Confirm Modal ✅
+- `appConfirm()` replaces `window.confirm()` for delete/ban/revoke actions
+- Styled modal with Cancel/Confirm buttons — no browser-native dialogs
+
+### Firestore Rules Updated ✅
+- Added `requests` subcollection under `teachers/{uid}/requests/{reqId}`
+- Student create permissions gated on enrollment + notBanned
+- Teacher update permissions for approve/deny
+- Deployed to `bookware-site2` project (explicit `--project` flag)
+
+### Deploy
+- Hosting: `firebase deploy --only hosting --project bookware-site2`
+- Firestore rules: `firebase deploy --only firestore:rules --project bookware-site2`
+- `.firebaserc` updated to always use `bookware-site2`
+- Live: https://bookware-site2.web.app
+
+---
+
 ## TODO / In Progress
 
-**All known bugs fixed. Security audit complete. Polish pass complete. App is live.**
+**All spec features implemented. App is live.**
 
-Potential future work (not blocking):
-- ARIA AI chat integration — Groq key stored, CSP allows api.groq.com, but no chat UI or API calls exist yet
-- Push notifications — `notifications/{userId}` collection exists in Firestore rules but is not used
-- Reading progress tracking (percentage through a book)
-- Mobile slide-in sidebar drawer with backdrop (currently icon-only on mobile, which works)
+Remaining future work (not blocking):
+- ARIA AI chat integration — Groq key stored, CSP allows api.groq.com, no chat UI yet
+- Push notifications — rules exist, FCM not wired
+- Mobile slide-in sidebar drawer with backdrop
+- Custom prompt/rename modal (currently uses `window.prompt()` for class rename)
+- Reading progress tracking

@@ -1091,6 +1091,37 @@ html[data-theme="light"] .book-row:hover { background: rgba(0,0,0,0.015); }
   line-height: 1.9;
 }
 
+/* ── REQUEST STATUS BADGES ───────────────────────────────────── */
+.badge--pending  { background: rgba(243,156,18,.12); color: var(--warning); border: 1px solid rgba(243,156,18,.28); }
+.badge--approved { background: var(--success-bg);    color: var(--success); border: 1px solid var(--success-border); }
+.badge--denied   { background: var(--danger-bg);     color: var(--danger);  border: 1px solid var(--danger-border); }
+
+/* Request card accent (pending) */
+.request-card {
+  border-left: 3px solid var(--warning);
+  background: var(--bg-card);
+  border-radius: var(--r);
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  transition: border-color var(--tr);
+}
+.request-card--approved { border-left-color: var(--success); }
+.request-card--denied   { border-left-color: var(--danger); }
+
+/* QR code image */
+.qr-code-img {
+  width: 160px;
+  height: 160px;
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: #fff;
+  padding: 6px;
+  display: block;
+}
+
 /* ── SKELETON LOADING ────────────────────────────────────────── */
 @keyframes shimmer {
   0%   { background-position: -400px 0; }

@@ -14,8 +14,9 @@ let currentUser       = null;
 let userData          = null;
 let studentData       = null;
 let classTeacherId    = null;
-let selectedTeacherId = null;
+let selectedTeacherId   = null;
 let selectedTeacherName = '';
+let _selectedTeacherData = null; // full teacher doc data for selected library
 let allBooks          = [];
 let addedTeacherIds   = [];
 const bookCache       = new Map();
@@ -468,6 +469,11 @@ async function setSelectedTeacher(tid, name) {
   document.querySelectorAll('#teacherList .library-chip').forEach(b =>
     b.classList.toggle('selected', b.dataset.tid === tid)
   );
+  // Cache teacher doc to check requireApproval flag
+  try {
+    const tSnap = await getDoc(doc(db, 'teachers', tid));
+    _selectedTeacherData = tSnap.exists() ? tSnap.data() : null;
+  } catch (_) { _selectedTeacherData = null; }
   await loadTeacherBooks(tid);
   await renderTeacherExtras(tid, name);
 }
@@ -619,10 +625,16 @@ function renderBooks(books) {
       ? `<span class='badge badge--available'>Available</span>`
       : `<span class='badge badge--checked-out'>Checked Out</span>`;
 
+    // Determine if teacher requires approval for checkouts
+    const teacherRequiresApproval = _selectedTeacherData?.requireApproval ?? false;
     let checkoutBtn = '';
-    if (isActive)      checkoutBtn = `<button class='btn btn--ghost btn--sm' data-action='return'   data-id='${esc(book.id)}'>Return Book</button>`;
+    if (isActive)         checkoutBtn = `<button class='btn btn--ghost btn--sm' data-action='return' data-id='${esc(book.id)}'>Return Book</button>`;
+    else if (canCheckout && teacherRequiresApproval)
+                          checkoutBtn = `<button class='btn btn--primary btn--sm' data-action='request-checkout' data-id='${esc(book.id)}' data-title='${esc(book.title)}' data-cover='${esc(book.coverUrl ?? '')}'>
+                            <i class='bi bi-send-fill' aria-hidden='true'></i> Request Checkout
+                          </button>`;
     else if (canCheckout) checkoutBtn = `<button class='btn btn--primary btn--sm' data-action='checkout' data-id='${esc(book.id)}' data-title='${esc(book.title)}'>Check Out</button>`;
-    else if (isAvail)  checkoutBtn = `<button class='btn btn--primary btn--sm' disabled title='Return your current book first'>Check Out</button>`;
+    else if (isAvail)     checkoutBtn = `<button class='btn btn--primary btn--sm' disabled title='Return your current book first'>Check Out</button>`;
 
     const wishBtn = !isActive
       ? `<button class='btn btn--xs ${isWished ? 'starred' : ''}' data-action='${isWished ? "unwishlist" : "wishlist"}' data-id='${esc(book.id)}'>${isWished ? '<i class="bi bi-heart-fill"></i> Wishlisted' : '<i class="bi bi-heart"></i> Wishlist'}</button>`
@@ -648,7 +660,8 @@ function renderBooks(books) {
         <div class='book-actions' style='margin-top:4px'>${recBtn}${readingBtn}</div>
       </div>`;
 
-    row.querySelector('[data-action="checkout"]')?.addEventListener('click', e  => requestCheckout(e.currentTarget.dataset.id, e.currentTarget.dataset.title));
+    row.querySelector('[data-action="checkout"]')?.addEventListener('click',          e => requestCheckout(e.currentTarget.dataset.id, e.currentTarget.dataset.title));
+    row.querySelector('[data-action="request-checkout"]')?.addEventListener('click', e => submitRentalRequest(e.currentTarget.dataset.id, e.currentTarget.dataset.title, e.currentTarget.dataset.cover));
     row.querySelector('[data-action="return"]')?.addEventListener('click',   e  => initiateReturn(e.currentTarget.dataset.id));
     row.querySelector('[data-action="wishlist"]')?.addEventListener('click', e  => addToWishlist(e.currentTarget.dataset.id));
     row.querySelector('[data-action="unwishlist"]')?.addEventListener('click',e => removeFromWishlist(e.currentTarget.dataset.id));
@@ -724,6 +737,83 @@ async function requestCheckout(bookId, bookTitle) {
   }
   filterAndRenderBooks();
   toast(`<i class='bi bi-check2'></i> "${esc(bookTitle)}" checked out — due ${dueDate.toLocaleDateString()}`, 'success');
+}
+
+// ── Rental request submission ─────────────────────────────────────────────────
+async function submitRentalRequest(bookId, bookTitle, coverUrl) {
+  if (!currentUser || !selectedTeacherId) { toast('Select a library first.', 'danger'); return; }
+  try {
+    // Check if student already has a pending request for this book
+    const existing = await getDocs(
+      query(collection(db, 'teachers', selectedTeacherId, 'requests'),
+        where('studentId', '==', currentUser.uid),
+        where('bookId',    '==', bookId),
+        where('status',    '==', 'pending'))
+    );
+    if (!existing.empty) { toast('You already have a pending request for this book.', 'info'); return; }
+
+    await addDoc(collection(db, 'teachers', selectedTeacherId, 'requests'), {
+      bookId, bookTitle, coverUrl: coverUrl ?? '',
+      studentId:   currentUser.uid,
+      studentName: studentData?.name ?? currentUser.displayName ?? '',
+      studentEmail: currentUser.email ?? '',
+      status:      'pending',
+      requestedAt: serverTimestamp(),
+      respondedAt: null,
+    });
+    toast(`<i class='bi bi-send-fill'></i> Request sent for "${esc(bookTitle)}" — waiting for teacher approval`, 'success');
+    if (document.getElementById('lockerPage')?.classList.contains('active')) renderLockerPage();
+  } catch (err) {
+    toast(`Request failed: ${esc(err.message ?? 'unknown')}`, 'danger');
+  }
+}
+
+// ── Render rental request status (locker page) ────────────────────────────────
+async function renderRentalRequests() {
+  const section = document.getElementById('rentalRequestsSection');
+  const listEl  = document.getElementById('rentalRequestsList');
+  if (!section || !listEl) return;
+
+  const ids = new Set([classTeacherId, ...addedTeacherIds].filter(Boolean));
+  const requests = [];
+  for (const tid of ids) {
+    try {
+      const snap = await getDocs(
+        query(collection(db, 'teachers', tid, 'requests'), where('studentId', '==', currentUser.uid))
+      );
+      snap.forEach(d => requests.push({ ...d.data(), id: d.id, teacherId: tid }));
+    } catch (_) {}
+  }
+
+  // Only show if there are any requests at all
+  if (requests.length === 0) { section.hidden = true; return; }
+  section.hidden = false;
+
+  // Sort: pending first, then by date desc
+  const sorted = requests.sort((a, b) => {
+    if (a.status === 'pending' && b.status !== 'pending') return -1;
+    if (a.status !== 'pending' && b.status === 'pending') return 1;
+    return (b.requestedAt?.seconds ?? 0) - (a.requestedAt?.seconds ?? 0);
+  });
+
+  listEl.innerHTML = '';
+  sorted.slice(0, 10).forEach(req => {
+    const statusClass = req.status === 'approved' ? 'badge--approved' : req.status === 'denied' ? 'badge--denied' : 'badge--pending';
+    const statusLabel = req.status === 'approved' ? 'Approved' : req.status === 'denied' ? 'Denied' : 'Pending';
+    const cardClass   = req.status === 'approved' ? 'request-card--approved' : req.status === 'denied' ? 'request-card--denied' : '';
+    const item = document.createElement('div');
+    item.className = `request-card ${cardClass}`;
+    item.setAttribute('role', 'listitem');
+    item.innerHTML = `
+      ${req.coverUrl ? `<img src='${esc(req.coverUrl)}' class='book-cover' alt='' loading='lazy'>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
+      <div class='book-info'>
+        <div class='book-title'>${esc(req.bookTitle)}</div>
+        <div class='book-author' style='margin-bottom:5px'>Requested ${fmtDate(req.requestedAt)}</div>
+        <span class='badge ${statusClass}'>${statusLabel}</span>
+        ${req.status === 'approved' ? `<span class='muted-text small-text' style='margin-left:8px'>Check your Active Loans below</span>` : ''}
+      </div>`;
+    listEl.appendChild(item);
+  });
 }
 
 // ── Return ────────────────────────────────────────────────────────────────────
@@ -850,6 +940,7 @@ function renderWishlist() {
 
 // ── Locker page ───────────────────────────────────────────────────────────────
 async function renderLockerPage() {
+  await renderRentalRequests();
   await renderActiveLoans();
   await renderReadingLog();
 }
