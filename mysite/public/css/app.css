@@ -114,6 +114,9 @@ img { display: block; max-width: 100%; }
 /* Visibility restore after theme init */
 html { visibility: visible !important; }
 
+/* Ensure [hidden] works even if browser UA stylesheet is overridden */
+[hidden] { display: none !important; }
+
 /* ── SIDEBAR ─────────────────────────────────────────────────── */
 .sidebar {
   width: var(--sidebar-w);

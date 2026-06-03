@@ -135,7 +135,8 @@ export function initTheme() {
 }
 
 // ARIA AI setup (shared)
-export function initARIA() {
+// toastFn is optional — pass the page's toast() so feedback shows in-app
+export function initARIA(toastFn) {
   const ARIA_ENABLED_KEY = 'bw-aria-enabled';
   const ARIA_KEY_STORAGE = 'bw-aria-groq-key';
 
@@ -155,13 +156,16 @@ export function initARIA() {
     const on = toggle.checked;
     localStorage.setItem(ARIA_ENABLED_KEY, String(on));
     panel.hidden = !on;
-    // toast is called from the page JS, not here
+    toastFn?.(on ? `<i class='bi bi-robot'></i> ARIA enabled` : 'ARIA disabled', on ? 'success' : 'info');
   });
 
   saveBtn?.addEventListener('click', () => {
     const key = keyInput?.value.trim();
-    if (!key || !key.startsWith('gsk_')) return false;
+    if (!key || !key.startsWith('gsk_')) {
+      toastFn?.('Key should start with gsk_ — check and try again.', 'danger');
+      return;
+    }
     localStorage.setItem(ARIA_KEY_STORAGE, key);
-    return true;
+    toastFn?.(`<i class='bi bi-check2'></i> Groq key saved — ARIA is ready!`, 'success');
   });
 }

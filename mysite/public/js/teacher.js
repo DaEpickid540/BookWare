@@ -111,7 +111,7 @@ onAuthStateChanged(auth, async (user) => {
     }
     renderSettings();
     initTheme();
-    initARIA();
+    initARIA(toast);
     setupSignout();
     await loadRecommendations();
     await loadLibrary();
@@ -336,7 +336,12 @@ async function runBookSearch() {
   let results = [];
   try {
     const isIsbn = /^[\d\-]{9,17}$/.test(q.replace(/\s/g, ''));
-    results = isIsbn ? (await lookupISBN(q) ? [await lookupISBN(q)] : []) : await searchBooks(q, 8);
+    if (isIsbn) {
+      const single = await lookupISBN(q);
+      results = single ? [single] : [];
+    } else {
+      results = await searchBooks(q, 8);
+    }
   } catch (err) {
     resultEl.innerHTML = `<p class='muted-text small-text' style='margin-top:8px;color:var(--danger)'>Search error. Check console.</p>`;
     btn.disabled = false; return;

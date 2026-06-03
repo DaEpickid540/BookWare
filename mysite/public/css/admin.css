@@ -38,6 +38,7 @@ html[data-theme="light"] {
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { visibility: visible !important; }
+[hidden] { display: none !important; }
 
 body {
   font-family: var(--font-sans);

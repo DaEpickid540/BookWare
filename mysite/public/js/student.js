@@ -133,7 +133,7 @@ onAuthStateChanged(auth, async (user) => {
     // Init UI
     populateTopBar();
     initTheme();
-    initARIA();
+    initARIA(toast);
     setupSignout();
     populateSettingsInfo();
     renderWishlist();
@@ -755,11 +755,15 @@ async function removeFromWishlist(bookId) {
 // Wishlist search (Google Books)
 let wishlistSearchResults = [];
 
-document.getElementById('wishlistSearchInput')?.addEventListener('input', async (e) => {
+let wishlistSearchDebounce = null;
+document.getElementById('wishlistSearchInput')?.addEventListener('input', (e) => {
   const q = e.target.value.trim();
-  if (!q) { wishlistSearchResults = []; renderWishlistSearchResults([]); return; }
-  wishlistSearchResults = await searchBooks(q, 6);
-  renderWishlistSearchResults(wishlistSearchResults);
+  if (!q) { wishlistSearchResults = []; renderWishlistSearchResults([]); clearTimeout(wishlistSearchDebounce); return; }
+  clearTimeout(wishlistSearchDebounce);
+  wishlistSearchDebounce = setTimeout(async () => {
+    wishlistSearchResults = await searchBooks(q, 6);
+    renderWishlistSearchResults(wishlistSearchResults);
+  }, 400);
 });
 
 function renderWishlistSearchResults(results) {
