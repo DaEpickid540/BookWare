@@ -419,7 +419,7 @@ function initARIA() {
     const on = toggle.checked;
     localStorage.setItem(ARIA_ENABLED_KEY, String(on));
     panel.style.display = on ? "block" : "none";
-    toast(on ? "<i class="bi bi-robot"></i> ARIA enabled" : "ARIA disabled", on ? "success" : "info");
+    toast(on ? `<i class="bi bi-robot"></i> ARIA enabled` : "ARIA disabled", on ? "success" : "info");
   });
 
   saveBtn?.addEventListener("click", () => {
@@ -429,7 +429,7 @@ function initARIA() {
       return;
     }
     localStorage.setItem(ARIA_KEY_STORAGE, key);
-    toast("<i class="bi bi-check2"></i> Groq key saved — ARIA is ready!", "success");
+    toast(`<i class="bi bi-check2"></i> Groq key saved — ARIA is ready!`, "success");
   });
 }
 
@@ -1301,7 +1301,7 @@ async function initiateReturn(bookId) {
   filterAndRenderBooks();
   if (document.getElementById("lockerPage").classList.contains("active"))
     renderLockerPage();
-  toast("<i class="bi bi-check2"></i> Return marked. Teacher will confirm.", "success");
+  toast(`<i class="bi bi-check2"></i> Return marked. Teacher will confirm.`, "success");
 }
 
 // ─── Wishlist ───────────────────────────────────────────────────────────────────
@@ -1313,7 +1313,7 @@ async function addToWishlist(bookId) {
   if (!studentData.wishlist.includes(bookId)) studentData.wishlist.push(bookId);
   renderWishlist();
   filterAndRenderBooks();
-  toast("<i class="bi bi-check2"></i> Added to wishlist", "success");
+  toast(`<i class="bi bi-check2"></i> Added to wishlist`, "success");
 }
 
 async function removeFromWishlist(bookId) {
@@ -1606,7 +1606,7 @@ downloadLogBtn?.addEventListener("click", async () => {
     .toLowerCase()}.md`;
   a.click();
   URL.revokeObjectURL(url);
-  toast("<i class="bi bi-check2"></i> Reading log downloaded", "success");
+  toast(`<i class="bi bi-check2"></i> Reading log downloaded`, "success");
 });
 
 // ─── Profile page ──────────────────────────────────────────────────────────────
@@ -1822,7 +1822,7 @@ async function removeFromCurrentlyReading(bookId) {
   filterAndRenderBooks();
   if (document.getElementById("profilePage")?.classList.contains("active"))
     renderProfileCurrentBook();
-  toast("<i class="bi bi-book-fill"></i> Removed from reading list", "info");
+  toast(`<i class="bi bi-book-fill"></i> Removed from reading list`, "info");
 }
 
 async function renderMyRecommendations() {
