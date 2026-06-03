@@ -1,0 +1,157 @@
+/* ============================================================
+   BookWare — Teacher Signup / Invite Page
+   ============================================================ */
+
+:root {
+  --bg:     #1a1a1e;
+  --card:   #22222a;
+  --border: #2d2d38;
+  --accent: #e74c3c;
+  --text:   #f0f0f0;
+  --muted:  #6e6e80;
+  --success:#2ecc71;
+  --danger: #e74c3c;
+  --info:   #3498db;
+  --font-sans:  'DM Sans', system-ui, sans-serif;
+  --font-serif: 'DM Serif Display', Georgia, serif;
+  --r:   12px;
+  --tr: 0.18s ease;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── CARD ────────────────────────────────────────────────────── */
+.signup-page { width: 100%; display: flex; align-items: center; justify-content: center; }
+
+.signup-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 40px 32px 36px;
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.55);
+  animation: fadeUp 0.28s ease;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── LOGO ────────────────────────────────────────────────────── */
+.signup-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 24px;
+}
+
+.logo-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 12px rgba(231,76,60,0.6);
+}
+
+.signup-logo-name {
+  font-family: var(--font-serif);
+  font-size: 1.05rem;
+  color: var(--text);
+  letter-spacing: 0.04em;
+}
+
+/* ── HEADINGS ────────────────────────────────────────────────── */
+.signup-heading {
+  font-family: var(--font-serif);
+  font-size: 1.4rem;
+  font-weight: 400;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.signup-subheading {
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+
+/* ── STATUS MESSAGE ──────────────────────────────────────────── */
+.status-message {
+  min-height: 1.2rem;
+  font-size: 0.82rem;
+  margin-bottom: 20px;
+  line-height: 1.5;
+  transition: color 0.2s ease;
+}
+.status-message--info    { color: var(--info); }
+.status-message--success { color: var(--success); }
+.status-message--error   { color: var(--danger); }
+
+/* ── SIGN IN BUTTON ──────────────────────────────────────────── */
+.signin-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 20px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 10px;
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background var(--tr), opacity var(--tr), transform var(--tr);
+  border: none;
+  min-height: 48px;
+}
+.signin-btn:hover:not(:disabled) {
+  background: #c0392b;
+  transform: translateY(-1px);
+}
+.signin-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+.signin-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* Spinner inside button */
+.btn-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2.5px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.65s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── FOOTER ──────────────────────────────────────────────────── */
+.signup-footer {
+  margin-top: 22px;
+  font-size: 0.7rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.signup-footer i { margin-right: 3px; }

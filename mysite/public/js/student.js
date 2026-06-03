@@ -1,203 +1,137 @@
-import { auth, db } from "./firebase.js";
-import { searchBooks } from "./books.js";
+// student.js — BookWare Student Portal
+import { auth, db } from './firebase.js';
+import { searchBooks } from './books.js';
+import { initTheme, initARIA, applyPreset } from './theme.js';
+import { signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import {
-  signOut,
-  onAuthStateChanged,
-} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  doc, getDoc, getDocs, deleteDoc, setDoc, updateDoc, addDoc,
+  collection, query, where, orderBy, arrayUnion, arrayRemove,
+  onSnapshot, runTransaction, serverTimestamp, Timestamp,
+} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
-import {
-  doc,
-  getDoc,
-  getDocs,
-  deleteDoc,
-  setDoc,
-  updateDoc,
-  addDoc,
-  collection,
-  query,
-  where,
-  orderBy,
-  arrayUnion,
-  arrayRemove,
-  onSnapshot,
-  runTransaction,
-  serverTimestamp,
-  Timestamp,
-} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-
-// ─── State ─────────────────────────────────────────────────────────────────────
-let currentUser = null;
-let userData = null;
-let studentData = null;
-let classTeacherId = null;
+// ── State ────────────────────────────────────────────────────────────────────
+let currentUser       = null;
+let userData          = null;
+let studentData       = null;
+let classTeacherId    = null;
 let selectedTeacherId = null;
-let selectedTeacherName = "";
-let allBooks = [];
-const bookCache = new Map();
+let selectedTeacherName = '';
+let allBooks          = [];
+let addedTeacherIds   = [];
+const bookCache       = new Map();
 let wishlistListeners = [];
-let addedTeacherIds = [];
 
-// ─── DOM refs ──────────────────────────────────────────────────────────────────
-const teacherListEl = document.getElementById("teacherList");
-const searchInputEl = document.getElementById("searchInput");
-const bookListEl = document.getElementById("bookList");
-const bookListTitleEl = document.getElementById("bookListTitle");
-const wishlistEl = document.getElementById("wishlistPanel");
-const activeLoansEl = document.getElementById("activeLoans");
-const readingLogEl = document.getElementById("readingLog");
-const downloadLogBtn = document.getElementById("downloadLogBtn");
-const signoutBar = document.getElementById("signoutBar");
+// ── Utilities ─────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 
-// ─── Sidebar collapse ──────────────────────────────────────────────────────────
-document.getElementById("sidebarToggle")?.addEventListener("click", () => {
-  document.getElementById("sidebar").classList.toggle("collapsed");
+function toast(msg, type = 'info') {
+  const c = document.getElementById('toastContainer');
+  if (!c) return;
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.innerHTML = msg;
+  c.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 4200);
+}
+
+function fmtDate(ts) {
+  if (!ts) return '—';
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// ── Sidebar toggle ────────────────────────────────────────────────────────────
+document.getElementById('sidebarToggle')?.addEventListener('click', () => {
+  const sb = document.getElementById('sidebar');
+  const expanded = sb.classList.toggle('collapsed');
+  document.getElementById('sidebarToggle')?.setAttribute('aria-expanded', String(!expanded));
 });
 
-// ─── Page routing wired immediately (not waiting for auth) ─────────────────────
-// This fixes broken nav links when auth is slow to resolve
-document.querySelectorAll(".ni[data-page]").forEach((btn) => {
-  btn.addEventListener("click", () => showPage(btn.dataset.page));
+// ── Page routing (wired immediately — before auth) ────────────────────────────
+const PAGE_TITLES = { library: 'Library', locker: 'My Locker', wishlist: 'Wishlist', profile: 'Profile', settings: 'Settings' };
+
+document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
+  btn.addEventListener('click', () => showPage(btn.dataset.page));
 });
 
-// ─── Top-bar avatar + name ─────────────────────────────────────────────────────
-function populateTopBar() {
-  const av = document.getElementById("userAvatar");
-  const nameEl = document.getElementById("userDisplayName");
-  if (!currentUser) return;
-  const display = currentUser.displayName ?? currentUser.email ?? "?";
-  const initials = display
-    .split(" ")
-    .map((w) => w[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-  if (av) av.textContent = initials;
-  if (nameEl) nameEl.textContent = display.split(" ")[0];
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => {
+    n.classList.remove('active');
+    n.removeAttribute('aria-current');
+  });
+  document.getElementById(name + 'Page')?.classList.add('active');
+  const navBtn = document.querySelector(`[data-page="${name}"]`);
+  navBtn?.classList.add('active');
+  navBtn?.setAttribute('aria-current', 'page');
+  const pt = document.getElementById('pageTitle');
+  if (pt) pt.textContent = PAGE_TITLES[name] ?? name;
+  if (name === 'locker')  renderLockerPage();
+  if (name === 'profile') renderProfilePage();
 }
 
-// ─── Page routing ──────────────────────────────────────────────────────────────
-function setupPageRouting() {
-  // routing is now wired at parse time above — this is a no-op kept for compat
-}
-
-const PAGE_TITLES = {
-  library: "Library",
-  locker: "My Locker",
-  wishlist: "Wishlist",
-  profile: "Profile",
-  settings: "Settings",
-};
-
-function showPage(pageName) {
-  document.querySelectorAll(".pg").forEach((p) => p.classList.remove("active"));
-  document.querySelectorAll(".ni").forEach((n) => n.classList.remove("active"));
-
-  document.getElementById(pageName + "Page")?.classList.add("active");
-  document.querySelector(`[data-page="${pageName}"]`)?.classList.add("active");
-
-  // Update top-bar title
-  const ptEl = document.getElementById("pt");
-  if (ptEl) ptEl.textContent = PAGE_TITLES[pageName] ?? pageName;
-
-  // Lazy-load page content on first visit
-  if (pageName === "locker") renderLockerPage();
-  if (pageName === "profile") renderProfilePage();
-}
-
-// ─── Auth ──────────────────────────────────────────────────────────────────────
-// Safety net: if onAuthStateChanged never fires (cold init stall), reveal after 5s
-const _safeReveal = setTimeout(() => {
-  document.body.style.visibility = "visible";
-}, 5000);
+// ── Auth ──────────────────────────────────────────────────────────────────────
+const _safeReveal = setTimeout(() => { document.documentElement.style.visibility = 'visible'; }, 5000);
 
 onAuthStateChanged(auth, async (user) => {
   clearTimeout(_safeReveal);
-
-  if (!user) {
-    document.body.style.visibility = "visible";
-    window.location.href = "/";
-    return;
-  }
-
-  // Reveal the page immediately — any subsequent error will be visible
-  document.body.style.visibility = "visible";
+  if (!user) { document.documentElement.style.visibility = 'visible'; window.location.href = '/'; return; }
 
   try {
-    // Maintenance mode check (non-fatal)
+    // Maintenance check
     try {
-      const settingsSnap = await getDoc(doc(db, "admin", "settings"));
+      const settingsSnap = await getDoc(doc(db, 'admin', 'settings'));
       if (settingsSnap.exists() && settingsSnap.data().maintenanceMode === true) {
-        await signOut(auth);
-        window.location.href = "/?maintenance=1";
-        return;
+        await signOut(auth); window.location.href = '/?maintenance=1'; return;
       }
     } catch (_) {}
 
-    const userRef = doc(db, "users", user.uid);
-    let userSnap = await getDoc(userRef);
+    const userRef  = doc(db, 'users', user.uid);
+    let   userSnap = await getDoc(userRef);
 
-    // Auto-create user doc on first sign-in (no doc = brand new account or migration)
     if (!userSnap.exists()) {
-      await setDoc(userRef, {
-        name:      user.displayName ?? "",
-        email:     user.email       ?? "",
-        role:      "student",
-        banned:    false,
-        class:     null,
-        createdAt: serverTimestamp(),
-      });
+      await setDoc(userRef, { name: user.displayName ?? '', email: user.email ?? '', role: 'student', banned: false, class: null, createdAt: serverTimestamp() });
       userSnap = await getDoc(userRef);
     }
 
-    // Redirect wrong roles to their correct portal
     const role = userSnap.data().role;
-    if (role === "teacher") { window.location.href = "/teacher.html"; return; }
-    if (role === "admin")   { window.location.href = "/admin.html";   return; }
+    if (role === 'teacher') { window.location.href = '/teacher.html'; return; }
+    if (role === 'admin')   { window.location.href = '/admin.html';   return; }
 
-    userData        = userSnap.data();
-    currentUser     = user;
-    classTeacherId  = userData.class ?? null;
+    userData       = userSnap.data();
+    currentUser    = user;
+    classTeacherId = userData.class ?? null;
 
-    // ── Ban check ──────────────────────────────────────────────────────────
+    // Ban check
     if (userData.banned) {
       const expiry = userData.banExpiry?.toDate?.();
       if (expiry && expiry < new Date()) {
         await updateDoc(userRef, { banned: false, banExpiry: null, banReason: null });
       } else {
-        const days   = expiry ? Math.ceil((expiry - new Date()) / 86400000) : "permanently";
-        const reason = userData.banReason ?? "Not specified";
+        const days   = expiry ? Math.ceil((expiry - new Date()) / 86400000) : 'permanently';
+        const reason = userData.banReason ?? 'Not specified';
         await signOut(auth);
         window.location.href = `/?banned=1&reason=${encodeURIComponent(reason)}&days=${days}`;
         return;
       }
     }
 
-    // ── Load / create student doc ──────────────────────────────────────────
-    const sRef = doc(db, "students", user.uid);
-    let sSnap  = await getDoc(sRef);
+    // Load / create student doc
+    const sRef  = doc(db, 'students', user.uid);
+    let   sSnap = await getDoc(sRef);
     if (!sSnap.exists()) {
-      await setDoc(sRef, {
-        name:         user.displayName ?? "",
-        email:        user.email       ?? "",
-        currentBook:  null,
-        wishlist:     [],
-        wishlistMeta: {},
-        banned:       false,
-      });
+      await setDoc(sRef, { name: user.displayName ?? '', email: user.email ?? '', currentBook: null, wishlist: [], wishlistMeta: {}, banned: false });
       sSnap = await getDoc(sRef);
     }
-    studentData      = sSnap.data();
-    addedTeacherIds  = studentData.addedTeachers ?? [];
+    studentData     = sSnap.data();
+    addedTeacherIds = studentData.addedTeachers ?? [];
 
     await loadMyRecIds();
 
-    // ── Init UI ────────────────────────────────────────────────────────────
+    // Init UI
     populateTopBar();
-    if (!sessionStorage.getItem("bw-welcomed")) {
-      const firstName = (currentUser.displayName ?? "").split(" ")[0] || "there";
-      setTimeout(() => toast(`Welcome back, ${te(firstName)} <i class="bi bi-hand-wave-fill"></i>`, "success"), 800);
-      sessionStorage.setItem("bw-welcomed", "1");
-    }
     initTheme();
     initARIA();
     setupSignout();
@@ -206,397 +140,149 @@ onAuthStateChanged(auth, async (user) => {
     await loadTeachers();
     await renderNotifications();
 
+    // Welcome toast (once per session)
+    if (!sessionStorage.getItem('bw-welcomed')) {
+      const first = (currentUser.displayName ?? '').split(' ')[0] || 'there';
+      setTimeout(() => toast(`Welcome back, ${esc(first)} <i class='bi bi-hand-wave-fill'></i>`, 'success'), 800);
+      sessionStorage.setItem('bw-welcomed', '1');
+    }
+
     // Auto-select first linked library
-    const firstTeacherId = classTeacherId ?? addedTeacherIds[0] ?? null;
-    if (firstTeacherId) {
+    const firstId = classTeacherId ?? addedTeacherIds[0] ?? null;
+    if (firstId) {
       try {
-        const tSnap = await getDoc(doc(db, "teachers", firstTeacherId));
-        if (tSnap.exists()) await setSelectedTeacher(firstTeacherId, tSnap.data().name);
-      } catch (e) {
-        console.warn("[student.js] Could not auto-select first library:", e);
-      }
+        const tSnap = await getDoc(doc(db, 'teachers', firstId));
+        if (tSnap.exists()) await setSelectedTeacher(firstId, tSnap.data().name);
+      } catch (_) {}
     }
 
   } catch (err) {
-    console.error("[student.js] Init failed:", err);
-    const msg = `Failed to load student portal: ${err.message ?? err.code ?? "unknown error"}. Try refreshing.`;
-    if (typeof toast === "function") toast(msg, "danger");
-    else alert(msg);
+    console.error('[student] Init failed:', err);
+    document.documentElement.style.visibility = 'visible';
+    toast(`Failed to load student portal: ${err.message ?? 'unknown error'}. Try refreshing.`, 'danger');
   }
 });
 
-// ─── Utilities ─────────────────────────────────────────────────────────────────
-function escHtml(s) {
-  return String(s ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-const te = escHtml; // alias for toast strings
-
-function toast(msg, type = "info") {
-  const c = document.getElementById("notificationContainer");
-  if (!c) return;
-  const t = document.createElement("div");
-  t.className = `toast ${type}`;
-  t.innerHTML = msg;
-  c.appendChild(t);
-  setTimeout(() => {
-    t.style.opacity = "0";
-    setTimeout(() => t.remove(), 300);
-  }, 4000);
+// ── Top bar ───────────────────────────────────────────────────────────────────
+function populateTopBar() {
+  const av     = document.getElementById('userAvatar');
+  const nameEl = document.getElementById('userDisplayName');
+  if (!currentUser) return;
+  const display  = currentUser.displayName ?? currentUser.email ?? '?';
+  const initials = display.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  if (av)     av.textContent     = initials;
+  if (nameEl) nameEl.textContent = display.split(' ')[0];
 }
 
-function fmtDate(ts) {
-  if (!ts) return "—";
-  const d = ts.toDate ? ts.toDate() : new Date(ts);
-  return d.toLocaleDateString();
-}
-
-// ─── Sign out ──────────────────────────────────────────────────────────────────
+// ── Sign out ──────────────────────────────────────────────────────────────────
 function setupSignout() {
-  signoutBar?.addEventListener("click", () => signOut(auth));
-  const hint = document.getElementById("signoutEmail");
+  document.getElementById('signoutBar')?.addEventListener('click', () => signOut(auth));
+  const hint = document.getElementById('signoutEmail');
   if (hint && currentUser) hint.textContent = currentUser.email;
 }
 
-// ─── Theme / Brightness ──────────────────────────────────────────────────────
-const BRIGHTNESS_KEY = "bookware-brightness";
-const COLOR_KEY      = "bookware-color";
-const PRESET_KEY     = "bookware-preset";
-
-const THEME_PRESETS = {
-  midnight:  { brightness: 5,  color: "crimson" },
-  night:     { brightness: 18, color: "crimson" },
-  dusk:      { brightness: 32, color: "sunset"  },
-  ash:       { brightness: 52, color: "slate"   },
-  parchment: { brightness: 72, color: "sunset"  },
-  snow:      { brightness: 95, color: "ocean"   },
-};
-
-function lerp(a, b, t) { return a + (b - a) * t; }
-function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-function toHex(v) {
-  v = clamp(Math.round(v), 0, 255);
-  return "#" + v.toString(16).padStart(2, "0").repeat(3);
-}
-
-function brightnessToVars(val) {
-  const t = val / 100;
-  const base     = lerp(0, 255, t);
-  const offAlt   = lerp(16, -8,  t);
-  const offLight = lerp(28, -18, t);
-  const offCard  = lerp(-8,  8,  t);
-  let textV, textMutedV, mutedV;
-  if (val <= 45) {
-    textV      = lerp(240, 200, val / 45);
-    textMutedV = lerp(171, 150, val / 45);
-    mutedV     = lerp(122, 140, val / 45);
-  } else if (val >= 55) {
-    textV      = lerp(200, 26,  (val - 55) / 45);
-    textMutedV = lerp(150, 90,  (val - 55) / 45);
-    mutedV     = lerp(140, 100, (val - 55) / 45);
-  } else {
-    textV = 200; textMutedV = 150; mutedV = 140;
-  }
-  return {
-    "--bg":         toHex(base),
-    "--bg-alt":     toHex(base + offAlt),
-    "--bg-light":   toHex(base + offLight),
-    "--card":       toHex(base + offCard),
-    "--border":     toHex(base + offAlt * 0.6),
-    "--text":       toHex(textV),
-    "--text-muted": toHex(textMutedV),
-    "--muted":      toHex(mutedV),
-  };
-}
-
-function brightnessLabel(val) {
-  if (val <= 8)  return "Pitch Black";
-  if (val <= 22) return "Dark";
-  if (val <= 38) return "Dim";
-  if (val <= 48) return "Mid Dark";
-  if (val <= 52) return "Mid";
-  if (val <= 62) return "Mid Light";
-  if (val <= 78) return "Light";
-  if (val <= 92) return "Bright";
-  return "Pure White";
-}
-
-function applyBrightness(val) {
-  const vars = brightnessToVars(val);
-  const html  = document.documentElement;
-  for (const [k, v] of Object.entries(vars)) {
-    html.style.setProperty(k, v);
-  }
-  if (val >= 50) html.setAttribute("data-theme", "light");
-  else           html.removeAttribute("data-theme");
-  const label = document.getElementById("brightnessLabel");
-  if (label) label.textContent = brightnessLabel(val);
-}
-
-function applyColor(color) {
-  const html = document.documentElement;
-  if (!color || color === "crimson") html.removeAttribute("data-color");
-  else                               html.setAttribute("data-color", color);
-  document.querySelectorAll(".color-swatch").forEach((s) => {
-    s.classList.toggle("active", s.dataset.color === (color || "crimson"));
-  });
-}
-
-function applyPreset(name) {
-  const preset = THEME_PRESETS[name];
-  if (!preset) return;
-  applyBrightness(preset.brightness);
-  applyColor(preset.color);
-  localStorage.setItem(BRIGHTNESS_KEY, String(preset.brightness));
-  localStorage.setItem(COLOR_KEY, preset.color);
-  localStorage.setItem(PRESET_KEY, name);
-  const slider = document.getElementById("brightnessSlider");
-  if (slider) slider.value = preset.brightness;
-  document.querySelectorAll(".theme-preset").forEach((p) =>
-    p.classList.toggle("active", p.dataset.preset === name),
-  );
-}
-
-function initTheme() {
-  const saved = parseInt(localStorage.getItem(BRIGHTNESS_KEY) ?? "18", 10);
-  applyBrightness(saved);
-  applyColor(localStorage.getItem(COLOR_KEY) || "crimson");
-
-  const savedPreset = localStorage.getItem(PRESET_KEY) || "night";
-  document.querySelectorAll(".theme-preset").forEach((p) =>
-    p.classList.toggle("active", p.dataset.preset === savedPreset),
-  );
-
-  const slider = document.getElementById("brightnessSlider");
-  if (slider) {
-    slider.value = saved;
-    slider.addEventListener("input", () => {
-      const val = parseInt(slider.value, 10);
-      applyBrightness(val);
-      localStorage.setItem(BRIGHTNESS_KEY, String(val));
-      localStorage.removeItem(PRESET_KEY);
-      document.querySelectorAll(".theme-preset").forEach((p) => p.classList.remove("active"));
-    });
-  }
-  document.querySelectorAll(".color-swatch").forEach((swatch) => {
-    swatch.addEventListener("click", () => {
-      applyColor(swatch.dataset.color);
-      localStorage.setItem(COLOR_KEY, swatch.dataset.color);
-      localStorage.removeItem(PRESET_KEY);
-      document.querySelectorAll(".theme-preset").forEach((p) => p.classList.remove("active"));
-    });
-  });
-  document.querySelectorAll(".theme-preset").forEach((p) => {
-    p.addEventListener("click", () => applyPreset(p.dataset.preset));
-  });
-}
-
-// Kept for legacy callers
-function applyTheme() {}
-
-// ─── ARIA AI Settings ──────────────────────────────────────────────────────────
-const ARIA_ENABLED_KEY = "bw-aria-enabled";
-const ARIA_KEY_STORAGE  = "bw-aria-groq-key";
-
-function initARIA() {
-  const toggle    = document.getElementById("ariaEnabled");
-  const panel     = document.getElementById("ariaSetupPanel");
-  const keyInput  = document.getElementById("ariaApiKey");
-  const saveBtn   = document.getElementById("ariaSaveKeyBtn");
-  if (!toggle || !panel) return;
-
-  // Restore saved state
-  const enabled = localStorage.getItem(ARIA_ENABLED_KEY) === "true";
-  const savedKey = localStorage.getItem(ARIA_KEY_STORAGE) ?? "";
-  toggle.checked = enabled;
-  panel.style.display = enabled ? "block" : "none";
-  if (keyInput && savedKey) keyInput.value = savedKey;
-
-  toggle.addEventListener("change", () => {
-    const on = toggle.checked;
-    localStorage.setItem(ARIA_ENABLED_KEY, String(on));
-    panel.style.display = on ? "block" : "none";
-    toast(on ? `<i class="bi bi-robot"></i> ARIA enabled` : "ARIA disabled", on ? "success" : "info");
-  });
-
-  saveBtn?.addEventListener("click", () => {
-    const key = keyInput?.value.trim();
-    if (!key || !key.startsWith("gsk_")) {
-      toast("Key should start with gsk_ — check and try again.", "danger");
-      return;
-    }
-    localStorage.setItem(ARIA_KEY_STORAGE, key);
-    toast(`<i class="bi bi-check2"></i> Groq key saved — ARIA is ready!`, "success");
-  });
-}
-
-function applyTheme(theme) {
-  theme === "light"
-    ? document.documentElement.setAttribute("data-theme", "light")
-    : document.documentElement.removeAttribute("data-theme");
-  document
-    .querySelectorAll(".theme-btn")
-    .forEach((b) => b.classList.toggle("active", b.dataset.theme === theme));
-}
-
-// ─── Settings: My Info ─────────────────────────────────────────────────────────
+// ── Settings: my info ─────────────────────────────────────────────────────────
 async function populateSettingsInfo() {
-  // Account email
-  const emailEl = document.getElementById("settingsEmail");
+  const emailEl = document.getElementById('settingsEmail');
   if (emailEl) emailEl.textContent = currentUser.email;
 
-  // My information section
-  const sec = document.getElementById("myInfoSection");
+  const sec = document.getElementById('myInfoSection');
   if (!sec) return;
 
-  let classText = "Not assigned";
+  let classText = 'Not assigned';
   if (classTeacherId) {
-    const tSnap = await getDoc(doc(db, "teachers", classTeacherId));
+    const tSnap = await getDoc(doc(db, 'teachers', classTeacherId));
     if (tSnap.exists()) classText = tSnap.data().name;
   }
 
   sec.innerHTML = `
-    <div class="settings-row" style="border-top:none">
-      <div class="settings-row-label">Full Name</div>
-      <span class="text-muted">${escHtml(studentData.name)}</span>
+    <div class='settings-row' style='border-top:none'>
+      <div class='settings-label'>Full Name</div>
+      <span class='muted-text small-text'>${esc(studentData.name)}</span>
     </div>
-    <div class="settings-row">
-      <div class="settings-row-label">Email</div>
-      <span class="text-muted">${escHtml(currentUser.email)}</span>
+    <div class='settings-row'>
+      <div class='settings-label'>Email</div>
+      <span class='muted-text small-text'>${esc(currentUser.email)}</span>
     </div>
-    <div class="settings-row">
-      <div class="settings-row-label">Class</div>
-      <span class="text-muted">${escHtml(classText)}</span>
+    <div class='settings-row'>
+      <div class='settings-label'>Class</div>
+      <span class='muted-text small-text'>${esc(classText)}</span>
     </div>
-    <div class="settings-row">
-      <div class="settings-row-label">Account Status</div>
-      <span style="color:var(--success);font-size:var(--font-size-sm)">Active</span>
+    <div class='settings-row'>
+      <div class='settings-label'>Account Status</div>
+      <span style='color:var(--success);font-size:0.72rem;font-weight:600'>Active</span>
     </div>`;
 
-  // Populate added teachers list
   renderAddedTeachersList();
 
-  // Wire teacher code button
-  document
-    .getElementById("addTeacherCodeBtn")
-    ?.addEventListener("click", addTeacherByCode);
-  document
-    .getElementById("teacherCodeInput")
-    ?.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") addTeacherByCode();
-    });
+  document.getElementById('addTeacherCodeBtn')?.addEventListener('click', addTeacherByCode);
+  document.getElementById('teacherCodeInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') addTeacherByCode(); });
 }
 
-// ─── Teacher code ──────────────────────────────────────────────────────────────
+// ── Teacher code (join library) ───────────────────────────────────────────────
 async function addTeacherByCode() {
-  const input = document.getElementById("teacherCodeInput");
-  const code = input?.value.trim().toUpperCase();
+  const input = document.getElementById('teacherCodeInput');
+  const code  = input?.value.trim().toUpperCase();
   if (!code) return;
 
-  // Search all teachers' classes subcollections for a matching inviteCode.
-  // We do a collectionGroup query on "classes" where inviteCode == code.
-  let teacherId = null;
-  let classId = null;
-  let className = "";
+  let teacherId = null, classId = null, className = '';
 
   try {
-    const { collectionGroup } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-    const cgSnap = await getDocs(query(collectionGroup(db, "classes"), where("inviteCode", "==", code)));
+    const { collectionGroup } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+    const cgSnap = await getDocs(query(collectionGroup(db, 'classes'), where('inviteCode', '==', code)));
     if (!cgSnap.empty) {
       const classDoc = cgSnap.docs[0];
-      // path: teachers/{teacherId}/classes/{classId}
-      const pathParts = classDoc.ref.path.split("/");
-      teacherId = pathParts[1];
-      classId = pathParts[3];
-      className = classDoc.data().name ?? "Class";
+      const parts = classDoc.ref.path.split('/');
+      teacherId = parts[1]; classId = parts[3];
+      className = classDoc.data().name ?? 'Class';
     }
-  } catch (e) {
-    console.warn("[student.js] collectionGroup query failed, falling back:", e);
-  }
-
-  // Fallback: query flat inviteCode on teachers doc (legacy + collectionGroup unavailable)
-  if (!teacherId) {
-    const snap = await getDocs(query(collection(db, "teachers"), where("inviteCode", "==", code)));
-    if (!snap.empty) {
-      teacherId = snap.docs[0].id;
-      className = "Class";
-    }
-  }
+  } catch (_) {}
 
   if (!teacherId) {
-    toast("Code not found. Double-check with your teacher.", "danger");
-    return;
+    const snap = await getDocs(query(collection(db, 'teachers'), where('inviteCode', '==', code)));
+    if (!snap.empty) { teacherId = snap.docs[0].id; className = 'Class'; }
   }
 
-  if (addedTeacherIds.includes(teacherId)) {
-    toast("That library is already added.", "info");
-    return;
-  }
+  if (!teacherId) { toast('Code not found. Double-check with your teacher.', 'danger'); return; }
+  if (addedTeacherIds.includes(teacherId)) { toast('That library is already added.', 'info'); return; }
 
   addedTeacherIds.push(teacherId);
-  await updateDoc(doc(db, "students", currentUser.uid), {
-    addedTeachers: arrayUnion(teacherId),
-  });
+  await updateDoc(doc(db, 'students', currentUser.uid), { addedTeachers: arrayUnion(teacherId) });
 
-  // Enroll in the specific class roster (or flat roster as fallback)
-  const studentPayload = {
-    studentId: currentUser.uid,
-    name: studentData?.name ?? currentUser.displayName ?? "",
-    email: currentUser.email ?? "",
-    joinedAt: serverTimestamp(),
-    joinedVia: "code",
-  };
+  const payload = { studentId: currentUser.uid, name: studentData?.name ?? currentUser.displayName ?? '', email: currentUser.email ?? '', joinedAt: serverTimestamp(), joinedVia: 'code' };
   try {
-    if (classId) {
-      await setDoc(doc(db, "teachers", teacherId, "classes", classId, "students", currentUser.uid), studentPayload);
-    } else {
-      await setDoc(doc(db, "teachers", teacherId, "students", currentUser.uid), studentPayload);
-    }
-  } catch (e) {
-    console.warn("Could not write to teacher roster:", e);
-  }
+    if (classId) await setDoc(doc(db, 'teachers', teacherId, 'classes', classId, 'students', currentUser.uid), payload);
+    else         await setDoc(doc(db, 'teachers', teacherId, 'students', currentUser.uid), payload);
+  } catch (_) {}
 
-  if (input) input.value = "";
-  toast(`<i class="bi bi-check2"></i> Joined ${te(className)}! Library added.`, "success");
+  if (input) input.value = '';
+  toast(`<i class='bi bi-check2'></i> Joined ${esc(className)}! Library added.`, 'success');
   renderAddedTeachersList();
   await loadTeachers();
 }
 
 async function renderAddedTeachersList() {
-  const container = document.getElementById("addedTeachersList");
+  const container = document.getElementById('addedTeachersList');
   if (!container || addedTeacherIds.length === 0) return;
-
-  container.innerHTML = "";
+  container.innerHTML = '';
   for (const tid of addedTeacherIds) {
-    const snap = await getDoc(doc(db, "teachers", tid));
+    const snap = await getDoc(doc(db, 'teachers', tid));
     if (!snap.exists()) continue;
-    const t = snap.data();
-    const row = document.createElement("div");
-    row.className = "settings-row";
+    const t   = snap.data();
+    const row = document.createElement('div');
+    row.className = 'settings-row';
     row.innerHTML = `
       <div>
-        <div class="settings-row-label">${escHtml(t.name)}'s Library</div>
-        <div class="settings-row-hint">${escHtml(t.email)}</div>
+        <div class='settings-label'>${esc(t.name)}'s Library</div>
+        <div class='settings-hint'>${esc(t.email)}</div>
       </div>
-      <button class="btn-ghost" style="font-size:0.72rem;color:var(--danger);border-color:var(--danger)" data-remove="${escHtml(
-        tid,
-      )}">Remove</button>`;
-    row.querySelector("[data-remove]")?.addEventListener("click", async (e) => {
+      <button class='btn btn--ghost btn--sm' style='color:var(--danger);border-color:var(--danger-border)' data-remove='${esc(tid)}'>Remove</button>`;
+    row.querySelector('[data-remove]')?.addEventListener('click', async (e) => {
       const id = e.currentTarget.dataset.remove;
-      addedTeacherIds = addedTeacherIds.filter((x) => x !== id);
-      await updateDoc(doc(db, "students", currentUser.uid), {
-        addedTeachers: arrayRemove(id),
-      });
-      // Also remove from teacher's roster
-      try {
-        await deleteDoc(doc(db, "teachers", id, "students", currentUser.uid));
-      } catch (e) {
-        console.warn("Could not remove from teacher roster:", e);
-      }
-      toast("Library removed.", "info");
+      addedTeacherIds = addedTeacherIds.filter(x => x !== id);
+      await updateDoc(doc(db, 'students', currentUser.uid), { addedTeachers: arrayRemove(id) });
+      try { await deleteDoc(doc(db, 'teachers', id, 'students', currentUser.uid)); } catch (_) {}
+      toast('Library removed.', 'info');
       renderAddedTeachersList();
       await loadTeachers();
     });
@@ -604,794 +290,510 @@ async function renderAddedTeachersList() {
   }
 }
 
-// ─── Notifications banner ──────────────────────────────────────────────────────
+// ── Notifications banner ──────────────────────────────────────────────────────
 async function renderNotifications() {
-  const banner = document.getElementById("notifBanner");
-  const inner = document.getElementById("notifBannerInner");
-  if (!banner || !inner) return;
-  inner.innerHTML = "";
-
+  const inner = document.getElementById('notifBannerInner');
+  if (!inner) return;
+  inner.innerHTML = '';
   const notifs = [];
-
-  // 1. Any wishlisted books now available?
-  const wishlist = studentData.wishlist ?? [];
+  const wishlist     = studentData.wishlist ?? [];
   const notifTeacherId = selectedTeacherId ?? classTeacherId;
+
   if (wishlist.length > 0 && notifTeacherId) {
     for (const bookId of wishlist.slice(0, 5)) {
-      const bSnap = await getDoc(
-        doc(db, "teachers", notifTeacherId, "books", bookId),
-      );
-      if (bSnap.exists() && bSnap.data().status === "available") {
-        notifs.push({
-          text: `"${bSnap.data().title}" is now available`,
-          time: "Library",
-        });
-      }
+      try {
+        const bSnap = await getDoc(doc(db, 'teachers', notifTeacherId, 'books', bookId));
+        if (bSnap.exists() && bSnap.data().status === 'available')
+          notifs.push({ text: `"${bSnap.data().title}" is now available`, tag: 'Library' });
+      } catch (_) {}
     }
   }
 
-  // 2. Teacher recommendations & now reading
   if (notifTeacherId) {
-    const tSnap = await getDoc(doc(db, "teachers", notifTeacherId));
+    const tSnap = await getDoc(doc(db, 'teachers', notifTeacherId));
     if (tSnap.exists()) {
       const t = tSnap.data();
-      if (t.currentlyReading) {
-        notifs.push({
-          text: `${escHtml(t.name)} is reading "${escHtml(
-            t.currentlyReading.title,
-          )}"`,
-          time: "Teacher",
-        });
-      }
-      const recSnap = await getDocs(
-        collection(db, "teachers", notifTeacherId, "recommendations"),
-      );
-      if (!recSnap.empty) {
-        notifs.push({
-          text: `${escHtml(t.name)} recommended "${escHtml(
-            recSnap.docs[0].data().bookTitle,
-          )}"`,
-          time: "Recommendation",
-        });
-      }
+      if (t.currentlyReading) notifs.push({ text: `${t.name} is reading "${t.currentlyReading.title}"`, tag: 'Teacher' });
+      try {
+        const recSnap = await getDocs(collection(db, 'teachers', notifTeacherId, 'recommendations'));
+        if (!recSnap.empty) notifs.push({ text: `${t.name} recommended "${recSnap.docs[0].data().bookTitle}"`, tag: 'Rec' });
+      } catch (_) {}
     }
   }
 
-  // Always show the banner — empty state is shown if no notifs
-
-  inner.innerHTML = "";
   if (notifs.length === 0) {
     const noLib = !classTeacherId && addedTeacherIds.length === 0;
-    const msg = noLib
-      ? "To see notifications, join a library using your teacher's code <i class="bi bi-emoji-smile"></i>"
-      : "No new notifications.";
-    const div = document.createElement("div");
-    div.className = "nr";
-    div.innerHTML = `<div class="nd dim"></div><div class="nt" style="color:var(--muted)">${escHtml(
-      msg,
-    )}</div>`;
+    const div = document.createElement('div');
+    div.className = 'notif-item';
+    div.innerHTML = `<span class='notif-dot notif-dot--dim'></span><span class='notif-text'>${noLib ? 'Join a library to see notifications.' : 'No new notifications.'}</span>`;
     inner.appendChild(div);
   } else {
-    notifs.slice(0, 3).forEach((n) => {
-      const div = document.createElement("div");
-      div.className = "nr";
-      div.innerHTML = `
-        <div class="nd"></div>
-        <div>
-          <div class="nt">${escHtml(n.text)}</div>
-          <div class="ntm">${escHtml(n.time)}</div>
-        </div>`;
+    notifs.slice(0, 3).forEach(n => {
+      const div = document.createElement('div');
+      div.className = 'notif-item';
+      div.innerHTML = `<span class='notif-dot'></span><div><div class='notif-text'>${esc(n.text)}</div><div class='notif-time'>${esc(n.tag)}</div></div>`;
       inner.appendChild(div);
     });
   }
 }
 
-// ─── Load teachers ─────────────────────────────────────────────────────────────
+// ── Load teachers ─────────────────────────────────────────────────────────────
 async function loadTeachers() {
+  const teacherListEl = document.getElementById('teacherList');
   if (!teacherListEl) return;
-  teacherListEl.innerHTML = `<span class="chip-loading">Loading…</span>`;
 
-  // Combine class teacher + added teachers (deduped)
   const ids = new Set();
   if (classTeacherId) ids.add(classTeacherId);
-  addedTeacherIds.forEach((id) => ids.add(id));
+  addedTeacherIds.forEach(id => ids.add(id));
 
-  // ── No libraries linked yet: show CTA instead of fallback all-teachers ──
   if (ids.size === 0) {
-    teacherListEl.innerHTML = "";
-
-    const cta = document.createElement("div");
-    cta.className = "no-library-cta";
+    teacherListEl.innerHTML = '';
+    const cta = document.createElement('div');
+    cta.className = 'no-library-cta';
     cta.innerHTML = `
-      <div class="no-library-icon"><i class="bi bi-collection-fill"></i></div>
-      <div class="no-library-title">No libraries linked yet</div>
-      <div class="no-library-sub">Ask your teacher for their class code, then add it below.</div>
-      <button class="btn-primary" id="ctaAddLibraryBtn">Add a Library Code</button>`;
+      <div class='no-library-icon'><i class='bi bi-collection-fill'></i></div>
+      <div class='no-library-title'>No libraries linked yet</div>
+      <div class='no-library-sub'>Ask your teacher for their class code, then add it in Settings.</div>
+      <button class='btn btn--primary' id='ctaAddLibraryBtn'>Add a Library Code</button>`;
     teacherListEl.appendChild(cta);
-
-    document
-      .getElementById("ctaAddLibraryBtn")
-      ?.addEventListener("click", () => {
-        showPage("settings");
-        // scroll to teacher code section
-        setTimeout(() => {
-          document
-            .getElementById("teacherCodeInput")
-            ?.scrollIntoView({ behavior: "smooth", block: "center" });
-          document.getElementById("teacherCodeInput")?.focus();
-        }, 100);
-      });
-
-    // Still load the All Libraries discovery section
+    document.getElementById('ctaAddLibraryBtn')?.addEventListener('click', () => {
+      showPage('settings');
+      setTimeout(() => { document.getElementById('teacherCodeInput')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); document.getElementById('teacherCodeInput')?.focus(); }, 120);
+    });
     await renderAllLibraries();
     return;
   }
 
-  // ── Has libraries: render chips ─────────────────────────────────────────
-  teacherListEl.innerHTML = "";
+  teacherListEl.innerHTML = '';
   for (const tid of ids) {
-    const snap = await getDoc(doc(db, "teachers", tid));
+    const snap = await getDoc(doc(db, 'teachers', tid));
     if (!snap.exists()) continue;
-    const t = snap.data();
-    const btn = document.createElement("button");
-    btn.className = "btn-role";
+    const t   = snap.data();
+    const btn = document.createElement('button');
+    btn.className   = 'library-chip';
     btn.dataset.tid = tid;
-    btn.innerHTML = `<span class="btn-role-title">${escHtml(t.name)}</span>`;
-    btn.addEventListener("click", () => setSelectedTeacher(tid, t.name));
+    btn.textContent = t.name;
+    btn.addEventListener('click', () => setSelectedTeacher(tid, t.name));
     teacherListEl.appendChild(btn);
   }
-
-  // Always render All Libraries section below the card
   await renderAllLibraries();
 }
 
-// ─── All Libraries discovery section ──────────────────────────────────────────
+// ── All Libraries discovery ───────────────────────────────────────────────────
 async function renderAllLibraries() {
-  let allLibEl = document.getElementById("allLibrariesSection");
-  if (!allLibEl) {
-    allLibEl = document.createElement("div");
-    allLibEl.id = "allLibrariesSection";
-    const r2 = document.querySelector("#libraryPage .r2");
-    if (r2) r2.insertAdjacentElement("afterend", allLibEl);
-    else document.getElementById("libraryPage")?.appendChild(allLibEl);
-  }
-  allLibEl.innerHTML = "";
+  let allLibEl = document.getElementById('allLibrariesSection');
+  if (!allLibEl) return;
+  allLibEl.innerHTML = '';
 
-  const snap = await getDocs(collection(db, "teachers"));
+  const snap = await getDocs(collection(db, 'teachers'));
   if (snap.empty) return;
 
-  const myIds = new Set();
-  if (classTeacherId) myIds.add(classTeacherId);
-  addedTeacherIds.forEach((id) => myIds.add(id));
+  const myIds    = new Set([classTeacherId, ...addedTeacherIds].filter(Boolean));
+  const all      = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const enrolled = all.filter(t => myIds.has(t.id));
+  const publicLibs = all.filter(t => !myIds.has(t.id) && (t.libraryPublic ?? false));
 
-  const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  const enrolled  = all.filter(t => myIds.has(t.id));
-  const publicLib = all.filter(t => !myIds.has(t.id) && (t.libraryPublic ?? false));
-  // Class-only libraries the student isn't enrolled in are hidden entirely
+  if (enrolled.length === 0 && publicLibs.length === 0) return;
 
-  const wrapper = document.createElement("div");
-  wrapper.className = "all-libraries-section";
+  const wrapper = document.createElement('div');
+  wrapper.className = 'all-libraries-section';
 
   function buildCard(t) {
     const isLinked = myIds.has(t.id);
     const isPublic = t.libraryPublic ?? false;
-    const card = document.createElement("div");
-    card.className = "all-lib-card";
+    const card = document.createElement('div');
+    card.className = 'all-lib-card';
     card.innerHTML = `
-      <div class="all-lib-name">${escHtml(t.name)}</div>
-      <div class="all-lib-email">${escHtml(t.email ?? "")}</div>
-      <div class="all-lib-tags">
-        ${isLinked ? `<span class="alib-badge linked"><i class="bi bi-check2"></i> Enrolled</span>` : ""}
-        ${isPublic
-          ? `<span class="alib-badge public"><i class="bi bi-collection-fill"></i> Public</span>`
-          : `<span class="alib-badge class-only"><i class="bi bi-lock-fill"></i> Class Only</span>`}
+      <div class='all-lib-name'>${esc(t.name)}</div>
+      <div class='all-lib-email'>${esc(t.email ?? '')}</div>
+      <div class='all-lib-tags'>
+        ${isLinked ? `<span class='alib-badge alib-badge--enrolled'><i class='bi bi-check2'></i> Enrolled</span>` : ''}
+        ${isPublic ? `<span class='alib-badge alib-badge--public'><i class='bi bi-collection-fill'></i> Public</span>`
+                   : `<span class='alib-badge alib-badge--classonly'><i class='bi bi-lock-fill'></i> Class Only</span>`}
       </div>
-      <div class="all-lib-actions">
-        <button class="btn-sm alib-browse" data-tid="${escHtml(t.id)}" data-name="${escHtml(t.name)}">
-          <i class="bi bi-book-fill"></i> Browse
+      <div class='all-lib-actions'>
+        <button class='btn btn--sm alib-browse' data-tid='${esc(t.id)}' data-name='${esc(t.name)}'>
+          <i class='bi bi-book-fill'></i> Browse
         </button>
         ${isPublic && !isLinked
-          ? `<button class="btn-sm alib-request" data-tid="${escHtml(t.id)}" data-name="${escHtml(t.name)}" data-email="${escHtml(t.email ?? "")}">
-               <i class="bi bi-envelope-fill"></i> Request Access
+          ? `<button class='btn btn--sm' style='color:var(--info);border-color:rgba(52,152,219,.4)' data-tid='${esc(t.id)}' data-name='${esc(t.name)}' data-email='${esc(t.email ?? '')}' data-action='request'>
+               <i class='bi bi-envelope-fill'></i> Request Access
              </button>`
-          : ""}
+          : ''}
       </div>`;
-    card.querySelector(".alib-browse")?.addEventListener("click", (e) => {
+    card.querySelector('.alib-browse')?.addEventListener('click', (e) => {
       const { tid, name } = e.currentTarget.dataset;
       setSelectedTeacher(tid, name);
-      document.querySelector("#libraryPage .c")?.scrollIntoView({ behavior: "smooth" });
     });
-    card.querySelector(".alib-request")?.addEventListener("click", (e) => {
+    card.querySelector('[data-action="request"]')?.addEventListener('click', (e) => {
       const { name, email } = e.currentTarget.dataset;
-      const subject = encodeURIComponent("BookWare Library Access Request");
-      const body = encodeURIComponent(
-        `Hi ${name},\n\nI'd like to join your BookWare class and borrow books from your library.\n\nMy name: ${studentData?.name ?? ""}\nEmail: ${currentUser?.email ?? ""}\n\nThank you!`
-      );
+      const subject = encodeURIComponent('BookWare Library Access Request');
+      const body    = encodeURIComponent(`Hi ${name},\n\nI'd like to join your BookWare class.\n\nMy name: ${studentData?.name ?? ''}\nEmail: ${currentUser?.email ?? ''}\n\nThank you!`);
       window.location.href = `mailto:${email}?subject=${subject}&body=${body}`;
-      toast(`Opening email to ${te(name)}\u2026`, "info");
     });
     return card;
   }
 
   if (enrolled.length > 0) {
-    const h = document.createElement("div");
-    h.className = "lbl"; h.style.marginBottom = "10px";
-    h.innerHTML = `<i class="bi bi-check2"></i> My Libraries`;
+    const h = document.createElement('div');
+    h.className = 'section-label'; h.style.marginBottom = '10px';
+    h.innerHTML = '<i class="bi bi-check2" aria-hidden="true"></i> My Libraries';
     wrapper.appendChild(h);
-    const grid = document.createElement("div");
-    grid.className = "all-lib-grid";
+    const grid = document.createElement('div');
+    grid.className = 'all-lib-grid';
     enrolled.forEach(t => grid.appendChild(buildCard(t)));
     wrapper.appendChild(grid);
   }
 
-  if (publicLib.length > 0) {
-    const h = document.createElement("div");
-    h.className = "lbl"; h.style.cssText = "margin-bottom:10px;margin-top:18px";
-    h.innerHTML = `<i class="bi bi-collection-fill"></i> Discover Public Libraries`;
-    const hint = document.createElement("p");
-    hint.className = "t-hint"; hint.style.marginBottom = "10px";
-    hint.textContent = "Browse freely \u2014 ask the teacher for their class code to check out books.";
-    wrapper.appendChild(h);
-    wrapper.appendChild(hint);
-    const grid = document.createElement("div");
-    grid.className = "all-lib-grid";
-    publicLib.forEach(t => grid.appendChild(buildCard(t)));
+  if (publicLibs.length > 0) {
+    const h = document.createElement('div');
+    h.className = 'section-label'; h.style.cssText = 'margin-bottom:8px;margin-top:18px';
+    h.innerHTML = '<i class="bi bi-collection-fill" aria-hidden="true"></i> Discover Public Libraries';
+    const hint = document.createElement('p');
+    hint.className = 'empty-state'; hint.style.marginBottom = '10px';
+    hint.textContent = 'Browse freely — ask the teacher for their class code to check out books.';
+    wrapper.appendChild(h); wrapper.appendChild(hint);
+    const grid = document.createElement('div');
+    grid.className = 'all-lib-grid';
+    publicLibs.forEach(t => grid.appendChild(buildCard(t)));
     wrapper.appendChild(grid);
-  }
-
-  if (enrolled.length === 0 && publicLib.length === 0) {
-    const p = document.createElement("p");
-    p.className = "text-muted";
-    p.textContent = "No libraries available yet.";
-    wrapper.appendChild(p);
   }
 
   allLibEl.appendChild(wrapper);
 }
 
 async function setSelectedTeacher(tid, name) {
-  selectedTeacherId = tid;
+  selectedTeacherId   = tid;
   selectedTeacherName = name;
-
-  // Update chip active state
-  document
-    .querySelectorAll("#teacherList .btn-role")
-    .forEach((b) => b.classList.toggle("selected", b.dataset.tid === tid));
-
-  // Update book list title
-  if (bookListTitleEl) bookListTitleEl.textContent = `${name}'s Library`;
-
-  // Update active library banner
-  let banner = document.getElementById("activeLibraryBanner");
-  if (!banner) {
-    banner = document.createElement("div");
-    banner.id = "activeLibraryBanner";
-    banner.style.cssText = "display:flex;align-items:center;gap:8px;font-size:0.72rem;color:var(--muted);padding:5px 0 10px;border-bottom:1px solid var(--border);margin-bottom:10px";
-    const bookListTitle = bookListTitleEl?.parentElement;
-    bookListTitle?.insertAdjacentElement("afterend", banner);
-  }
-  banner.innerHTML = `<i class="bi bi-collection-fill" style="color:var(--accent)"></i> Viewing <strong style="color:var(--text)">${escHtml(name)}</strong>'s library`;
-
+  document.querySelectorAll('#teacherList .library-chip').forEach(b =>
+    b.classList.toggle('selected', b.dataset.tid === tid)
+  );
   await loadTeacherBooks(tid);
   await renderTeacherExtras(tid, name);
 }
 
-// ─── Teacher extras (recommended + now reading) ────────────────────────────────
+// ── Teacher extras (recs + now reading) ───────────────────────────────────────
 async function renderTeacherExtras(tid, name) {
-  // Target the placeholder cards by ID so we swap them in place,
-  // preserving the col layout without nuking the container.
-  const recPlaceholder = document.getElementById("recCardPlaceholder");
-  const readPlaceholder = document.getElementById("readingCardPlaceholder");
+  const recPlaceholder  = document.getElementById('recCardPlaceholder');
+  const readPlaceholder = document.getElementById('readingCardPlaceholder');
+  const tSnap = await getDoc(doc(db, 'teachers', tid));
+  const t     = tSnap.exists() ? tSnap.data() : {};
 
-  const tSnap = await getDoc(doc(db, "teachers", tid));
-  const t = tSnap.exists() ? tSnap.data() : {};
-
-  // ── Recommendations card ─────────────────────────────────────────────────
-  const recCard = document.createElement("div");
-  recCard.className = "c";
-  recCard.id = "recCardPlaceholder"; // keep same ID so next call can find it
-  recCard.innerHTML = `<div class="lbl"><i class="bi bi-star-fill"></i> Recommended by ${escHtml(
-    name,
-  )}</div>`;
-
-  const recSnap = await getDocs(
-    collection(db, "teachers", tid, "recommendations"),
-  );
+  // Recommendations card
+  const recCard = document.createElement('div');
+  recCard.className = 'panel-card';
+  recCard.id        = 'recCardPlaceholder';
+  recCard.innerHTML = `<div class='section-label'><i class='bi bi-star-fill' aria-hidden='true'></i> Recommended by ${esc(name)}</div>`;
+  const recSnap = await getDocs(collection(db, 'teachers', tid, 'recommendations'));
   if (recSnap.empty) {
-    recCard.innerHTML += `<p class="empty-state">No recommendations yet.</p>`;
+    recCard.innerHTML += `<p class='empty-state'>No recommendations yet.</p>`;
   } else {
-    recSnap.forEach((d) => {
+    recSnap.forEach(d => {
       const r = d.data();
-      const row = document.createElement("div");
-      row.className = "br";
+      const row = document.createElement('div');
+      row.className = 'book-row';
       row.innerHTML = `
-        ${
-          r.coverUrl
-            ? `<img src="${escHtml(
-                r.coverUrl,
-              )}" style="width:28px;height:40px;object-fit:cover;border-radius:2px;border:1px solid var(--border);flex-shrink:0">`
-            : `<div class="bc"></div>`
-        }
-        <div class="bi">
-          <div class="bt">${escHtml(r.bookTitle)}</div>
-          ${
-            r.author
-              ? `<div class="bau">${escHtml(r.author)}</div>`
-              : `<span class="bx av-b"><span class="bd"></span>Recommended</span>`
-          }
+        ${r.coverUrl ? `<img src='${esc(r.coverUrl)}' class='book-cover' alt=''>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
+        <div class='book-info'>
+          <div class='book-title'>${esc(r.bookTitle)}</div>
+          ${r.author ? `<div class='book-author'>${esc(r.author)}</div>` : `<span class='badge badge--reading'><span class='badge--dot'></span>Recommended</span>`}
         </div>`;
       recCard.appendChild(row);
     });
   }
 
-  // ── Now reading card ─────────────────────────────────────────────────────
-  const readCard = document.createElement("div");
-  readCard.className = "c";
-  readCard.id = "readingCardPlaceholder"; // keep same ID
-
+  // Now reading card
+  const readCard = document.createElement('div');
+  readCard.className = 'panel-card';
+  readCard.id        = 'readingCardPlaceholder';
   if (t.currentlyReading) {
     const r = t.currentlyReading;
     readCard.innerHTML = `
-      <div class="lbl"><i class="bi bi-book-fill"></i> ${escHtml(name)} is Reading</div>
-      <div class="br" style="padding-top:4px">
-        ${
-          r.coverUrl
-            ? `<img src="${escHtml(
-                r.coverUrl,
-              )}" style="width:28px;height:40px;object-fit:cover;border-radius:2px;border:1px solid var(--accent);flex-shrink:0">`
-            : `<div class="bc" style="border-color:var(--accent)"></div>`
-        }
-        <div class="bi">
-          <div class="bt">${escHtml(r.title)}</div>
-          <div class="bau">${escHtml(r.author)}</div>
+      <div class='section-label'><i class='bi bi-book-fill' aria-hidden='true'></i> ${esc(name)} is Reading</div>
+      <div class='book-row'>
+        ${r.coverUrl ? `<img src='${esc(r.coverUrl)}' class='book-cover' style='border-color:var(--accent)' alt=''>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
+        <div class='book-info'>
+          <div class='book-title'>${esc(r.title)}</div>
+          <div class='book-author'>${esc(r.author)}</div>
         </div>
       </div>`;
   } else {
     readCard.innerHTML = `
-      <div class="lbl"><i class="bi bi-book-fill"></i> ${escHtml(name)} is Reading</div>
-      <p class="empty-state">Nothing set yet.</p>`;
+      <div class='section-label'><i class='bi bi-book-fill' aria-hidden='true'></i> ${esc(name)} is Reading</div>
+      <p class='empty-state'>Nothing set yet.</p>`;
   }
 
-  // Swap placeholders in-place
   recPlaceholder?.replaceWith(recCard);
   readPlaceholder?.replaceWith(readCard);
 }
 
-// ─── Load teacher books ─────────────────────────────────────────────────────────
+// ── Load teacher books ────────────────────────────────────────────────────────
 async function loadTeacherBooks(tid) {
+  const bookListEl = document.getElementById('bookList');
   if (!bookListEl) return;
-  bookListEl.innerHTML = `<p class="text-muted">Loading books…</p>`;
+  bookListEl.innerHTML = `<p class='empty-state'>Loading books…</p>`;
 
-  // ── Access gate ───────────────────────────────────────────────────────────
-  // Students may only load books if they are:
-  //   (a) enrolled in this teacher's class, OR
-  //   (b) the library is marked public
-  const myIds = new Set([classTeacherId, ...addedTeacherIds].filter(Boolean));
+  const myIds    = new Set([classTeacherId, ...addedTeacherIds].filter(Boolean));
   const isEnrolled = myIds.has(tid);
 
   if (!isEnrolled) {
-    // Check whether the library is public before fetching books
     try {
-      const tSnap = await getDoc(doc(db, "teachers", tid));
+      const tSnap = await getDoc(doc(db, 'teachers', tid));
       if (!tSnap.exists() || !tSnap.data().libraryPublic) {
-        bookListEl.innerHTML = `<p class="text-muted"><i class="bi bi-lock-fill"></i> This library is class-only. Ask the teacher for their class code to join.</p>`;
-        allBooks = [];
-        return;
+        bookListEl.innerHTML = `<p class='empty-state'><i class='bi bi-lock-fill'></i> This library is class-only. Ask the teacher for their class code to join.</p>`;
+        allBooks = []; return;
       }
-    } catch (e) {
-      bookListEl.innerHTML = `<p class="text-muted">Could not verify library access.</p>`;
+    } catch (_) {
+      bookListEl.innerHTML = `<p class='empty-state'>Could not verify library access.</p>`;
       return;
     }
   }
 
-  const snap = await getDocs(collection(db, "teachers", tid, "books"));
+  const snap = await getDocs(collection(db, 'teachers', tid, 'books'));
   if (snap.empty) {
-    bookListEl.innerHTML = `<p class="text-muted">No books in this library yet.</p>`;
-    allBooks = [];
-    return;
+    bookListEl.innerHTML = `<p class='empty-state'>No books in this library yet.</p>`;
+    allBooks = []; return;
   }
 
-  allBooks = snap.docs.map((d) => {
+  allBooks = snap.docs.map(d => {
     const data = { id: d.id, teacherId: tid, ...d.data() };
-    bookCache.set(d.id, {
-      title: data.title,
-      author: data.author,
-      isbn: data.isbn,
-      coverUrl: data.coverUrl,
-      teacherId: tid,
-    });
+    bookCache.set(d.id, { title: data.title, author: data.author, isbn: data.isbn, coverUrl: data.coverUrl, teacherId: tid });
     return data;
   });
-
   filterAndRenderBooks();
   renderWishlist();
   await setupWishlistNotifications();
 }
 
-// ─── Search ─────────────────────────────────────────────────────────────────────
-searchInputEl?.addEventListener("input", filterAndRenderBooks);
+// ── Search ────────────────────────────────────────────────────────────────────
+document.getElementById('searchInput')?.addEventListener('input', filterAndRenderBooks);
 
 function filterAndRenderBooks() {
-  const term = (searchInputEl?.value ?? "").trim().toLowerCase();
-  const list = term
-    ? allBooks.filter(
-        (b) =>
-          b.title?.toLowerCase().includes(term) ||
-          b.author?.toLowerCase().includes(term) ||
-          b.isbn?.toLowerCase().includes(term),
-      )
-    : allBooks;
+  const term = (document.getElementById('searchInput')?.value ?? '').trim().toLowerCase();
+  const list = term ? allBooks.filter(b => b.title?.toLowerCase().includes(term) || b.author?.toLowerCase().includes(term) || b.isbn?.toLowerCase().includes(term)) : allBooks;
   renderBooks(list);
 }
 
-// ─── Render books ───────────────────────────────────────────────────────────────
+// ── Render books ──────────────────────────────────────────────────────────────
 function renderBooks(books) {
+  const bookListEl = document.getElementById('bookList');
   if (!bookListEl) return;
-  if (books.length === 0) {
-    bookListEl.innerHTML = `<p class="text-muted">No books match your search.</p>`;
-    return;
-  }
+  if (books.length === 0) { bookListEl.innerHTML = `<p class='empty-state'>No books match your search.</p>`; return; }
 
-  const hasBook = !!studentData?.currentBook;
+  const hasBook  = !!studentData?.currentBook;
   const wishlist = studentData?.wishlist ?? [];
-  const myRecs = studentData?.myRecIds ?? new Set();
-  const reading = new Set(studentData?.currentlyReading?.map(r => r.bookId) ?? []);
-  bookListEl.innerHTML = "";
+  const myRecs   = studentData?.myRecIds ?? new Set();
+  const reading  = new Set((studentData?.currentlyReading ?? []).map(r => r.bookId));
+  bookListEl.innerHTML = '';
 
-  books.forEach((book) => {
-    const isActive = book.id === studentData?.currentBook;
-    const isAvail = book.status === "available";
-    const isWished = wishlist.includes(book.id);
-    const isReced = myRecs.has ? myRecs.has(book.id) : false;
-    const isReading = reading.has(book.id);
+  books.forEach(book => {
+    const isActive   = book.id === studentData?.currentBook;
+    const isAvail    = book.status === 'available';
+    const isWished   = wishlist.includes(book.id);
+    const isReced    = myRecs.has ? myRecs.has(book.id) : false;
+    const isReading  = reading.has(book.id);
     const canCheckout = isAvail && !hasBook && !isActive;
 
-    const badge = isActive
-      ? `<span class="badge"><span class="badge-dot"></span>Currently Reading</span>`
-      : isAvail
-      ? `<span class="chip">Available</span>`
-      : `<span class="chip">Checked Out</span>`;
+    const copies = book.copies ?? 1;
+    const out    = book.checkedOutCount ?? (book.status === 'checked_out' ? 1 : 0);
+    const avail  = copies - out;
 
-    let action = "";
-    if (isActive)
-      action = `<button class="btn-ghost" data-action="return"   data-id="${escHtml(
-        book.id,
-      )}">Return Book</button>`;
-    else if (canCheckout)
-      action = `<button class="btn-primary" data-action="checkout" data-id="${escHtml(
-        book.id,
-      )}" data-title="${escHtml(book.title)}">Check Out</button>`;
-    else if (isAvail)
-      action = `<button class="btn-primary" disabled title="Return your current book first">Check Out</button>`;
+    const statusBadge = isActive
+      ? `<span class='badge badge--reading badge--dot'>Currently Reading</span>`
+      : copies > 1
+      ? `<span class='badge ${avail > 0 ? "badge--available" : "badge--checked-out"}'>${avail}/${copies} available</span>`
+      : isAvail
+      ? `<span class='badge badge--available'>Available</span>`
+      : `<span class='badge badge--checked-out'>Checked Out</span>`;
+
+    let checkoutBtn = '';
+    if (isActive)      checkoutBtn = `<button class='btn btn--ghost btn--sm' data-action='return'   data-id='${esc(book.id)}'>Return Book</button>`;
+    else if (canCheckout) checkoutBtn = `<button class='btn btn--primary btn--sm' data-action='checkout' data-id='${esc(book.id)}' data-title='${esc(book.title)}'>Check Out</button>`;
+    else if (isAvail)  checkoutBtn = `<button class='btn btn--primary btn--sm' disabled title='Return your current book first'>Check Out</button>`;
 
     const wishBtn = !isActive
-      ? `<button class="btn-ghost" data-action="${
-          isWished ? "unwishlist" : "wishlist"
-        }" data-id="${escHtml(book.id)}">${
-          isWished ? "<i class="bi bi-heart-fill"></i> Wishlisted" : "<i class="bi bi-heart"></i> Wishlist"
-        }</button>`
-      : "";
+      ? `<button class='btn btn--xs ${isWished ? 'starred' : ''}' data-action='${isWished ? "unwishlist" : "wishlist"}' data-id='${esc(book.id)}'>${isWished ? '<i class="bi bi-heart-fill"></i> Wishlisted' : '<i class="bi bi-heart"></i> Wishlist'}</button>`
+      : '';
 
-    const recBtn = `<button class="btn-ghost" data-action="${
-      isReced ? "unrecommend" : "recommend"
-    }" data-id="${escHtml(book.id)}" data-title="${escHtml(book.title)}" data-author="${escHtml(book.author ?? "")}" data-cover="${escHtml(book.coverUrl ?? "")}" title="${isReced ? "Remove from your recommendations" : "Add to your recommendations"}">${
-      isReced ? "<i class="bi bi-star-fill"></i> Recommended" : "<i class="bi bi-star"></i> Recommend"
-    }</button>`;
+    const recBtn = `<button class='btn btn--xs ${isReced ? 'starred' : ''}' data-action='${isReced ? "unrecommend" : "recommend"}' data-id='${esc(book.id)}' data-title='${esc(book.title)}' data-author='${esc(book.author ?? '')}' data-cover='${esc(book.coverUrl ?? '')}'>${isReced ? '<i class="bi bi-star-fill"></i> Recommended' : '<i class="bi bi-star"></i> Recommend'}</button>`;
 
     const readingBtn = !isActive
-      ? `<button class="btn-ghost" data-action="${
-          isReading ? "unset-reading" : "set-reading"
-        }" data-id="${escHtml(book.id)}" data-title="${escHtml(book.title)}" data-author="${escHtml(book.author ?? "")}" data-cover="${escHtml(book.coverUrl ?? "")}" title="${isReading ? "Remove from currently reading" : "Mark as currently reading"}">${
-          isReading ? "<i class="bi bi-book-fill"></i> Reading" : "<i class="bi bi-book-fill"></i> Set Reading"
-        }</button>`
-      : "";
+      ? `<button class='btn btn--xs ${isReading ? 'starred' : ''}' data-action='${isReading ? "unset-reading" : "set-reading"}' data-id='${esc(book.id)}' data-title='${esc(book.title)}' data-author='${esc(book.author ?? '')}' data-cover='${esc(book.coverUrl ?? '')}'>${isReading ? '<i class="bi bi-book-fill"></i> Reading' : '<i class="bi bi-book-fill"></i> Set Reading'}</button>`
+      : '';
 
-    const cover = book.coverUrl
-      ? `<img src="${escHtml(
-          book.coverUrl,
-        )}" alt="Cover" class="book-cover-thumb">`
-      : "";
-    const desc = book.description
-      ? `<p class="text-muted book-desc">${escHtml(book.description)}</p>`
-      : "";
-
-    const panel = document.createElement("div");
-    panel.className = "panel";
-    panel.innerHTML = `
-      ${cover}
-      <div class="panel-title">${escHtml(book.title)}</div>
-      <div class="panel-body">
-        <p class="text-muted">${escHtml(book.author)}</p>
-        <div class="chip-row"><span class="chip">ISBN ${escHtml(
-          book.isbn,
-        )}</span>${badge}</div>
-        ${desc}
-        <div class="chip-row">${action}${wishBtn}</div>
-        <div class="chip-row" style="margin-top:4px">${recBtn}${readingBtn}</div>
+    const row = document.createElement('div');
+    row.className = 'book-row';
+    row.setAttribute('role', 'listitem');
+    row.innerHTML = `
+      ${book.coverUrl ? `<img src='${esc(book.coverUrl)}' class='book-cover' alt='Cover of ${esc(book.title)}' loading='lazy'>` : `<div class='book-cover-ph' aria-hidden='true'><i class='bi bi-book-fill'></i></div>`}
+      <div class='book-info'>
+        <div class='book-title'>${esc(book.title)}</div>
+        <div class='book-author'>${esc(book.author ?? '')}</div>
+        <div style='display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px'>${statusBadge}</div>
+        ${book.description ? `<p style='font-size:0.66rem;color:var(--text-3);margin-bottom:6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden'>${esc(book.description)}</p>` : ''}
+        <div class='book-actions'>${checkoutBtn}${wishBtn}</div>
+        <div class='book-actions' style='margin-top:4px'>${recBtn}${readingBtn}</div>
       </div>`;
 
-    panel
-      .querySelector("[data-action='checkout']")
-      ?.addEventListener("click", (e) =>
-        requestCheckout(
-          e.currentTarget.dataset.id,
-          e.currentTarget.dataset.title,
-        ),
-      );
-    panel
-      .querySelector("[data-action='return']")
-      ?.addEventListener("click", (e) =>
-        initiateReturn(e.currentTarget.dataset.id),
-      );
-    panel
-      .querySelector("[data-action='wishlist']")
-      ?.addEventListener("click", (e) =>
-        addToWishlist(e.currentTarget.dataset.id),
-      );
-    panel
-      .querySelector("[data-action='unwishlist']")
-      ?.addEventListener("click", (e) =>
-        removeFromWishlist(e.currentTarget.dataset.id),
-      );
-    panel
-      .querySelector("[data-action='recommend']")
-      ?.addEventListener("click", (e) => {
-        const d = e.currentTarget.dataset;
-        toggleStudentRecommend(d.id, d.title, d.author, d.cover);
-      });
-    panel
-      .querySelector("[data-action='unrecommend']")
-      ?.addEventListener("click", (e) => {
-        const d = e.currentTarget.dataset;
-        toggleStudentRecommend(d.id, d.title, d.author, d.cover);
-      });
-    panel
-      .querySelector("[data-action='set-reading']")
-      ?.addEventListener("click", (e) => {
-        const d = e.currentTarget.dataset;
-        addToCurrentlyReading(d.id, d.title, d.author, d.cover);
-      });
-    panel
-      .querySelector("[data-action='unset-reading']")
-      ?.addEventListener("click", (e) => {
-        removeFromCurrentlyReading(e.currentTarget.dataset.id);
-      });
+    row.querySelector('[data-action="checkout"]')?.addEventListener('click', e  => requestCheckout(e.currentTarget.dataset.id, e.currentTarget.dataset.title));
+    row.querySelector('[data-action="return"]')?.addEventListener('click',   e  => initiateReturn(e.currentTarget.dataset.id));
+    row.querySelector('[data-action="wishlist"]')?.addEventListener('click', e  => addToWishlist(e.currentTarget.dataset.id));
+    row.querySelector('[data-action="unwishlist"]')?.addEventListener('click',e => removeFromWishlist(e.currentTarget.dataset.id));
+    row.querySelector('[data-action="recommend"]')?.addEventListener('click', e => { const d = e.currentTarget.dataset; toggleStudentRecommend(d.id, d.title, d.author, d.cover); });
+    row.querySelector('[data-action="unrecommend"]')?.addEventListener('click',e => { const d = e.currentTarget.dataset; toggleStudentRecommend(d.id, d.title, d.author, d.cover); });
+    row.querySelector('[data-action="set-reading"]')?.addEventListener('click', e => { const d = e.currentTarget.dataset; addToCurrentlyReading(d.id, d.title, d.author, d.cover); });
+    row.querySelector('[data-action="unset-reading"]')?.addEventListener('click',e => removeFromCurrentlyReading(e.currentTarget.dataset.id));
 
-    bookListEl.appendChild(panel);
+    bookListEl.appendChild(row);
   });
 }
 
-// ─── Checkout ───────────────────────────────────────────────────────────────────
+// ── Checkout ──────────────────────────────────────────────────────────────────
 async function requestCheckout(bookId, bookTitle) {
-  if (!currentUser || !selectedTeacherId) {
-    alert("Select a teacher's library first.");
-    return;
-  }
+  if (!currentUser || !selectedTeacherId) { toast('Select a library first.', 'danger'); return; }
 
-  // Atomic transaction — prevents race condition where two students grab the last copy
-  let bookAuthor = "";
-  const dueDate = new Date();
-  dueDate.setDate(dueDate.getDate() + 14);
-
-  // Verify access before attempting checkout
   const myIds = new Set([classTeacherId, ...addedTeacherIds].filter(Boolean));
   if (!myIds.has(selectedTeacherId)) {
-    // Public library — students can browse but must join via class code to check out
-    const tSnap = await getDoc(doc(db, "teachers", selectedTeacherId));
+    const tSnap = await getDoc(doc(db, 'teachers', selectedTeacherId));
     if (!tSnap.exists() || !tSnap.data().libraryPublic) {
-      alert("You need to join this teacher's class to check out books.");
+      toast('You need to join this teacher\'s class to check out books.', 'danger');
       return;
     }
-    // Public library — allow checkout but auto-enroll them loosely
-    // (they still need a class code to appear on the roster, but can borrow)
   }
+
+  let bookAuthor = '';
+  const dueDate  = new Date();
+  dueDate.setDate(dueDate.getDate() + 14);
 
   try {
     await runTransaction(db, async (tx) => {
-      const studentRef = doc(db, "students", currentUser.uid);
-      const bookRef    = doc(db, "teachers", selectedTeacherId, "books", bookId);
-      const [studentSnap, bSnap] = await Promise.all([tx.get(studentRef), tx.get(bookRef)]);
-
-      if (!studentSnap.exists())               throw new Error("student-not-found");
-      if (studentSnap.data().currentBook !== null) throw new Error("already-has-book");
-      if (!bSnap.exists())                     throw new Error("book-not-found");
-
-      const bData = bSnap.data();
-      bookAuthor = bData.author ?? "";
+      const studentRef = doc(db, 'students', currentUser.uid);
+      const bookRef    = doc(db, 'teachers', selectedTeacherId, 'books', bookId);
+      const [sSnap, bSnap] = await Promise.all([tx.get(studentRef), tx.get(bookRef)]);
+      if (!sSnap.exists())                   throw new Error('student-not-found');
+      if (sSnap.data().currentBook !== null)  throw new Error('already-has-book');
+      if (!bSnap.exists())                   throw new Error('book-not-found');
+      const bData  = bSnap.data();
+      bookAuthor   = bData.author ?? '';
       const copies = bData.copies ?? 1;
-      const out    = bData.checkedOutCount ?? (bData.status === "checked_out" ? 1 : 0);
-      if (out >= copies) throw new Error("unavailable");
-
+      const out    = bData.checkedOutCount ?? (bData.status === 'checked_out' ? 1 : 0);
+      if (out >= copies) throw new Error('unavailable');
       const newCount = out + 1;
-      tx.update(bookRef, {
-        checkedOutCount: newCount,
-        status: newCount >= copies ? "checked_out" : "available",
-        checkedOutBy: currentUser.uid,
-        checkedOutAt: serverTimestamp(),
-        dueDate: Timestamp.fromDate(dueDate),
-      });
-      tx.update(studentRef, {
-        currentBook: bookId,
-        currentBookTeacherId: selectedTeacherId,
-      });
+      tx.update(bookRef, { checkedOutCount: newCount, status: newCount >= copies ? 'checked_out' : 'available', checkedOutBy: currentUser.uid, checkedOutAt: serverTimestamp(), dueDate: Timestamp.fromDate(dueDate) });
+      tx.update(studentRef, { currentBook: bookId, currentBookTeacherId: selectedTeacherId });
     });
   } catch (err) {
-    const msg = err.message === "already-has-book" ? "You already have a book checked out." :
-                err.message === "unavailable"       ? "All copies are now checked out — someone just beat you to it!" :
-                err.message === "book-not-found"    ? "This book no longer exists." :
-                `Checkout failed: ${err.message}`;
-    alert(msg);
+    const msg = err.message === 'already-has-book' ? 'You already have a book checked out.'
+              : err.message === 'unavailable'       ? 'All copies just got taken — someone beat you to it!'
+              : err.message === 'book-not-found'    ? 'This book no longer exists.'
+              : `Checkout failed: ${err.message}`;
+    toast(msg, 'danger');
     await loadTeacherBooks(selectedTeacherId);
     return;
   }
 
-  // History entry is non-critical — write outside transaction
   try {
-    await addDoc(collection(db, "teachers", selectedTeacherId, "history"), {
-      bookId, bookTitle,
-      author: bookAuthor,
-      studentId: currentUser.uid,
-      studentName: studentData?.name ?? currentUser.displayName ?? "",
-      dateOut: serverTimestamp(),
-      dateReturned: null,
+    await addDoc(collection(db, 'teachers', selectedTeacherId, 'history'), {
+      bookId, bookTitle, author: bookAuthor,
+      studentId: currentUser.uid, studentName: studentData?.name ?? currentUser.displayName ?? '',
+      dateOut: serverTimestamp(), dateReturned: null,
     });
-  } catch (e) {
-    console.error("[student.js] History write failed:", e?.code ?? e);
-    // Surface permission errors so they're not invisible during testing
-    if (e?.code === "permission-denied") {
-      console.error("[student.js] Firestore denied history write — check rules for teachers/{id}/history");
-    }
-  }
+  } catch (e) { console.error('[student] History write failed:', e?.code ?? e); }
 
   studentData.currentBook = bookId;
   studentData.currentBookTeacherId = selectedTeacherId;
-
-  // Update the in-memory book so the UI reflects checked-out status immediately
-  const bi = allBooks.findIndex((b) => b.id === bookId);
+  const bi = allBooks.findIndex(b => b.id === bookId);
   if (bi !== -1) {
     const bk = allBooks[bi];
-    const copies = bk.copies ?? 1;
-    const newCount = (bk.checkedOutCount ?? (bk.status === "checked_out" ? 1 : 0)) + 1;
-    allBooks[bi] = {
-      ...bk,
-      checkedOutCount: newCount,
-      status: newCount >= copies ? "checked_out" : "available",
-      checkedOutBy: currentUser.uid,
-    };
+    const copies   = bk.copies ?? 1;
+    const newCount = (bk.checkedOutCount ?? (bk.status === 'checked_out' ? 1 : 0)) + 1;
+    allBooks[bi]   = { ...bk, checkedOutCount: newCount, status: newCount >= copies ? 'checked_out' : 'available', checkedOutBy: currentUser.uid };
   }
-
   filterAndRenderBooks();
-  toast(`<i class="bi bi-check2"></i> "${te(bookTitle)}" checked out — due ${dueDate.toLocaleDateString()}`, "success");
+  toast(`<i class='bi bi-check2'></i> "${esc(bookTitle)}" checked out — due ${dueDate.toLocaleDateString()}`, 'success');
 }
 
-// ─── Return ─────────────────────────────────────────────────────────────────────
+// ── Return ────────────────────────────────────────────────────────────────────
 async function initiateReturn(bookId) {
-  if (!confirm("Confirm you've handed the book back to your teacher.\n\nYour teacher will finalize the return on their end.")) return;
-
+  if (!confirm('Confirm you\'ve handed the book back to your teacher.\n\nYour teacher will finalize the return on their end.')) return;
   const bookTeacherId = studentData.currentBookTeacherId ?? classTeacherId;
-
-  // Mark book available again immediately
   if (bookTeacherId) {
     try {
-      const bRef = doc(db, "teachers", bookTeacherId, "books", bookId);
+      const bRef  = doc(db, 'teachers', bookTeacherId, 'books', bookId);
       const bSnap = await getDoc(bRef);
       if (bSnap.exists()) {
-        const bData = bSnap.data();
-        const copies = bData.copies ?? 1;
+        const bData    = bSnap.data();
         const newCount = Math.max(0, (bData.checkedOutCount ?? 1) - 1);
-        await updateDoc(bRef, {
-          checkedOutCount: newCount,
-          status: newCount === 0 ? "available" : "checked_out",
-          checkedOutBy: newCount === 0 ? null : bData.checkedOutBy,
-          checkedOutAt: newCount === 0 ? null : bData.checkedOutAt,
-          dueDate: newCount === 0 ? null : bData.dueDate,
-        });
+        await updateDoc(bRef, { checkedOutCount: newCount, status: newCount === 0 ? 'available' : 'checked_out', checkedOutBy: newCount === 0 ? null : bData.checkedOutBy, checkedOutAt: newCount === 0 ? null : bData.checkedOutAt, dueDate: newCount === 0 ? null : bData.dueDate });
       }
-    } catch (e) {
-      console.warn("[student.js] Could not update book status on return:", e);
-    }
+    } catch (_) {}
   }
-
-  await updateDoc(doc(db, "students", currentUser.uid), {
-    currentBook: null,
-    currentBookTeacherId: null,
-  });
+  await updateDoc(doc(db, 'students', currentUser.uid), { currentBook: null, currentBookTeacherId: null });
   studentData.currentBook = null;
   studentData.currentBookTeacherId = null;
   filterAndRenderBooks();
-  if (document.getElementById("lockerPage").classList.contains("active"))
-    renderLockerPage();
-  toast(`<i class="bi bi-check2"></i> Return marked. Teacher will confirm.`, "success");
+  if (document.getElementById('lockerPage')?.classList.contains('active')) renderLockerPage();
+  toast(`<i class='bi bi-check2'></i> Return marked. Teacher will confirm.`, 'success');
 }
 
-// ─── Wishlist ───────────────────────────────────────────────────────────────────
+// ── Wishlist ──────────────────────────────────────────────────────────────────
 async function addToWishlist(bookId) {
-  await updateDoc(doc(db, "students", currentUser.uid), {
-    wishlist: arrayUnion(bookId),
-  });
+  await updateDoc(doc(db, 'students', currentUser.uid), { wishlist: arrayUnion(bookId) });
   if (!studentData.wishlist) studentData.wishlist = [];
   if (!studentData.wishlist.includes(bookId)) studentData.wishlist.push(bookId);
-  renderWishlist();
-  filterAndRenderBooks();
-  toast(`<i class="bi bi-check2"></i> Added to wishlist`, "success");
+  renderWishlist(); filterAndRenderBooks();
+  toast(`<i class='bi bi-check2'></i> Added to wishlist`, 'success');
 }
 
 async function removeFromWishlist(bookId) {
-  await updateDoc(doc(db, "students", currentUser.uid), {
-    wishlist: arrayRemove(bookId),
-  });
-  studentData.wishlist = (studentData.wishlist ?? []).filter(
-    (id) => id !== bookId,
-  );
-  renderWishlist();
-  filterAndRenderBooks();
-  toast("Removed from wishlist", "info");
+  await updateDoc(doc(db, 'students', currentUser.uid), { wishlist: arrayRemove(bookId) });
+  studentData.wishlist = (studentData.wishlist ?? []).filter(id => id !== bookId);
+  renderWishlist(); filterAndRenderBooks();
+  toast('Removed from wishlist', 'info');
 }
 
-// ─── Wishlist book search (Google Books) ──────────────────────────────────────
+// Wishlist search (Google Books)
 let wishlistSearchResults = [];
 
-document
-  .getElementById("wishlistSearchInput")
-  ?.addEventListener("input", async (e) => {
-    const q = e.target.value.trim();
-    if (!q) {
-      wishlistSearchResults = [];
-      renderWishlistSearchResults([]);
-      return;
-    }
-    wishlistSearchResults = await searchBooks(q, 6);
-    renderWishlistSearchResults(wishlistSearchResults);
-  });
+document.getElementById('wishlistSearchInput')?.addEventListener('input', async (e) => {
+  const q = e.target.value.trim();
+  if (!q) { wishlistSearchResults = []; renderWishlistSearchResults([]); return; }
+  wishlistSearchResults = await searchBooks(q, 6);
+  renderWishlistSearchResults(wishlistSearchResults);
+});
 
 function renderWishlistSearchResults(results) {
-  const el = document.getElementById("wishlistSearchResults");
+  const el = document.getElementById('wishlistSearchResults');
   if (!el) return;
-  el.innerHTML = "";
-  if (!results.length) {
-    el.innerHTML = `<p class="empty-state">No results.</p>`;
-    return;
-  }
-  results.forEach((book) => {
+  el.innerHTML = '';
+  if (!results.length) { el.innerHTML = `<p class='empty-state'>No results.</p>`; return; }
+  results.forEach(book => {
     const isWished = (studentData?.wishlist ?? []).includes(book.sourceId);
-    const row = document.createElement("div");
-    row.className = "br";
+    const row = document.createElement('div');
+    row.className = 'book-row';
+    row.setAttribute('role', 'listitem');
     row.innerHTML = `
-      ${
-        book.cover
-          ? `<img src="${escHtml(
-              book.cover,
-            )}" style="width:28px;height:40px;object-fit:cover;border-radius:2px;border:1px solid var(--border);flex-shrink:0">`
-          : `<div class="bc"></div>`
-      }
-      <div class="bi" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-        <div>
-          <div class="bt">${escHtml(book.title)}</div>
-          <div class="bau">${escHtml(book.author)}</div>
+      ${book.cover ? `<img src='${esc(book.cover)}' class='book-cover' alt='' loading='lazy'>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
+      <div class='book-info' style='display:flex;align-items:center;justify-content:space-between;gap:8px'>
+        <div style='min-width:0'>
+          <div class='book-title'>${esc(book.title)}</div>
+          <div class='book-author'>${esc(book.author)}</div>
         </div>
-        <button class="btn-xs ${isWished ? "starred" : ""}"
-          data-gid="${escHtml(book.sourceId)}"
-          data-title="${escHtml(book.title)}"
-          data-author="${escHtml(book.author)}"
-          data-cover="${escHtml(book.cover)}"
-          style="flex-shrink:0">
-          ${isWished ? "<i class="bi bi-heart-fill"></i> Wishlisted" : "<i class="bi bi-heart"></i> Wishlist"}
+        <button class='btn btn--xs ${isWished ? 'starred' : ''}' data-gid='${esc(book.sourceId)}' data-title='${esc(book.title)}' data-author='${esc(book.author)}' data-cover='${esc(book.cover)}' style='flex-shrink:0'>
+          ${isWished ? '<i class="bi bi-heart-fill"></i> Wishlisted' : '<i class="bi bi-heart"></i> Wishlist'}
         </button>
       </div>`;
-    row.querySelector("button")?.addEventListener("click", async (ev) => {
+    row.querySelector('button')?.addEventListener('click', async (ev) => {
       const { gid, title, author, cover } = ev.currentTarget.dataset;
       if (isWished) {
         await removeFromWishlist(gid);
       } else {
-        await updateDoc(doc(db, "students", currentUser.uid), {
-          wishlist: arrayUnion(gid),
-          [`wishlistMeta.${gid}`]: { title, author, coverUrl: cover },
-        });
+        await updateDoc(doc(db, 'students', currentUser.uid), { wishlist: arrayUnion(gid), [`wishlistMeta.${gid}`]: { title, author, coverUrl: cover } });
         if (!studentData.wishlist) studentData.wishlist = [];
         if (!studentData.wishlist.includes(gid)) studentData.wishlist.push(gid);
         if (!studentData.wishlistMeta) studentData.wishlistMeta = {};
         studentData.wishlistMeta[gid] = { title, author, coverUrl: cover };
-        toast(`<i class="bi bi-heart-fill"></i> "${te(title)}" added to wishlist`, "success");
+        toast(`<i class='bi bi-heart-fill'></i> "${esc(title)}" added to wishlist`, 'success');
         renderWishlist();
         renderWishlistSearchResults(wishlistSearchResults);
       }
@@ -1401,215 +803,139 @@ function renderWishlistSearchResults(results) {
 }
 
 function renderWishlist() {
+  const wishlistEl = document.getElementById('wishlistPanel');
   if (!wishlistEl) return;
   const list = studentData?.wishlist ?? [];
-
-  if (list.length === 0) {
-    wishlistEl.innerHTML = `<p class="text-muted">Your wishlist is empty. Search for books on the right to add them!</p>`;
-    return;
-  }
-
-  wishlistEl.innerHTML = "";
-  list.forEach((bookId) => {
-    const cached = bookCache.get(bookId);
-    const meta = studentData?.wishlistMeta?.[bookId];
-    const title = cached?.title ?? meta?.title ?? `Book ID: ${bookId.slice(0, 8)}…`;
-    const author = cached?.author ?? meta?.author ?? "";
-    const coverUrl = cached?.coverUrl ?? meta?.coverUrl ?? "";
-
-    const item = document.createElement("div");
-    item.className = "panel";
-    item.style.display = "flex";
-    item.style.gap = "10px";
-    item.style.alignItems = "flex-start";
+  if (list.length === 0) { wishlistEl.innerHTML = `<p class='empty-state'>Your wishlist is empty. Search for books on the right to add them!</p>`; return; }
+  wishlistEl.innerHTML = '';
+  list.forEach(bookId => {
+    const cached  = bookCache.get(bookId);
+    const meta    = studentData?.wishlistMeta?.[bookId];
+    const title   = cached?.title    ?? meta?.title    ?? `Book ID: ${bookId.slice(0, 8)}…`;
+    const author  = cached?.author   ?? meta?.author   ?? '';
+    const coverUrl = cached?.coverUrl ?? meta?.coverUrl ?? '';
+    const item = document.createElement('div');
+    item.className = 'book-row';
+    item.setAttribute('role', 'listitem');
     item.innerHTML = `
-      ${coverUrl ? `<img src="${escHtml(coverUrl)}" alt="Cover" style="width:36px;height:52px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0">` : `<div style="width:36px;height:52px;background:var(--bg-alt);border-radius:3px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0"><i class="bi bi-book-fill"></i></div>`}
-      <div style="flex:1;min-width:0">
-        <div class="panel-title" style="margin-bottom:2px">${escHtml(title)}</div>
-        <div class="panel-body">
-          <span style="font-size:0.75rem;color:var(--muted)">${escHtml(author)}</span>
-          <button class="btn-ghost" data-remove="${escHtml(bookId)}" style="margin-left:auto;font-size:0.68rem;padding:3px 8px"><i class="bi bi-x"></i> Remove</button>
+      ${coverUrl ? `<img src='${esc(coverUrl)}' class='book-cover' alt='' loading='lazy'>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
+      <div class='book-info' style='display:flex;align-items:center;gap:8px'>
+        <div style='flex:1;min-width:0'>
+          <div class='book-title'>${esc(title)}</div>
+          <div class='book-author'>${esc(author)}</div>
         </div>
+        <button class='btn btn--xs' data-remove='${esc(bookId)}'><i class='bi bi-x'></i> Remove</button>
       </div>`;
-    item.querySelector("[data-remove]")?.addEventListener("click", (e) =>
-      removeFromWishlist(e.currentTarget.dataset.remove)
-    );
+    item.querySelector('[data-remove]')?.addEventListener('click', e => removeFromWishlist(e.currentTarget.dataset.remove));
     wishlistEl.appendChild(item);
   });
 }
 
-// ─── Locker page ───────────────────────────────────────────────────────────────
+// ── Locker page ───────────────────────────────────────────────────────────────
 async function renderLockerPage() {
   await renderActiveLoans();
   await renderReadingLog();
 }
 
 async function renderActiveLoans() {
-  if (!activeLoansEl) return;
-
+  const el = document.getElementById('activeLoans');
+  if (!el) return;
   const bookId = studentData.currentBook;
-  if (!bookId) {
-    activeLoansEl.innerHTML = `<p class="text-muted">No active loans. Check out a book from the Library!</p>`;
-    return;
-  }
+  if (!bookId) { el.innerHTML = `<p class='empty-state'>No active loans. Check out a book from the Library!</p>`; return; }
 
-  // Use the stored teacher ID for the book (more accurate than just classTeacherId)
   const bookTeacherId = studentData.currentBookTeacherId ?? classTeacherId;
-
   let book = bookCache.get(bookId);
-  let bookSnap = null;
   if (bookTeacherId) {
-    bookSnap = await getDoc(doc(db, "teachers", bookTeacherId, "books", bookId));
-    if (bookSnap.exists()) {
-      book = bookSnap.data();
-      bookCache.set(bookId, { ...book, teacherId: bookTeacherId });
-    }
+    try {
+      const bSnap = await getDoc(doc(db, 'teachers', bookTeacherId, 'books', bookId));
+      if (bSnap.exists()) { book = bSnap.data(); bookCache.set(bookId, { ...book, teacherId: bookTeacherId }); }
+    } catch (_) {}
   }
 
-  // Due date logic
-  let dueLabel = "";
-  let isOverdue = false;
+  let dueLabel = '', isOverdue = false;
   if (book?.dueDate) {
-    const due = book.dueDate.toDate ? book.dueDate.toDate() : new Date(book.dueDate);
-    const today = new Date();
-    const diffDays = Math.ceil((due - today) / 86400000);
-    if (diffDays < 0) {
-      isOverdue = true;
-      dueLabel = `<i class="bi bi-exclamation-triangle-fill"></i> Overdue by ${Math.abs(diffDays)} day${Math.abs(diffDays) !== 1 ? "s" : ""}`;
-    } else if (diffDays === 0) {
-      dueLabel = "<i class="bi bi-calendar-event-fill"></i> Due today!";
-    } else {
-      dueLabel = `<i class="bi bi-calendar-event-fill"></i> Due in ${diffDays} day${diffDays !== 1 ? "s" : ""} (${due.toLocaleDateString()})`;
-    }
+    const due     = book.dueDate.toDate ? book.dueDate.toDate() : new Date(book.dueDate);
+    const diffDays = Math.ceil((due - new Date()) / 86400000);
+    if (diffDays < 0) { isOverdue = true; dueLabel = `<i class='bi bi-exclamation-triangle-fill'></i> Overdue by ${Math.abs(diffDays)} day${Math.abs(diffDays) !== 1 ? 's' : ''}`; }
+    else if (diffDays === 0) { dueLabel = "<i class='bi bi-calendar-event-fill'></i> Due today!"; }
+    else { dueLabel = `<i class='bi bi-calendar-event-fill'></i> Due in ${diffDays} day${diffDays !== 1 ? 's' : ''} (${due.toLocaleDateString()})`; }
   }
 
-  const cover = book?.coverUrl
-    ? `<img src="${escHtml(book.coverUrl)}" alt="Cover" style="width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:4px;border:1px solid var(--accent)">`
-    : `<div style="width:100%;aspect-ratio:2/3;background:var(--card);border-radius:4px;border:1px solid var(--accent);display:flex;align-items:center;justify-content:center;font-size:1.6rem"><i class="bi bi-book-fill"></i></div>`;
-
-  activeLoansEl.innerHTML = "";
-  const card = document.createElement("div");
-  card.className = "book-card";
+  el.innerHTML = '';
+  const grid = document.createElement('div');
+  grid.className = 'book-card-grid';
+  const card = document.createElement('div');
+  card.className = 'book-card book-card--active';
+  card.setAttribute('role', 'listitem');
   card.innerHTML = `
-    <div class="book-card-cover">${cover}</div>
-    <div class="book-card-title">${escHtml(book?.title ?? bookId)}</div>
-    <div class="book-card-author">${escHtml(book?.author ?? "")}</div>
-    <span class="bx co-b" style="display:inline-flex;gap:4px;font-size:0.62rem;padding:2px 8px;border-radius:9px;margin:6px 0;background:rgba(231,76,60,.1);color:var(--accent);border:1px solid rgba(231,76,60,.2)">
-      Checked Out
-    </span>
-    ${dueLabel ? `<div style="font-size:0.72rem;margin:4px 0 6px;color:${isOverdue ? "var(--danger)" : "var(--muted)"};font-weight:${isOverdue ? "600" : "400"}">${escHtml(dueLabel)}</div>` : ""}
-    <button class="btn-ghost" style="width:100%;margin-top:8px;font-size:0.72rem" id="returnBtnLocker">Returned It</button>`;
-
-
-
-  card
-    .querySelector("#returnBtnLocker")
-    ?.addEventListener("click", () => initiateReturn(bookId));
-  activeLoansEl.appendChild(card);
+    <div class='book-card-cover'>
+      ${book?.coverUrl ? `<img src='${esc(book.coverUrl)}' alt='Cover of ${esc(book?.title ?? '')}' loading='lazy'>` : `<i class='bi bi-book-fill' aria-hidden='true'></i>`}
+    </div>
+    <div class='book-card-title'>${esc(book?.title ?? bookId)}</div>
+    <div class='book-card-author'>${esc(book?.author ?? '')}</div>
+    <span class='badge badge--checked-out badge--dot' style='display:inline-flex;margin:6px 0'>Checked Out</span>
+    ${dueLabel ? `<div style='font-size:0.69rem;margin:4px 0 6px;color:${isOverdue ? 'var(--danger)' : 'var(--text-3)'};font-weight:${isOverdue ? '600' : '400'}'>${dueLabel}</div>` : ''}
+    <button class='btn btn--ghost btn--sm' style='width:100%;margin-top:8px' id='returnBtnLocker'>Returned It</button>`;
+  card.querySelector('#returnBtnLocker')?.addEventListener('click', () => initiateReturn(bookId));
+  grid.appendChild(card);
+  el.appendChild(grid);
 }
 
 async function renderReadingLog() {
-  if (!readingLogEl) return;
-
-  // Look in teacher history for entries where studentId == currentUser.uid
+  const el = document.getElementById('readingLog');
+  if (!el) return;
   const entries = [];
-  const teacherIds = new Set();
-  if (classTeacherId) teacherIds.add(classTeacherId);
-  addedTeacherIds.forEach((id) => teacherIds.add(id));
-
-  for (const tid of teacherIds) {
+  const ids = new Set([classTeacherId, ...addedTeacherIds].filter(Boolean));
+  for (const tid of ids) {
     try {
-      const snap = await getDocs(
-        query(
-          collection(db, "teachers", tid, "history"),
-          where("studentId", "==", currentUser.uid),
-        ),
-      );
-      snap.forEach((d) => entries.push({ ...d.data(), teacherId: tid }));
-    } catch (e) {
-      console.warn("[student.js] Could not load history for", tid, e);
-    }
+      const snap = await getDocs(query(collection(db, 'teachers', tid, 'history'), where('studentId', '==', currentUser.uid)));
+      snap.forEach(d => entries.push({ ...d.data(), teacherId: tid }));
+    } catch (_) {}
   }
-
-  if (entries.length === 0) {
-    readingLogEl.innerHTML = `<p class="text-muted">No reading history yet.</p>`;
-    return;
-  }
-
-  // Sort newest first, skip the active loan
-  const history = entries
-    .filter((e) => e.dateReturned !== null)
-    .sort((a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0));
-
-  readingLogEl.innerHTML = "";
-  history.forEach((e) => {
-    const card = document.createElement("div");
-    card.className = "book-card faded";
-    const cached = bookCache.values().find
-      ? [...bookCache.values()].find((b) => b.title === e.bookTitle)
-      : null;
-    const cover = cached?.coverUrl
-      ? `<img src="${escHtml(
-          cached.coverUrl,
-        )}" alt="Cover" style="width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:4px">`
-      : `<div style="width:100%;aspect-ratio:2/3;background:var(--card);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:1.6rem"><i class="bi bi-book-fill"></i></div>`;
+  const history = entries.filter(e => e.dateReturned !== null).sort((a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0));
+  if (history.length === 0) { el.innerHTML = `<p class='empty-state'>No reading history yet.</p>`; return; }
+  el.innerHTML = '';
+  const grid = document.createElement('div');
+  grid.className = 'book-card-grid';
+  history.forEach(e => {
+    const cached = [...bookCache.values()].find(b => b.title === e.bookTitle);
+    const card   = document.createElement('div');
+    card.className = 'book-card book-card--faded';
+    card.setAttribute('role', 'listitem');
     card.innerHTML = `
-      <div class="book-card-cover">${cover}</div>
-      <div class="book-card-title">${escHtml(e.bookTitle)}</div>
-      <div class="book-card-author">${escHtml(e.studentName ?? "")}</div>
-      <span style="font-size:0.62rem;color:var(--muted);display:block;margin-top:6px">Returned ${fmtDate(
-        e.dateReturned,
-      )}</span>`;
-    readingLogEl.appendChild(card);
+      <div class='book-card-cover'>
+        ${cached?.coverUrl ? `<img src='${esc(cached.coverUrl)}' alt='' loading='lazy'>` : `<i class='bi bi-book-fill' aria-hidden='true'></i>`}
+      </div>
+      <div class='book-card-title'>${esc(e.bookTitle)}</div>
+      <div style='font-size:0.63rem;color:var(--text-3);margin-top:4px'>Returned ${fmtDate(e.dateReturned)}</div>`;
+    grid.appendChild(card);
   });
+  el.appendChild(grid);
 }
 
-// ─── Download reading log ──────────────────────────────────────────────────────
-downloadLogBtn?.addEventListener("click", async () => {
+// Download reading log
+document.getElementById('downloadLogBtn')?.addEventListener('click', async () => {
   const entries = [];
-  const ids = new Set();
-  if (classTeacherId) ids.add(classTeacherId);
-  addedTeacherIds.forEach((id) => ids.add(id));
-
+  const ids = new Set([classTeacherId, ...addedTeacherIds].filter(Boolean));
   for (const tid of ids) {
-    const tSnap = await getDoc(doc(db, "teachers", tid));
+    const tSnap = await getDoc(doc(db, 'teachers', tid));
     const tName = tSnap.exists() ? tSnap.data().name : tid;
-    const hSnap = await getDocs(
-      query(
-        collection(db, "teachers", tid, "history"),
-        where("studentId", "==", currentUser.uid),
-      ),
-    );
-    hSnap.forEach((d) => entries.push({ ...d.data(), teacherName: tName }));
+    const hSnap = await getDocs(query(collection(db, 'teachers', tid, 'history'), where('studentId', '==', currentUser.uid)));
+    hSnap.forEach(d => entries.push({ ...d.data(), teacherName: tName }));
   }
-
-  const sorted = entries.sort(
-    (a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0),
-  );
-  const now = new Date().toLocaleDateString();
-  let md = `# Reading Log — ${studentData.name}\n\n**Exported:** ${now}\n\n`;
+  const sorted = entries.sort((a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0));
+  let md = `# Reading Log — ${studentData.name}\n\n**Exported:** ${new Date().toLocaleDateString()}\n\n`;
   md += `| Book | Teacher Library | Date Out | Date Returned |\n`;
   md += `|------|----------------|----------|---------------|\n`;
-  sorted.forEach((e) => {
-    md += `| ${e.bookTitle} | ${e.teacherName} | ${fmtDate(e.dateOut)} | ${
-      e.dateReturned ? fmtDate(e.dateReturned) : "Currently checked out"
-    } |\n`;
-  });
+  sorted.forEach(e => { md += `| ${e.bookTitle} | ${e.teacherName} | ${fmtDate(e.dateOut)} | ${e.dateReturned ? fmtDate(e.dateReturned) : 'Currently checked out'} |\n`; });
   md += `\n---\n_Generated by BookWare · Mason High School_\n`;
-
-  const blob = new Blob([md], { type: "text/markdown" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `reading-log-${studentData.name
-    .replace(/\s+/g, "-")
-    .toLowerCase()}.md`;
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([md], { type: 'text/markdown' })), download: `reading-log-${studentData.name.replace(/\s+/g, '-').toLowerCase()}.md` });
   a.click();
-  URL.revokeObjectURL(url);
-  toast(`<i class="bi bi-check2"></i> Reading log downloaded`, "success");
+  URL.revokeObjectURL(a.href);
+  toast(`<i class='bi bi-check2'></i> Reading log downloaded`, 'success');
 });
 
-// ─── Profile page ──────────────────────────────────────────────────────────────
+// ── Profile page ──────────────────────────────────────────────────────────────
 async function renderProfilePage() {
   await renderProfileCurrentBook();
   await renderReadingStats();
@@ -1617,269 +943,188 @@ async function renderProfilePage() {
   await renderMyRecommendations();
 }
 
+const READING_LIMIT = 6;
+
 async function renderProfileCurrentBook() {
-  const el = document.getElementById("profileCurrentBook");
+  const el = document.getElementById('profileCurrentBook');
   if (!el) return;
-
-  const list = studentData.currentlyReading ?? [];
+  const list     = studentData.currentlyReading ?? [];
   const checkedOut = studentData.currentBook;
+  if (list.length === 0 && !checkedOut) { el.innerHTML = `<p class='empty-state'>Not reading anything right now. Hit <i class='bi bi-book-fill'></i> Set Reading on any library book!</p>`; return; }
 
-  if (list.length === 0 && !checkedOut) {
-    el.innerHTML = `<p class="text-muted">Not reading anything right now. Hit <i class="bi bi-book-fill"></i> Set Reading on any library book!</p>`;
-    return;
-  }
+  const limitColor = list.length >= READING_LIMIT ? 'var(--danger)' : 'var(--text-3)';
+  el.innerHTML = `<div style='font-size:0.68rem;color:${limitColor};margin-bottom:8px;font-weight:${list.length >= READING_LIMIT ? '600' : '400'}'>${list.length}/${READING_LIMIT} books${list.length >= READING_LIMIT ? ' — list full' : ''}</div>`;
 
-  const limitColor = list.length >= READING_LIMIT ? "var(--danger)" : "var(--muted)";
-  el.innerHTML = `<div style="font-size:0.68rem;color:${limitColor};margin-bottom:8px;font-weight:${list.length >= READING_LIMIT ? "600" : "400"}">${list.length}/${READING_LIMIT} books${list.length >= READING_LIMIT ? " — list full" : ""}</div>`;
-
-  // Show checked-out book first if present
   if (checkedOut) {
     let book = bookCache.get(checkedOut);
     if (!book && (studentData.currentBookTeacherId ?? classTeacherId)) {
-      const tid = studentData.currentBookTeacherId ?? classTeacherId;
-      const snap = await getDoc(doc(db, "teachers", tid, "books", checkedOut));
+      const tid   = studentData.currentBookTeacherId ?? classTeacherId;
+      const snap  = await getDoc(doc(db, 'teachers', tid, 'books', checkedOut));
       if (snap.exists()) { book = snap.data(); bookCache.set(checkedOut, book); }
     }
-    const card = document.createElement("div");
-    card.className = "panel";
-    card.style.cssText = "display:flex;gap:10px;align-items:flex-start;margin-bottom:8px;border-color:var(--accent)";
+    const card = document.createElement('div');
+    card.className = 'book-row';
+    card.style.cssText = 'border:1px solid var(--accent);border-radius:var(--r);padding:10px;margin-bottom:8px';
     card.innerHTML = `
-      ${book?.coverUrl ? `<img src="${escHtml(book.coverUrl)}" style="width:36px;height:52px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0" alt="Cover">` : `<div style="width:36px;height:52px;background:var(--bg-alt);border-radius:3px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0"><i class="bi bi-book-fill"></i></div>`}
-      <div style="flex:1;min-width:0">
-        <div class="panel-title" style="margin-bottom:2px">${escHtml(book?.title ?? checkedOut)}</div>
-        <div style="font-size:0.72rem;color:var(--muted)">${escHtml(book?.author ?? "")}</div>
-        <span class="badge" style="margin-top:6px;display:inline-flex;font-size:0.6rem"><span class="badge-dot"></span>Checked Out</span>
+      ${book?.coverUrl ? `<img src='${esc(book.coverUrl)}' class='book-cover' alt=''>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
+      <div class='book-info'>
+        <div class='book-title'>${esc(book?.title ?? checkedOut)}</div>
+        <div class='book-author'>${esc(book?.author ?? '')}</div>
+        <span class='badge badge--reading badge--dot' style='margin-top:6px;display:inline-flex'>Checked Out</span>
       </div>`;
     el.appendChild(card);
   }
 
-  // Personal reading list
-  list.forEach((entry) => {
-    const card = document.createElement("div");
-    card.className = "panel";
-    card.style.cssText = "display:flex;gap:10px;align-items:flex-start;margin-bottom:8px";
+  list.forEach(entry => {
+    const card = document.createElement('div');
+    card.className = 'book-row';
+    card.style.cssText = 'border:1px solid var(--border);border-radius:var(--r);padding:10px;margin-bottom:8px';
     card.innerHTML = `
-      ${entry.coverUrl ? `<img src="${escHtml(entry.coverUrl)}" style="width:36px;height:52px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0" alt="Cover">` : `<div style="width:36px;height:52px;background:var(--bg-alt);border-radius:3px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0"><i class="bi bi-book-fill"></i></div>`}
-      <div style="flex:1;min-width:0">
-        <div class="panel-title" style="margin-bottom:2px">${escHtml(entry.bookTitle)}</div>
-        <div style="font-size:0.72rem;color:var(--muted);display:flex;align-items:center;gap:8px">
-          <span>${escHtml(entry.author ?? "")}</span>
-          <button class="btn-ghost" data-remove="${escHtml(entry.bookId)}" style="font-size:0.68rem;padding:2px 7px;margin-left:auto"><i class="bi bi-x"></i></button>
+      ${entry.coverUrl ? `<img src='${esc(entry.coverUrl)}' class='book-cover' alt=''>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
+      <div class='book-info' style='display:flex;align-items:center;gap:8px'>
+        <div style='flex:1;min-width:0'>
+          <div class='book-title'>${esc(entry.bookTitle)}</div>
+          <div class='book-author'>${esc(entry.author ?? '')}</div>
         </div>
+        <button class='btn btn--xs' data-remove='${esc(entry.bookId)}'><i class='bi bi-x'></i></button>
       </div>`;
-    card.querySelector("[data-remove]")?.addEventListener("click", (e) =>
-      removeFromCurrentlyReading(e.currentTarget.dataset.remove)
-    );
+    card.querySelector('[data-remove]')?.addEventListener('click', e => removeFromCurrentlyReading(e.currentTarget.dataset.remove));
     el.appendChild(card);
   });
 }
 
 async function renderReadingStats() {
-  const el = document.getElementById("readingStats");
+  const el = document.getElementById('readingStats');
   if (!el) return;
-
-  // Count history entries for this student
   let totalRead = 0;
-  const ids = new Set();
-  if (classTeacherId) ids.add(classTeacherId);
-  addedTeacherIds.forEach((id) => ids.add(id));
-
+  const ids = new Set([classTeacherId, ...addedTeacherIds].filter(Boolean));
   for (const tid of ids) {
-    const snap = await getDocs(
-      query(
-        collection(db, "teachers", tid, "history"),
-        where("studentId", "==", currentUser.uid),
-      ),
-    );
+    const snap = await getDocs(query(collection(db, 'teachers', tid, 'history'), where('studentId', '==', currentUser.uid)));
     totalRead += snap.size;
   }
-
   const wishlisted = (studentData.wishlist ?? []).length;
-  const active = studentData.currentBook ? 1 : 0;
-
-  // Check if current book is overdue
+  const active     = studentData.currentBook ? 1 : 0;
   let overdueCount = 0;
   if (studentData.currentBook && studentData.currentBookTeacherId) {
     try {
-      const bSnap = await getDoc(doc(db, "teachers", studentData.currentBookTeacherId, "books", studentData.currentBook));
-      if (bSnap.exists() && bSnap.data().dueDate) {
-        const due = bSnap.data().dueDate.toDate();
-        if (due < new Date()) overdueCount = 1;
-      }
+      const bSnap = await getDoc(doc(db, 'teachers', studentData.currentBookTeacherId, 'books', studentData.currentBook));
+      if (bSnap.exists() && bSnap.data().dueDate?.toDate() < new Date()) overdueCount = 1;
     } catch (_) {}
   }
-
   el.innerHTML = `
-    <div class="sb2"><div class="sn">${totalRead}</div><div class="sl">Books Read</div></div>
-    <div class="sb2"><div class="sn">${wishlisted}</div><div class="sl">Wishlisted</div></div>
-    <div class="sb2"><div class="sn">${active}</div><div class="sl">Active Loan</div></div>
-    <div class="sb2"><div class="sn" style="color:${overdueCount > 0 ? "var(--danger)" : "inherit"}">${overdueCount}</div><div class="sl">Overdue</div></div>`;
+    <div class='stat-box'><div class='stat-number'>${totalRead}</div><div class='stat-label'>Books Read</div></div>
+    <div class='stat-box'><div class='stat-number'>${wishlisted}</div><div class='stat-label'>Wishlisted</div></div>
+    <div class='stat-box'><div class='stat-number'>${active}</div><div class='stat-label'>Active Loan</div></div>
+    <div class='stat-box'><div class='stat-number' style='color:${overdueCount > 0 ? 'var(--danger)' : 'inherit'}'>${overdueCount}</div><div class='stat-label'>Overdue</div></div>`;
 }
 
 async function renderSimilarReaders() {
-  const el = document.getElementById("similarReaders");
+  const el = document.getElementById('similarReaders');
   if (!el) return;
-
-  // Find other students in same class who have overlapping wishlist/history
-  // Simple approach: students who share the same classTeacherId
-  if (!classTeacherId) {
-    el.innerHTML = `<p class="text-muted">Join a class to see similar readers.</p>`;
-    return;
-  }
-
-  const snap = await getDocs(
-    query(collection(db, "students"), where("class", "==", classTeacherId)),
-  );
-
-  const others = snap.docs.filter((d) => d.id !== currentUser.uid).slice(0, 6);
-
-  if (others.length === 0) {
-    el.innerHTML = `<p class="text-muted">No other students in your class yet.</p>`;
-    return;
-  }
-
-  el.innerHTML = "";
-  others.forEach((d) => {
-    const s = d.data();
-    const initials = (s.name ?? "?")
-      .split(" ")
-      .map((w) => w[0])
-      .join("")
-      .slice(0, 2)
-      .toUpperCase();
-    const card = document.createElement("div");
-    card.className = "similar-card";
+  if (!classTeacherId) { el.innerHTML = `<p class='empty-state'>Join a class to see similar readers.</p>`; return; }
+  const snap   = await getDocs(query(collection(db, 'students'), where('class', '==', classTeacherId)));
+  const others = snap.docs.filter(d => d.id !== currentUser.uid).slice(0, 6);
+  if (others.length === 0) { el.innerHTML = `<p class='empty-state'>No other students in your class yet.</p>`; return; }
+  el.innerHTML = '';
+  others.forEach(d => {
+    const s        = d.data();
+    const initials = (s.name ?? '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+    const card     = document.createElement('div');
+    card.className = 'reader-card';
     card.innerHTML = `
-      <div class="similar-avatar">${escHtml(initials)}</div>
-      <div class="similar-name">${escHtml(
-        s.name?.split(" ")[0] ?? "Student",
-      )} ${escHtml((s.name?.split(" ")[1] ?? "")[0] ?? "")}.</div>
-      <div class="similar-books">${
-        s.currentBook ? "Currently reading" : "No active loan"
-      }</div>`;
+      <div class='reader-avatar'>${esc(initials)}</div>
+      <div class='reader-name'>${esc(s.name?.split(' ')[0] ?? 'Student')} ${esc((s.name?.split(' ')[1] ?? '')[0] ?? '')}.</div>
+      <div class='reader-status'>${s.currentBook ? 'Currently reading' : 'No active loan'}</div>`;
     el.appendChild(card);
   });
 }
 
-// ─── Student Recommendations ───────────────────────────────────────────────────
-const READING_LIMIT = 6;
-
+// ── Student recommendations ───────────────────────────────────────────────────
 async function loadMyRecIds() {
-  const snap = await getDocs(collection(db, "students", currentUser.uid, "recommendations"));
-  const ids = new Set(snap.docs.map(d => d.data().bookId));
-  studentData.myRecIds = ids;
+  const snap = await getDocs(collection(db, 'students', currentUser.uid, 'recommendations'));
+  studentData.myRecIds = new Set(snap.docs.map(d => d.data().bookId));
 }
 
 async function toggleStudentRecommend(bookId, bookTitle, author, coverUrl) {
-  const ids = studentData.myRecIds ?? new Set();
-  const snap = await getDocs(collection(db, "students", currentUser.uid, "recommendations"));
+  const snap     = await getDocs(collection(db, 'students', currentUser.uid, 'recommendations'));
   const existing = snap.docs.find(d => d.data().bookId === bookId);
-
   if (existing) {
-    await deleteDoc(doc(db, "students", currentUser.uid, "recommendations", existing.id));
-    ids.delete(bookId);
-    toast(`<i class="bi bi-star"></i> Removed "${te(bookTitle)}" from recommendations`, "info");
+    await deleteDoc(doc(db, 'students', currentUser.uid, 'recommendations', existing.id));
+    studentData.myRecIds?.delete(bookId);
+    toast(`<i class='bi bi-star'></i> Removed "${esc(bookTitle)}" from recommendations`, 'info');
   } else {
-    const ref = await addDoc(collection(db, "students", currentUser.uid, "recommendations"), {
-      bookId, bookTitle, author: author ?? "", coverUrl: coverUrl ?? "",
-      addedAt: serverTimestamp(),
-    });
-    ids.add(bookId);
-    toast(`<i class="bi bi-star-fill"></i> "${te(bookTitle)}" added to recommendations`, "success");
+    await addDoc(collection(db, 'students', currentUser.uid, 'recommendations'), { bookId, bookTitle, author: author ?? '', coverUrl: coverUrl ?? '', addedAt: serverTimestamp() });
+    studentData.myRecIds?.add(bookId);
+    toast(`<i class='bi bi-star-fill'></i> "${esc(bookTitle)}" added to recommendations`, 'success');
   }
-  studentData.myRecIds = ids;
   filterAndRenderBooks();
-  if (document.getElementById("profilePage")?.classList.contains("active"))
-    renderMyRecommendations();
+  if (document.getElementById('profilePage')?.classList.contains('active')) renderMyRecommendations();
 }
 
-// ─── Student Currently Reading List (up to 6 books) ───────────────────────────
 async function addToCurrentlyReading(bookId, bookTitle, author, coverUrl) {
   const current = studentData.currentlyReading ?? [];
-  if (current.find(r => r.bookId === bookId)) {
-    toast("Already in your reading list.", "info");
-    return;
-  }
-  if (current.length >= READING_LIMIT) {
-    toast(`Reading list is full (max ${READING_LIMIT} books). Remove one first.`, "danger");
-    return;
-  }
-  const entry = { bookId, bookTitle, author: author ?? "", coverUrl: coverUrl ?? "" };
-  const updated = [...current, entry];
-  await updateDoc(doc(db, "students", currentUser.uid), { currentlyReading: updated });
+  if (current.find(r => r.bookId === bookId)) { toast('Already in your reading list.', 'info'); return; }
+  if (current.length >= READING_LIMIT) { toast(`Reading list is full (max ${READING_LIMIT} books). Remove one first.`, 'danger'); return; }
+  const updated = [...current, { bookId, bookTitle, author: author ?? '', coverUrl: coverUrl ?? '' }];
+  await updateDoc(doc(db, 'students', currentUser.uid), { currentlyReading: updated });
   studentData.currentlyReading = updated;
   filterAndRenderBooks();
-  if (document.getElementById("profilePage")?.classList.contains("active"))
-    renderProfileCurrentBook();
-  toast(`<i class="bi bi-book-fill"></i> "${te(bookTitle)}" added to your reading list`, "success");
+  if (document.getElementById('profilePage')?.classList.contains('active')) renderProfileCurrentBook();
+  toast(`<i class='bi bi-book-fill'></i> "${esc(bookTitle)}" added to your reading list`, 'success');
 }
 
 async function removeFromCurrentlyReading(bookId) {
-  const current = studentData.currentlyReading ?? [];
-  const updated = current.filter(r => r.bookId !== bookId);
-  await updateDoc(doc(db, "students", currentUser.uid), { currentlyReading: updated });
+  const updated = (studentData.currentlyReading ?? []).filter(r => r.bookId !== bookId);
+  await updateDoc(doc(db, 'students', currentUser.uid), { currentlyReading: updated });
   studentData.currentlyReading = updated;
   filterAndRenderBooks();
-  if (document.getElementById("profilePage")?.classList.contains("active"))
-    renderProfileCurrentBook();
-  toast(`<i class="bi bi-book-fill"></i> Removed from reading list`, "info");
+  if (document.getElementById('profilePage')?.classList.contains('active')) renderProfileCurrentBook();
+  toast('Removed from reading list', 'info');
 }
 
 async function renderMyRecommendations() {
-  const el = document.getElementById("myRecommendations");
+  const el = document.getElementById('myRecommendations');
   if (!el) return;
-
-  const snap = await getDocs(collection(db, "students", currentUser.uid, "recommendations"));
-  if (snap.empty) {
-    el.innerHTML = `<p class="text-muted">No recommendations yet. Hit <i class="bi bi-star"></i> Recommend on any book in the library!</p>`;
-    return;
-  }
-
-  el.innerHTML = "";
-  snap.forEach((d) => {
-    const r = d.data();
-    const div = document.createElement("div");
-    div.className = "panel";
-    div.style.display = "flex";
-    div.style.gap = "10px";
-    div.style.alignItems = "flex-start";
-    div.innerHTML = `
-      ${r.coverUrl ? `<img src="${escHtml(r.coverUrl)}" style="width:36px;height:52px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0" alt="Cover">` : `<div style="width:36px;height:52px;background:var(--bg-alt);border-radius:3px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0"><i class="bi bi-star-fill"></i></div>`}
-      <div style="flex:1;min-width:0">
-        <div class="panel-title" style="margin-bottom:2px"><i class="bi bi-star-fill"></i> ${escHtml(r.bookTitle)}</div>
-        <div style="font-size:0.75rem;color:var(--muted);display:flex;align-items:center;gap:8px">
-          <span>${escHtml(r.author ?? "")}</span>
-          <button class="btn-ghost" data-recid="${escHtml(d.id)}" style="font-size:0.68rem;padding:2px 7px;margin-left:auto"><i class="bi bi-x"></i> Remove</button>
+  const snap = await getDocs(collection(db, 'students', currentUser.uid, 'recommendations'));
+  if (snap.empty) { el.innerHTML = `<p class='empty-state'>No recommendations yet. Hit <i class='bi bi-star'></i> Recommend on any book in the library!</p>`; return; }
+  el.innerHTML = '';
+  snap.forEach(d => {
+    const r    = d.data();
+    const item = document.createElement('div');
+    item.className = 'book-row';
+    item.setAttribute('role', 'listitem');
+    item.innerHTML = `
+      ${r.coverUrl ? `<img src='${esc(r.coverUrl)}' class='book-cover' alt='' loading='lazy'>` : `<div class='book-cover-ph'><i class='bi bi-star-fill'></i></div>`}
+      <div class='book-info' style='display:flex;align-items:center;gap:8px'>
+        <div style='flex:1;min-width:0'>
+          <div class='book-title'><i class='bi bi-star-fill' style='color:var(--accent);font-size:0.65rem'></i> ${esc(r.bookTitle)}</div>
+          <div class='book-author'>${esc(r.author ?? '')}</div>
         </div>
+        <button class='btn btn--xs' data-recid='${esc(d.id)}' data-bookid='${esc(r.bookId)}'><i class='bi bi-x'></i> Remove</button>
       </div>`;
-    div.querySelector("[data-recid]")?.addEventListener("click", async (e) => {
-      await deleteDoc(doc(db, "students", currentUser.uid, "recommendations", e.currentTarget.dataset.recid));
-      if (studentData.myRecIds) studentData.myRecIds.delete(r.bookId);
+    item.querySelector('[data-recid]')?.addEventListener('click', async (e) => {
+      await deleteDoc(doc(db, 'students', currentUser.uid, 'recommendations', e.currentTarget.dataset.recid));
+      studentData.myRecIds?.delete(e.currentTarget.dataset.bookid);
       filterAndRenderBooks();
       renderMyRecommendations();
     });
-    el.appendChild(div);
+    el.appendChild(item);
   });
 }
 
-// ─── Wishlist notifications (real-time) ────────────────────────────────────────
+// ── Wishlist notifications (real-time) ────────────────────────────────────────
 async function setupWishlistNotifications() {
   const wishlist = studentData?.wishlist ?? [];
-  wishlistListeners.forEach((u) => u());
+  wishlistListeners.forEach(u => u());
   wishlistListeners = [];
   if (!selectedTeacherId || wishlist.length === 0) return;
-
-  wishlist.forEach((bookId) => {
-    const unsubscribe = onSnapshot(
-      doc(db, "teachers", selectedTeacherId, "books", bookId),
-      (snap) => {
-        if (!snap.exists()) return;
-        const book = snap.data();
-        if (book.status === "available" && !studentData.currentBook) {
-          toast(`<i class="bi bi-collection-fill"></i> "${te(book.title)}" is now available!`, "success");
-        }
-      },
-    );
+  wishlist.forEach(bookId => {
+    const unsubscribe = onSnapshot(doc(db, 'teachers', selectedTeacherId, 'books', bookId), snap => {
+      if (!snap.exists()) return;
+      const book = snap.data();
+      if (book.status === 'available' && !studentData.currentBook)
+        toast(`<i class='bi bi-collection-fill'></i> "${esc(book.title)}" is now available!`, 'success');
+    });
     wishlistListeners.push(unsubscribe);
   });
 }

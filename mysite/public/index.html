@@ -1,193 +1,130 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BookWare</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="/css/index.css" />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-  </head>
-  <body>
-    <div class="signin-overlay" id="signinOverlay">
-      <div class="signin-spinner"></div>
-      <div class="signin-label">Opening Google Sign-In…</div>
-    </div>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BookWare</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+  <link rel="stylesheet" href="/css/index.css" />
+</head>
+<body>
 
-    <div class="error-toast" id="errorToast"></div>
+  <!-- Sign-in overlay -->
+  <div class="signin-overlay" id="signinOverlay" aria-live="polite" aria-label="Signing in" hidden>
+    <div class="signin-spinner" aria-hidden="true"></div>
+    <div class="signin-label">Opening Google Sign-In…</div>
+  </div>
 
-    <div class="portal-page">
-      <header class="portal-header">
-        <div class="portal-logo">
-          <span class="logo-dot"></span>
-          <span class="portal-logo-name">BookWare</span>
-        </div>
-      </header>
+  <!-- Error toast -->
+  <div class="error-toast" id="errorToast" role="alert" aria-live="assertive"></div>
 
-      <div class="portal-card-grid">
-        <button
-          class="portal-card"
-          id="studentLogin"
-          aria-label="Sign in as Student"
-        >
+  <div class="portal-page">
+    <header class="portal-header">
+      <div class="portal-logo">
+        <span class="logo-dot" aria-hidden="true"></span>
+        <span class="portal-logo-name">BookWare</span>
+      </div>
+    </header>
+
+    <main class="portal-main">
+      <h1 class="portal-heading">Welcome back.</h1>
+      <p class="portal-subheading">Sign in to your portal below.</p>
+
+      <div class="portal-card-grid" role="list">
+
+        <!-- Student card -->
+        <button class="portal-card" id="studentLogin" role="listitem" aria-label="Sign in as Student">
           <div class="portal-card-top">
-            <div class="portal-card-icon"><i class="bi bi-backpack-fill"></i></div>
-            <span class="portal-card-arrow"><i class="bi bi-arrow-up-right"></i></span>
+            <div class="portal-card-icon" aria-hidden="true"><i class="bi bi-backpack-fill"></i></div>
+            <span class="portal-card-arrow" aria-hidden="true"><i class="bi bi-arrow-up-right"></i></span>
           </div>
           <div class="portal-card-label">Student</div>
           <div class="portal-card-title">Student Portal</div>
-          <p class="portal-card-desc">
-            Browse your teacher's shelves, check out books, track what you're
-            reading, and manage your wishlist.
-          </p>
+          <p class="portal-card-desc">Browse your teacher's shelves, check out books, track what you're reading, and manage your wishlist.</p>
           <div class="portal-card-footer">
-            <svg
-              class="google-icon"
-              viewBox="0 0 24 24"
-              xmlns="http://www.w3.org/2000/svg"
-              aria-hidden="true"
-            >
-              <path
-                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                fill="#4285F4"
-              />
-              <path
-                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                fill="#34A853"
-              />
-              <path
-                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"
-                fill="#FBBC05"
-              />
-              <path
-                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                fill="#EA4335"
-              />
+            <svg class="google-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
+              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
             </svg>
             <span class="portal-card-cta">Sign in with Google</span>
           </div>
         </button>
 
-        <button
-          class="portal-card"
-          id="teacherLogin"
-          aria-label="Sign in as Teacher"
-        >
+        <!-- Teacher card -->
+        <button class="portal-card" id="teacherLogin" role="listitem" aria-label="Sign in as Teacher">
           <div class="portal-card-top">
-            <div class="portal-card-icon"><i class="bi bi-collection-fill"></i></div>
-            <span class="portal-card-arrow"><i class="bi bi-arrow-up-right"></i></span>
+            <div class="portal-card-icon" aria-hidden="true"><i class="bi bi-collection-fill"></i></div>
+            <span class="portal-card-arrow" aria-hidden="true"><i class="bi bi-arrow-up-right"></i></span>
           </div>
           <div class="portal-card-label">Teacher</div>
           <div class="portal-card-title">Teacher Library</div>
-          <p class="portal-card-desc">
-            Manage your classroom library, confirm checkouts, validate returns,
-            export history, and recommend books to students.
-          </p>
+          <p class="portal-card-desc">Manage your classroom library, confirm checkouts, validate returns, export history, and recommend books to students.</p>
           <div class="portal-card-footer">
-            <svg
-              class="google-icon"
-              viewBox="0 0 24 24"
-              xmlns="http://www.w3.org/2000/svg"
-              aria-hidden="true"
-            >
-              <path
-                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                fill="#4285F4"
-              />
-              <path
-                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                fill="#34A853"
-              />
-              <path
-                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"
-                fill="#FBBC05"
-              />
-              <path
-                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                fill="#EA4335"
-              />
+            <svg class="google-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
+              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
             </svg>
             <span class="portal-card-cta">Sign in with Google</span>
           </div>
         </button>
 
-        <button
-          class="portal-card"
-          id="adminLogin"
-          aria-label="Sign in as Admin"
-        >
+        <!-- Admin card -->
+        <button class="portal-card portal-card--admin" id="adminLogin" role="listitem" aria-label="Sign in as Admin">
           <div class="portal-card-top">
-            <div class="portal-card-icon"><i class="bi bi-wrench-adjustable-fill"></i></div>
-            <span class="portal-card-arrow"><i class="bi bi-arrow-up-right"></i></span>
+            <div class="portal-card-icon" aria-hidden="true"><i class="bi bi-shield-lock-fill"></i></div>
+            <span class="portal-card-arrow" aria-hidden="true"><i class="bi bi-arrow-up-right"></i></span>
           </div>
           <div class="portal-card-label">Admin</div>
-          <div class="portal-card-title">Admin</div>
-          <p class="portal-card-desc">Authorized access only.</p>
+          <div class="portal-card-title">Admin Portal</div>
+          <p class="portal-card-desc">Authorized access only. Manage users, bans, system settings, and maintenance mode.</p>
           <div class="portal-card-footer">
-            <svg
-              class="google-icon"
-              viewBox="0 0 24 24"
-              xmlns="http://www.w3.org/2000/svg"
-              aria-hidden="true"
-            >
-              <path
-                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                fill="#4285F4"
-              />
-              <path
-                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                fill="#34A853"
-              />
-              <path
-                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"
-                fill="#FBBC05"
-              />
-              <path
-                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                fill="#EA4335"
-              />
+            <svg class="google-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
+              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
             </svg>
             <span class="portal-card-cta">Sign in with Google</span>
           </div>
         </button>
+
       </div>
 
-      <p id="loginError" style="display:none;color:#e74c3c;text-align:center;margin-top:16px;font-size:0.85rem;font-weight:500;letter-spacing:0.01em;"></p>
+      <!-- Ban / error message -->
+      <p id="loginError" class="login-error" hidden></p>
+    </main>
 
-      <script>
-        // Show ban message if redirected after auto-ban or regular ban
-        const _params = new URLSearchParams(window.location.search);
-        const _el = document.getElementById("loginError");
-        if (_el) {
-          if (_params.get("banned") === "admin") {
-            _el.textContent = "Your account has been suspended for 24 hours due to repeated unauthorized access attempts.";
-            _el.style.display = "block";
-          } else if (_params.get("banned") === "1") {
-            const _reason = _params.get("reason") || "Policy violation";
-            const _days = _params.get("days") || "some time";
-            _el.textContent = `Account suspended for ${_days} day(s): ${_reason}. Contact your teacher or administrator.`;
-            _el.style.display = "block";
-          }
-          if (_params.get("banned")) history.replaceState(null, "", "/");
-        }
-      </script>
+    <footer class="portal-footer">
+      <p>BookWare <span class="footer-sep" aria-hidden="true">·</span> Mason High School <span class="footer-sep" aria-hidden="true">·</span> Sarvin Sukhe</p>
+    </footer>
+  </div>
 
-      <footer class="portal-footer">
-        <p class="portal-footer-text">
-          BookWare
-          <span class="portal-footer-dot"></span>
-          Mason High School
-          <span class="portal-footer-dot"></span>
-          Sarvin Sukhe
-        </p>
-      </footer>
-    </div>
+  <script>
+    // Show ban message if redirected after ban
+    (function () {
+      const p = new URLSearchParams(window.location.search);
+      const el = document.getElementById('loginError');
+      if (!el) return;
+      if (p.get('banned') === 'admin') {
+        el.textContent = 'Your account has been suspended for 24 hours due to repeated unauthorized access attempts.';
+        el.hidden = false;
+      } else if (p.get('banned') === '1') {
+        const reason = p.get('reason') || 'Policy violation';
+        const days = p.get('days') || 'some time';
+        el.textContent = 'Account suspended for ' + days + ' day(s): ' + reason + '. Contact your teacher or administrator.';
+        el.hidden = false;
+      }
+      if (p.get('banned')) history.replaceState(null, '', '/');
+    })();
+  </script>
 
-    <script type="module" src="/js/auth.js"></script>
-  </body>
+  <script type="module" src="/js/auth.js"></script>
+</body>
 </html>

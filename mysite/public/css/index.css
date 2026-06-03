@@ -1,22 +1,331 @@
-/* ─────────────────────────────────────────────────────────────────────────── */
-/* BookWare CSS Architecture */
-/* ARIA Pattern: Modular CSS imports */
-/* ─────────────────────────────────────────────────────────────────────────── */
+/* ============================================================
+   BookWare — Landing Page (index.html)
+   ============================================================ */
 
-/* 1. Variables & design tokens */
-@import url("./variables.css");
+:root {
+  --bg:     #1a1a1e;
+  --card:   #22222a;
+  --border: #2d2d38;
+  --accent: #e74c3c;
+  --text:   #f0f0f0;
+  --muted:  #6e6e80;
+  --font-sans:  'DM Sans', system-ui, sans-serif;
+  --font-serif: 'DM Serif Display', Georgia, serif;
+  --r:   10px;
+  --r-lg: 16px;
+  --tr: 0.18s ease;
+}
 
-/* 2. Global styles & resets */
-@import url("./base.css");
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* 3. Layout structures */
-@import url("./layout.css");
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  -webkit-font-smoothing: antialiased;
+}
 
-/* 4. Reusable components */
-@import url("./components.css");
+/* ── SIGN-IN OVERLAY ─────────────────────────────────────────── */
+.signin-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(4px);
+  z-index: 9000;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+.signin-overlay:not([hidden]) { display: flex; }
+.signin-overlay.visible { display: flex; }
 
-/* 5. Admin-specific styles */
-@import url("./admin.css");
+.signin-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid rgba(231,76,60,0.25);
+  border-top-color: #e74c3c;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
-/* 6. Responsive design */
-@import url("./responsive.css");
+.signin-label {
+  font-size: 0.85rem;
+  color: rgba(255,255,255,0.75);
+}
+
+/* ── ERROR TOAST ─────────────────────────────────────────────── */
+.error-toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-12px);
+  background: #2a1a1a;
+  border: 1px solid rgba(231,76,60,0.4);
+  border-left: 3px solid #e74c3c;
+  color: #f0f0f0;
+  font-size: 0.82rem;
+  padding: 11px 20px;
+  border-radius: 10px;
+  max-width: min(420px, calc(100vw - 32px));
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 8000;
+  transition: opacity 0.22s ease, transform 0.22s ease;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+}
+.error-toast.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
+
+/* ── PAGE LAYOUT ─────────────────────────────────────────────── */
+.portal-page {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  gap: 0;
+}
+
+/* ── HEADER ──────────────────────────────────────────────────── */
+.portal-header {
+  margin-bottom: 40px;
+}
+
+.portal-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #e74c3c;
+  box-shadow: 0 0 14px rgba(231,76,60,0.6);
+  flex-shrink: 0;
+}
+
+.portal-logo-name {
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  color: var(--text);
+  letter-spacing: 0.04em;
+}
+
+/* ── MAIN ────────────────────────────────────────────────────── */
+.portal-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 900px;
+}
+
+.portal-heading {
+  font-family: var(--font-serif);
+  font-size: clamp(1.8rem, 4vw, 2.6rem);
+  font-weight: 400;
+  color: var(--text);
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.portal-subheading {
+  font-size: 0.88rem;
+  color: var(--muted);
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+/* ── CARDS ───────────────────────────────────────────────────── */
+.portal-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  width: 100%;
+  margin-bottom: 20px;
+}
+
+.portal-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 22px 20px 20px;
+  text-align: left;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: border-color var(--tr), transform var(--tr), box-shadow var(--tr);
+  font-family: var(--font-sans);
+}
+
+.portal-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: #e74c3c;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform var(--tr);
+}
+
+.portal-card:hover {
+  border-color: rgba(231,76,60,0.45);
+  transform: translateY(-3px);
+  box-shadow: 0 12px 36px rgba(0,0,0,0.45);
+}
+.portal-card:hover::before { transform: scaleX(1); }
+.portal-card:active { transform: translateY(-1px); }
+
+.portal-card:focus-visible {
+  outline: 2px solid #e74c3c;
+  outline-offset: 2px;
+}
+
+.portal-card.loading { opacity: 0.6; pointer-events: none; }
+
+/* Admin card — slightly different accent */
+.portal-card--admin::before { background: #607d8b; }
+.portal-card--admin:hover   { border-color: rgba(96,125,139,0.45); }
+
+.portal-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.portal-card-icon {
+  width: 42px;
+  height: 42px;
+  background: rgba(231,76,60,0.1);
+  border: 1px solid rgba(231,76,60,0.2);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.15rem;
+  color: #e74c3c;
+}
+.portal-card--admin .portal-card-icon {
+  background: rgba(96,125,139,0.1);
+  border-color: rgba(96,125,139,0.2);
+  color: #607d8b;
+}
+
+.portal-card-arrow {
+  font-size: 0.95rem;
+  color: var(--muted);
+  opacity: 0;
+  transform: translate(-4px, 4px);
+  transition: opacity var(--tr), transform var(--tr);
+}
+.portal-card:hover .portal-card-arrow {
+  opacity: 1;
+  transform: translate(0, 0);
+}
+
+.portal-card-label {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  color: #e74c3c;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.portal-card--admin .portal-card-label { color: #607d8b; }
+
+.portal-card-title {
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  color: var(--text);
+  margin-bottom: 8px;
+  line-height: 1.2;
+}
+
+.portal-card-desc {
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.65;
+  margin-bottom: 20px;
+}
+
+.portal-card-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.google-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.portal-card-cta {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+/* ── BAN MESSAGE ─────────────────────────────────────────────── */
+.login-error {
+  font-size: 0.8rem;
+  color: #e74c3c;
+  text-align: center;
+  background: rgba(231,76,60,0.08);
+  border: 1px solid rgba(231,76,60,0.2);
+  border-radius: var(--r);
+  padding: 10px 16px;
+  margin-top: 4px;
+  max-width: 600px;
+  line-height: 1.55;
+}
+
+/* ── FOOTER ──────────────────────────────────────────────────── */
+.portal-footer {
+  margin-top: 36px;
+}
+
+.portal-footer p {
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.6;
+}
+
+.footer-sep {
+  margin: 0 6px;
+  opacity: 0.5;
+}
+
+/* ── RESPONSIVE ──────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .portal-card-grid {
+    grid-template-columns: 1fr;
+    max-width: 420px;
+  }
+}
+
+@media (max-width: 480px) {
+  .portal-page { padding: 28px 16px; }
+  .portal-card-grid { gap: 10px; }
+  .portal-header { margin-bottom: 28px; }
+  .portal-subheading { margin-bottom: 28px; }
+}

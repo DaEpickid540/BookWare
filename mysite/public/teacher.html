@@ -1,594 +1,492 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BookWare — Teacher</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="/css/student.css" />
-    <link rel="stylesheet" href="/css/teacher.css" />
-    <style>body{visibility:hidden}</style>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <script>
-      // Apply brightness before first paint to avoid flash
-      (function() {
-        var val = parseInt(localStorage.getItem("bookware-brightness") || "18", 10);
-        var t = val / 100;
-        function lerp(a,b,t){return a+(b-a)*t;}
-        function clamp(v){return Math.max(0,Math.min(255,Math.round(v)));}
-        function hex(v){v=clamp(v);return"#"+v.toString(16).padStart(2,"0").repeat(3);}
-        var base=lerp(0,255,t);
-        var offAlt=lerp(16,-8,t);
-        var r = document.documentElement;
-        r.style.setProperty("--bg", hex(base));
-        r.style.setProperty("--bg-alt", hex(base+offAlt));
-        r.style.setProperty("--bg-light", hex(base+lerp(28,-18,t)));
-        r.style.setProperty("--card", hex(base+lerp(-8,8,t)));
-        r.style.setProperty("--border", hex(base+offAlt*0.6));
-        var textV = val<=45 ? lerp(240,200,val/45) : val>=55 ? lerp(200,26,(val-55)/45) : 200;
-        r.style.setProperty("--text", hex(textV));
-        if(val>=50) r.setAttribute("data-theme","light");
-        var color = localStorage.getItem("bookware-color");
-        if(color && color !== "crimson") r.setAttribute("data-color", color);
-      })();
-    </script>
-  </head>
-  <body>
-    <!-- ══ SIDEBAR ══════════════════════════════════════════════════════════ -->
-    <aside class="sb" id="sidebar">
-      <div class="sb-head">
-        <div class="sb-logo">
-          <div class="sb-dot"></div>
-          <span class="sb-name">BookWare</span>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BookWare — Teacher</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+  <link rel="stylesheet" href="/css/app.css" />
+  <script>
+    (function () {
+      var val = parseInt(localStorage.getItem('bookware-brightness') || '18', 10);
+      var t = val / 100;
+      function lerp(a, b, t) { return a + (b - a) * t; }
+      function clamp(v) { return Math.max(0, Math.min(255, Math.round(v))); }
+      function hex(v) { v = clamp(v); return '#' + v.toString(16).padStart(2, '0').repeat(3); }
+      var base = lerp(0, 255, t);
+      var offAlt = lerp(16, -8, t);
+      var r = document.documentElement;
+      r.style.setProperty('--bg', hex(base));
+      r.style.setProperty('--bg-card', hex(base + lerp(-8, 8, t)));
+      r.style.setProperty('--bg-inset', hex(base + lerp(-14, 12, t)));
+      r.style.setProperty('--border', hex(base + offAlt * 0.6));
+      var tv = val <= 45 ? lerp(240, 200, val / 45) : val >= 55 ? lerp(200, 26, (val - 55) / 45) : 200;
+      r.style.setProperty('--text', hex(tv));
+      if (val >= 50) r.setAttribute('data-theme', 'light');
+      var color = localStorage.getItem('bookware-color');
+      if (color && color !== 'crimson') r.setAttribute('data-color', color);
+      document.documentElement.style.visibility = 'hidden';
+    })();
+  </script>
+</head>
+<body>
+
+  <!-- ═══ SIDEBAR ═══════════════════════════════════════════════════════════ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">
+        <span class="logo-dot" aria-hidden="true"></span>
+        <span class="sidebar-logo-name">BookWare</span>
+      </div>
+      <button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle sidebar" aria-expanded="true">
+        <i class="bi bi-layout-sidebar" aria-hidden="true"></i>
+      </button>
+    </div>
+
+    <nav class="sidebar-nav" aria-label="Main navigation">
+      <button class="nav-item active" data-page="library" aria-current="page">
+        <span class="nav-icon" aria-hidden="true"><i class="bi bi-collection-fill"></i></span>
+        <span class="nav-label">Library</span>
+      </button>
+      <button class="nav-item" data-page="students">
+        <span class="nav-icon" aria-hidden="true"><i class="bi bi-people-fill"></i></span>
+        <span class="nav-label">Students</span>
+      </button>
+      <button class="nav-item" data-page="reading">
+        <span class="nav-icon" aria-hidden="true"><i class="bi bi-book-fill"></i></span>
+        <span class="nav-label">Now Reading</span>
+      </button>
+      <button class="nav-item" data-page="recommendations">
+        <span class="nav-icon" aria-hidden="true"><i class="bi bi-star-fill"></i></span>
+        <span class="nav-label">Recommendations</span>
+      </button>
+      <button class="nav-item" data-page="invites">
+        <span class="nav-icon" aria-hidden="true"><i class="bi bi-link-45deg"></i></span>
+        <span class="nav-label">Invite Teachers</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <button class="nav-item" data-page="settings">
+        <span class="nav-icon" aria-hidden="true"><i class="bi bi-gear-fill"></i></span>
+        <span class="nav-label">Settings</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ═══ MAIN ══════════════════════════════════════════════════════════════ -->
+  <div class="main-area">
+
+    <header class="topbar">
+      <h1 class="page-title" id="pageTitle">Library</h1>
+      <div class="topbar-right">
+        <div class="user-avatar" id="userAvatar" aria-hidden="true">?</div>
+        <span class="user-name" id="userDisplayName">—</span>
+      </div>
+    </header>
+
+    <div class="content-area">
+
+      <!-- ═══════════════════════ LIBRARY PAGE ═══════════════════════════ -->
+      <section id="libraryPage" class="page active" aria-label="Library">
+
+        <!-- Bi-weekly check-in banner -->
+        <div class="info-banner" id="biweeklyBanner" hidden>
+          <div class="section-label"><i class="bi bi-clipboard2-check-fill" aria-hidden="true"></i> Bi-Weekly Check-In — Books Currently Out</div>
+          <div id="biweeklyContent"></div>
         </div>
-        <button
-          class="sb-toggle"
-          id="sidebarToggle"
-          aria-label="Toggle sidebar"
-        >
-          &#9776;
-        </button>
-      </div>
-      <nav>
-        <button class="ni active" data-page="library">
-          <span class="ni-icon"><i class="bi bi-collection-fill"></i></span><span class="ni-label">Library</span>
-        </button>
-        <button class="ni" data-page="students">
-          <span class="ni-icon"><i class="bi bi-people-fill"></i></span><span class="ni-label">Students</span>
-        </button>
-        <button class="ni" data-page="reading">
-          <span class="ni-icon"><i class="bi bi-book-fill"></i></span
-          ><span class="ni-label">Now Reading</span>
-        </button>
-        <button class="ni" data-page="recommendations">
-          <span class="ni-icon"><i class="bi bi-star-fill"></i></span
-          ><span class="ni-label">Recommendations</span>
-        </button>
-        <button class="ni" data-page="invites">
-          <span class="ni-icon"><i class="bi bi-link-45deg"></i></span
-          ><span class="ni-label">Invite Teachers</span>
-        </button>
-      </nav>
-      <div class="sb-foot">
-        <button class="ni" data-page="settings">
-          <span class="ni-icon"><i class="bi bi-gear-fill"></i></span><span class="ni-label">Settings</span>
-        </button>
-      </div>
-    </aside>
 
-    <!-- ══ MAIN ════════════════════════════════════════════════════════════ -->
-    <div class="main">
-      <div class="tbar">
-        <div class="pt" id="pt">Library</div>
-        <div class="tbar-right">
-          <div class="av" id="userAvatar">?</div>
-          <span class="uname" id="userDisplayName">—</span>
-        </div>
-      </div>
+        <div class="split-grid">
 
-      <div class="content">
-        <!-- ══ LIBRARY ══ -->
-        <div id="libraryPage" class="pg active">
-          <div class="banner" id="biweeklyBanner" style="display: none">
-            <div class="lbl"><i class="bi bi-clipboard2-fill"></i> Bi-Weekly Check-In — Books Currently Out</div>
-            <div id="biweeklyContent"></div>
-          </div>
+          <!-- Left: add books + classes + visibility -->
+          <div class="stack-col">
 
-          <div class="r2">
-            <div class="c">
-              <div class="lbl">Add a Book</div>
-              <div class="t-input-row">
-                <input
-                  type="text"
-                  id="isbnInput"
-                  class="t-input"
-                  placeholder="Title, author, or ISBN…"
-                />
-                <button class="btn-primary" id="lookupIsbnBtn">Search</button>
+            <div class="panel-card">
+              <div class="section-label">Add a Book</div>
+              <div class="input-row">
+                <input type="text" id="isbnInput" class="text-input" placeholder="Title, author, or ISBN…" aria-label="Search for book to add" />
+                <button class="btn btn--primary" id="lookupIsbnBtn">Search</button>
               </div>
               <div id="isbnResult"></div>
+            </div>
 
-              <div class="t-divider"></div>
-
-              <div class="lbl">Classes & Access Codes</div>
-              <p class="t-hint" style="margin-bottom:10px">
-                Each class gets its own code. All classes share the same book library.
-                Students enter their class code to join and access your books.
-              </p>
+            <div class="panel-card">
+              <div class="section-label">Classes &amp; Access Codes</div>
+              <p class="muted-text small-text" style="margin-bottom:12px">Each class gets its own code. All classes share the same book library. Students enter their class code to join and access your books.</p>
               <div id="classManagerContainer">
                 <p class="empty-state">Loading classes…</p>
               </div>
+            </div>
 
-              <div class="t-divider"></div>
-
-              <div class="lbl">Library Visibility</div>
-              <div class="t-toggle-row">
+            <div class="panel-card">
+              <div class="section-label">Library Visibility</div>
+              <div class="settings-row" style="padding:0">
                 <div>
-                  <div class="t-row-title">Who can see this library</div>
-                  <div class="t-row-sub" id="visibilityHint">Only your class</div>
+                  <div class="settings-label">Who can see this library</div>
+                  <div class="settings-hint" id="visibilityHint">Only your class</div>
                 </div>
-                <label class="toggle">
+                <label class="toggle" aria-label="Make library public">
                   <input type="checkbox" id="libraryPublicToggle" />
-                  <div class="toggle-track"></div>
-                  <div class="toggle-thumb"></div>
+                  <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
                 </label>
               </div>
-              <div id="visibilityDetail" style="margin-top:10px;padding:10px 12px;background:var(--bg-alt);border:1px solid var(--border);border-radius:var(--radius);font-size:0.72rem;color:var(--muted);display:none">
-                <div id="visibilityDetailInner"></div>
-              </div>
-              <p class="t-hint" style="margin-top:8px">
-                <strong>Class Only</strong> — students must join via your class code. Books are hidden from the discovery grid.<br>
-                <strong>Public</strong> — any Mason student can discover and browse your library. They can only <em>check out</em> if enrolled in your class.
+              <div id="visibilityDetail" hidden></div>
+              <p class="muted-text small-text" style="margin-top:10px">
+                <strong>Class Only</strong> — students must join via your class code.<br>
+                <strong>Public</strong> — any Mason student can discover and browse your library. They can only check out if enrolled.
               </p>
             </div>
 
-            <div class="c">
-              <div
-                style="
-                  display: flex;
-                  align-items: center;
-                  justify-content: space-between;
-                  margin-bottom: 10px;
-                "
-              >
-                <div class="lbl" style="margin-bottom: 0">Your Books</div>
-                <span class="t-count-chip" id="libraryCountChip">—</span>
-              </div>
-              <div class="sbox">
-                <span class="sbox-icon"><i class="bi bi-search"></i></span>
-                <input
-                  id="librarySearchInput"
-                  class="sbox-input"
-                  type="text"
-                  placeholder="Search title, author, or ISBN…"
-                />
-              </div>
-              <div id="libraryList"><p class="empty-state">Loading…</p></div>
+          </div>
+
+          <!-- Right: your books list -->
+          <div class="panel-card">
+            <div class="panel-card-header">
+              <div class="section-label" style="margin-bottom:0">Your Books</div>
+              <span class="count-badge" id="libraryCountChip">—</span>
+            </div>
+            <div class="search-box">
+              <i class="bi bi-search search-box-icon" aria-hidden="true"></i>
+              <input type="search" id="librarySearchInput" class="search-box-input" placeholder="Search title, author, or ISBN…" aria-label="Search your library" />
+            </div>
+            <div id="libraryList" role="list">
+              <p class="empty-state">Loading…</p>
+            </div>
+          </div>
+
+        </div>
+      </section><!-- /libraryPage -->
+
+
+      <!-- ═══════════════════════ STUDENTS PAGE ══════════════════════════ -->
+      <section id="studentsPage" class="page" aria-label="Students">
+
+        <div class="page-actions">
+          <button class="btn btn--sm" id="exportCheckoutsBtn">
+            <i class="bi bi-download" aria-hidden="true"></i> Export .MD
+          </button>
+        </div>
+
+        <div class="split-grid">
+          <div class="panel-card">
+            <div class="section-label">Currently Checked Out</div>
+            <div id="checkedOutList" role="list">
+              <p class="empty-state">Loading…</p>
+            </div>
+          </div>
+          <div class="panel-card">
+            <div class="section-label">Checkout History</div>
+            <div id="historyList" role="list">
+              <p class="empty-state">Loading…</p>
             </div>
           </div>
         </div>
 
-        <!-- ══ STUDENTS ══ -->
-        <div id="studentsPage" class="pg">
-          <div class="t-page-actions">
-            <button class="btn-sm" id="exportCheckoutsBtn"><i class="bi bi-arrow-down"></i> Export .MD</button>
+        <!-- Class roster -->
+        <div class="panel-card" style="margin-top:16px">
+          <div class="panel-card-header">
+            <div class="section-label" style="margin-bottom:0">
+              <i class="bi bi-people-fill" aria-hidden="true"></i> My Class Roster
+            </div>
+            <span class="count-badge" id="rosterCount">— students</span>
+          </div>
+          <p class="muted-text small-text" style="margin-bottom:12px">Students who joined your class with your code. Use the button to remove a student — they can rejoin later if they still have the code.</p>
+          <div id="rosterList" role="list">
+            <p class="empty-state">Loading…</p>
+          </div>
+        </div>
+
+        <!-- Bans -->
+        <div class="panel-card" style="margin-top:16px">
+          <div class="section-label">
+            <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> Temporary Bans
+          </div>
+          <p class="muted-text small-text" style="margin-bottom:12px">Issue a temporary ban if a student is misusing the system.</p>
+          <div class="ban-form">
+            <input type="email" id="banStudentEmail" class="text-input" placeholder="Student email…" aria-label="Student email to ban" />
+            <input type="number" id="banDays" class="text-input text-input--sm" placeholder="Days" min="1" max="365" aria-label="Ban duration in days" />
+            <input type="text" id="banReason" class="text-input" placeholder="Reason (required)…" aria-label="Ban reason" />
+            <button class="btn btn--danger" id="issueBanBtn">Issue Ban</button>
+          </div>
+          <div id="activeBansList" style="margin-top:12px" role="list"></div>
+        </div>
+
+      </section><!-- /studentsPage -->
+
+
+      <!-- ═══════════════════════ NOW READING PAGE ═══════════════════════ -->
+      <section id="readingPage" class="page" aria-label="Now Reading">
+        <div class="split-grid">
+
+          <div class="panel-card">
+            <div class="section-label">Set Currently Reading</div>
+            <p class="muted-text small-text" style="margin-bottom:12px">Search Google Books or pick from your library. Students see this when browsing.</p>
+            <div class="input-row">
+              <input type="search" id="readingSearchInput" class="text-input" placeholder="Search by title or author…" aria-label="Search for currently reading book" />
+              <button class="btn btn--primary" id="readingSearchBtn">Search</button>
+            </div>
+            <div id="readingPickerList" style="margin-top:8px;max-height:280px;overflow-y:auto" role="list"></div>
+            <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+              <button class="btn btn--sm" id="clearCurrentlyReadingBtn">Clear Currently Reading</button>
+            </div>
+            <div id="currentlyReadingDisplay" style="margin-top:12px"></div>
           </div>
 
-          <div class="r2">
-            <div class="c">
-              <div class="lbl">Currently Checked Out</div>
-              <div id="checkedOutList"><p class="empty-state">Loading…</p></div>
-            </div>
-            <div class="c">
-              <div class="lbl">Checkout History</div>
-              <div id="historyList"><p class="empty-state">Loading…</p></div>
+          <div class="panel-card">
+            <div class="section-label">Student Preview</div>
+            <div id="readingPreview">
+              <p class="empty-state">Nothing set yet.</p>
             </div>
           </div>
 
-          <!-- Class roster -->
-          <div class="c" style="margin-top: 13px">
-            <div
-              style="
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                margin-bottom: 10px;
-              "
-            >
-              <div class="lbl" style="margin-bottom: 0"><i class="bi bi-people-fill"></i> My Class Roster</div>
-              <span class="t-count-chip" id="rosterCount">— students</span>
+        </div>
+      </section><!-- /readingPage -->
+
+
+      <!-- ═══════════════════════ RECOMMENDATIONS PAGE ════════════════════ -->
+      <section id="recommendationsPage" class="page" aria-label="Recommendations">
+
+        <!-- Currently reading quick-set -->
+        <div class="info-banner" style="margin-bottom:16px">
+          <div class="panel-card-header" style="margin-bottom:10px">
+            <div class="section-label" style="margin-bottom:0">
+              <i class="bi bi-book-fill" aria-hidden="true"></i> Currently Reading
             </div>
-            <p class="t-hint" style="margin-bottom: 10px">
-              Students who joined your class with your code. Use the button to
-              remove a student — they can rejoin later if they still have the
-              code.
+            <button class="btn btn--sm" id="recClearReadingBtn">Clear</button>
+          </div>
+          <div id="recReadingDisplay"></div>
+          <div class="input-row" style="margin-top:10px">
+            <input type="search" id="recReadingInput" class="text-input" placeholder="Search Google Books or your library to change…" aria-label="Search for currently reading book" />
+            <button class="btn btn--primary" id="recReadingSearchBtn">Search</button>
+          </div>
+          <div id="recReadingResults" style="margin-top:8px;max-height:200px;overflow-y:auto" role="list"></div>
+        </div>
+
+        <div class="split-grid">
+
+          <div class="panel-card">
+            <div class="section-label">Your Picks</div>
+            <p class="muted-text small-text" style="margin-bottom:12px">Shows as "Teacher Recommends" on the student Library page.</p>
+            <div id="recommendationsList" role="list">
+              <p class="empty-state">Loading…</p>
+            </div>
+          </div>
+
+          <div class="panel-card">
+            <div class="section-label">Add Recommendation</div>
+            <p class="muted-text small-text" style="margin-bottom:10px">Search your library or Google Books to recommend a book.</p>
+            <div class="search-box">
+              <i class="bi bi-search search-box-icon" aria-hidden="true"></i>
+              <input type="search" id="recSearchInput" class="search-box-input" placeholder="Search to star…" aria-label="Search for book to recommend" />
+            </div>
+            <div id="recPickerList" role="list">
+              <p class="empty-state">Loading…</p>
+            </div>
+          </div>
+
+        </div>
+      </section><!-- /recommendationsPage -->
+
+
+      <!-- ═══════════════════════ INVITE TEACHERS PAGE ════════════════════ -->
+      <section id="invitesPage" class="page" aria-label="Invite Teachers">
+        <div class="stack-col" style="max-width:640px">
+
+          <div class="panel-card">
+            <div class="section-label">Invite a Teacher</div>
+            <p class="muted-text small-text" style="margin-bottom:16px">
+              Enter the new teacher's school email. A one-time sign-up link is generated and locked to that address — only they can use it. Valid for 7 days.
             </p>
-            <div id="rosterList"><p class="empty-state">Loading…</p></div>
-          </div>
-
-          <div class="c" style="margin-top: 13px">
-            <div class="lbl"><i class="bi bi-exclamation-triangle-fill"></i> Temporary Bans</div>
-            <p class="t-hint" style="margin-bottom: 10px">
-              Issue a temporary ban if a student is misusing the system (e.g.
-              inappropriate content, harassment).
-            </p>
-            <div class="t-ban-form">
-              <input
-                type="text"
-                id="banStudentEmail"
-                class="t-input"
-                placeholder="Student email…"
-              />
-              <input
-                type="number"
-                id="banDays"
-                class="t-input t-input-sm"
-                placeholder="Days"
-                min="1"
-                max="365"
-              />
-              <input
-                type="text"
-                id="banReason"
-                class="t-input"
-                placeholder="Reason (required)…"
-              />
-              <button class="btn-sm danger-btn" id="issueBanBtn">
-                Issue Ban
-              </button>
-            </div>
-            <div id="activeBansList" style="margin-top: 12px"></div>
-          </div>
-        </div>
-
-        <!-- ══ NOW READING ══ -->
-        <div id="readingPage" class="pg">
-          <div class="r2">
-            <div class="c">
-              <div class="lbl">Set Currently Reading</div>
-              <p class="t-hint" style="margin-bottom: 10px">
-                Search Google Books or pick from your library. Students see this
-                when browsing.
-              </p>
-              <div class="t-input-row">
-                <input
-                  type="text"
-                  id="readingSearchInput"
-                  class="t-input"
-                  placeholder="Search by title or author…"
-                />
-                <button class="btn-primary" id="readingSearchBtn">
-                  Search
+            <div class="stack-col" style="gap:10px">
+              <div class="search-box">
+                <i class="bi bi-envelope-fill search-box-icon" aria-hidden="true"></i>
+                <input type="email" id="inviteEmailInput" class="search-box-input" placeholder="colleague@masonohioschools.com" autocomplete="off" aria-label="Teacher email to invite" />
+              </div>
+              <div style="display:flex;align-items:center;gap:10px">
+                <button class="btn btn--primary" id="createInviteBtn">
+                  <i class="bi bi-link-45deg" aria-hidden="true"></i> Generate &amp; Copy Link
                 </button>
+                <span class="status-badge" id="canInviteStatus"></span>
               </div>
-              <div
-                id="readingPickerList"
-                style="margin-top: 8px; max-height: 260px; overflow-y: auto"
-              ></div>
-              <div
-                class="t-btn-row"
-                style="
-                  margin-top: 10px;
-                  border-top: 1px solid var(--border);
-                  padding-top: 10px;
-                "
-              >
-                <button class="btn-sm" id="clearCurrentlyReadingBtn">
-                  Clear Currently Reading
-                </button>
-              </div>
-              <div id="currentlyReadingDisplay"></div>
             </div>
-            <div class="c">
-              <div class="lbl">Student Preview</div>
-              <div id="readingPreview">
-                <p class="empty-state">Nothing set yet.</p>
-              </div>
+            <div id="inviteOutput" style="margin-top:12px"></div>
+          </div>
+
+          <div class="panel-card">
+            <div class="section-label">Past Invites</div>
+            <div id="pastInvitesList" role="list">
+              <p class="empty-state">Loading…</p>
             </div>
           </div>
+
         </div>
+      </section><!-- /invitesPage -->
 
-        <!-- ══ RECOMMENDATIONS ══ -->
-        <div id="recommendationsPage" class="pg">
-          <!-- Currently Reading quick-set -->
-          <div class="banner" style="margin-bottom: 13px">
-            <div
-              style="
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                margin-bottom: 10px;
-              "
-            >
-              <div class="lbl" style="margin-bottom: 0">
-                <i class="bi bi-book-fill"></i> Currently Reading
+
+      <!-- ═══════════════════════ SETTINGS PAGE ══════════════════════════ -->
+      <section id="settingsPage" class="page" aria-label="Settings">
+        <div class="settings-wrap">
+
+          <!-- Account -->
+          <div class="settings-section">
+            <div class="settings-section-header">
+              <div>
+                <div class="settings-section-title">Account</div>
+                <div class="settings-section-sub" id="settingsEmailSub">—</div>
               </div>
-              <button class="btn-sm" id="recClearReadingBtn">Clear</button>
             </div>
-            <div id="recReadingDisplay"></div>
-            <div class="t-input-row" style="margin-top: 10px; margin-bottom: 0">
-              <input
-                type="text"
-                id="recReadingInput"
-                class="t-input"
-                placeholder="Search Google Books or your library to change…"
-              />
-              <button class="btn-primary" id="recReadingSearchBtn">
-                Search
-              </button>
+            <div class="settings-body" id="accountInfoSection">
+              <p class="empty-state">Loading…</p>
             </div>
-            <div
-              id="recReadingResults"
-              style="margin-top: 8px; max-height: 200px; overflow-y: auto"
-            ></div>
           </div>
 
-          <div class="r2">
-            <div class="c">
-              <div class="lbl">Your Picks</div>
-              <p class="t-hint" style="margin-bottom: 10px">
-                Shows as "Teacher Recommends" on the student Library page.
-              </p>
-              <div id="recommendationsList">
-                <p class="empty-state">Loading…</p>
+          <!-- Permissions -->
+          <div class="settings-section">
+            <div class="settings-section-header">
+              <div>
+                <div class="settings-section-title">Permissions</div>
+                <div class="settings-section-sub">Capabilities granted by admin</div>
               </div>
             </div>
-            <div class="c">
-              <div class="lbl">Add Recommendation</div>
-              <p class="t-hint" style="margin-bottom: 8px">
-                Search your library or Google Books to recommend a book.
-              </p>
-              <div class="sbox" style="margin-bottom: 10px">
-                <span class="sbox-icon"><i class="bi bi-search"></i></span>
-                <input
-                  id="recSearchInput"
-                  class="sbox-input"
-                  type="text"
-                  placeholder="Search to star…"
-                />
-              </div>
-              <div id="recPickerList">
-                <p class="empty-state">Loading…</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ══ INVITE TEACHERS ══ -->\
-        <div id="invitesPage" class="pg">
-          <div class="gap" style="max-width: 640px">
-            <div class="c">
-              <div class="lbl">Invite a Teacher</div>
-              <p class="t-hint" style="margin-bottom: 14px">
-                Enter the new teacher's school email. A one-time sign-up link
-                is generated and locked to that address — only they can use it.
-                Valid for 7 days.
-              </p>
-              <div style="display:flex;flex-direction:column;gap:10px">
-                <div class="sbox">
-                  <span class="sbox-icon"><i class="bi bi-envelope-fill"></i></span>
-                  <input
-                    id="inviteEmailInput"
-                    class="sbox-input"
-                    type="email"
-                    placeholder="colleague@masonohioschools.com"
-                    autocomplete="off"
-                    spellcheck="false"
-                  />
+            <div class="settings-body">
+              <div class="settings-row">
+                <div>
+                  <div class="settings-label">Can Invite Teachers</div>
+                  <div class="settings-hint">Only admins can grant this</div>
                 </div>
-                <div style="display:flex;align-items:center;gap:10px">
-                  <button class="btn-primary" id="createInviteBtn">
-                    <i class="bi bi-link-45deg"></i> Generate &amp; Copy Link
+                <span id="canInviteSettingsBadge">—</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Appearance -->
+          <div class="settings-section">
+            <div class="settings-section-header">
+              <div>
+                <div class="settings-section-title">Appearance</div>
+                <div class="settings-section-sub">Theme &amp; brightness</div>
+              </div>
+            </div>
+            <div class="settings-body">
+              <div class="settings-row settings-row--col">
+                <div class="settings-label">Color Themes</div>
+                <div class="theme-preset-grid" role="group" aria-label="Theme presets">
+                  <button class="theme-preset" data-preset="midnight" aria-label="Midnight theme">
+                    <div class="theme-preset-swatch" style="background:#0d0d0d"><div class="theme-preset-accent" style="background:#e74c3c"></div></div>
+                    <span>Midnight</span>
                   </button>
-                  <span class="t-perm-badge" id="canInviteStatus"></span>
+                  <button class="theme-preset active" data-preset="night" aria-label="Night theme" aria-pressed="true">
+                    <div class="theme-preset-swatch" style="background:#2e2e2e"><div class="theme-preset-accent" style="background:#e74c3c"></div></div>
+                    <span>Night</span>
+                  </button>
+                  <button class="theme-preset" data-preset="dusk" aria-label="Dusk theme">
+                    <div class="theme-preset-swatch" style="background:#525252"><div class="theme-preset-accent" style="background:#e67e22"></div></div>
+                    <span>Dusk</span>
+                  </button>
+                  <button class="theme-preset" data-preset="ash" aria-label="Ash theme">
+                    <div class="theme-preset-swatch" style="background:#858585"><div class="theme-preset-accent" style="background:#607d8b"></div></div>
+                    <span>Ash</span>
+                  </button>
+                  <button class="theme-preset" data-preset="parchment" aria-label="Parchment theme">
+                    <div class="theme-preset-swatch" style="background:#b8b8b8"><div class="theme-preset-accent" style="background:#e67e22"></div></div>
+                    <span>Parchment</span>
+                  </button>
+                  <button class="theme-preset" data-preset="snow" aria-label="Snow theme">
+                    <div class="theme-preset-swatch" style="background:#f2f2f2"><div class="theme-preset-accent" style="background:#2980b9"></div></div>
+                    <span>Snow</span>
+                  </button>
                 </div>
               </div>
-              <div id="inviteOutput"></div>
-            </div>
-
-            <div class="c">
-              <div class="lbl">Past Invites</div>
-              <div id="pastInvitesList">
-                <p class="empty-state">Loading…</p>
+              <div class="settings-row settings-row--col">
+                <div class="brightness-header">
+                  <div class="settings-label">Fine-tune Brightness</div>
+                  <span id="brightnessLabel" class="settings-hint">Dark</span>
+                </div>
+                <div class="brightness-slider-row">
+                  <i class="bi bi-moon-stars-fill" aria-hidden="true"></i>
+                  <input type="range" id="brightnessSlider" min="0" max="100" value="18" class="brightness-slider" aria-label="Brightness" />
+                  <i class="bi bi-sun-fill" aria-hidden="true"></i>
+                </div>
               </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ══ SETTINGS ══ -->
-        <div id="settingsPage" class="pg">
-          <div class="settings-wrap">
-            <div class="s-section">
-              <div class="s-head">
+              <div class="settings-row">
                 <div>
-                  <div class="s-title">Account</div>
-                  <div class="s-sub" id="settingsEmailSub">—</div>
+                  <div class="settings-label">Accent Color</div>
+                  <div class="settings-hint">Changes buttons, badges, and highlights</div>
                 </div>
-              </div>
-              <div class="s-body" id="accountInfoSection">
-                <p class="empty-state">Loading…</p>
-              </div>
-            </div>
-
-            <div class="s-section">
-              <div class="s-head">
-                <div>
-                  <div class="s-title">Permissions</div>
-                  <div class="s-sub">Capabilities granted by admin</div>
-                </div>
-              </div>
-              <div class="s-body">
-                <div class="s-row">
-                  <div>
-                    <div class="s-label">Can Invite Teachers</div>
-                    <div class="s-hint">Only admins can grant this</div>
-                  </div>
-                  <span id="canInviteSettingsBadge">—</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="s-section">
-              <div class="s-head">
-                <div>
-                  <div class="s-title">Appearance</div>
-                  <div class="s-sub">Theme &amp; brightness</div>
-                </div>
-              </div>
-              <div class="s-body">
-                <!-- Named theme presets -->
-                <div class="s-row" style="flex-direction:column;align-items:flex-start;gap:10px">
-                  <div class="s-label">Color Themes</div>
-                  <div class="theme-preset-grid">
-                    <button class="theme-preset" data-preset="midnight">
-                      <div class="theme-preset-preview" style="background:#0d0d0d">
-                        <div class="theme-preset-accent" style="background:#e74c3c"></div>
-                      </div>
-                      <span>Midnight</span>
-                    </button>
-                    <button class="theme-preset active" data-preset="night">
-                      <div class="theme-preset-preview" style="background:#2e2e2e">
-                        <div class="theme-preset-accent" style="background:#e74c3c"></div>
-                      </div>
-                      <span>Night</span>
-                    </button>
-                    <button class="theme-preset" data-preset="dusk">
-                      <div class="theme-preset-preview" style="background:#525252">
-                        <div class="theme-preset-accent" style="background:#e67e22"></div>
-                      </div>
-                      <span>Dusk</span>
-                    </button>
-                    <button class="theme-preset" data-preset="ash">
-                      <div class="theme-preset-preview" style="background:#858585">
-                        <div class="theme-preset-accent" style="background:#607d8b"></div>
-                      </div>
-                      <span>Ash</span>
-                    </button>
-                    <button class="theme-preset" data-preset="parchment">
-                      <div class="theme-preset-preview" style="background:#b8b8b8">
-                        <div class="theme-preset-accent" style="background:#e67e22"></div>
-                      </div>
-                      <span>Parchment</span>
-                    </button>
-                    <button class="theme-preset" data-preset="snow">
-                      <div class="theme-preset-preview" style="background:#f2f2f2">
-                        <div class="theme-preset-accent" style="background:#2980b9"></div>
-                      </div>
-                      <span>Snow</span>
-                    </button>
-                  </div>
-                </div>
-                <!-- Fine-tune brightness -->
-                <div class="s-row" style="flex-direction:column;align-items:flex-start;gap:10px">
-                  <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
-                    <div class="s-label">Fine-tune Brightness</div>
-                    <span id="brightnessLabel" style="font-size:0.72rem;color:var(--muted)">Dark</span>
-                  </div>
-                  <div style="width:100%;display:flex;align-items:center;gap:10px">
-                    <i class="bi bi-moon-stars-fill" style="color:var(--muted);font-size:0.9rem;flex-shrink:0"></i>
-                    <input
-                      type="range"
-                      id="brightnessSlider"
-                      min="0" max="100" value="18"
-                      class="brightness-slider"
-                      style="flex:1"
-                    />
-                    <i class="bi bi-sun-fill" style="color:var(--muted);font-size:0.9rem;flex-shrink:0"></i>
-                  </div>
-                </div>
-                <!-- Accent color -->
-                <div class="s-row">
-                  <div>
-                    <div class="s-label">Accent Color</div>
-                    <div class="s-hint">Changes buttons, badges, and highlights</div>
-                  </div>
-                  <div class="color-swatch-row">
-                    <button class="color-swatch active" data-color="crimson"  title="Crimson"></button>
-                    <button class="color-swatch"        data-color="ocean"    title="Ocean"></button>
-                    <button class="color-swatch"        data-color="forest"   title="Forest"></button>
-                    <button class="color-swatch"        data-color="amethyst" title="Amethyst"></button>
-                    <button class="color-swatch"        data-color="sunset"   title="Sunset"></button>
-                    <button class="color-swatch"        data-color="slate"    title="Slate"></button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- ARIA AI -->
-            <div class="s-section">
-              <div class="s-head">
-                <div>
-                  <div class="s-title"><i class="bi bi-robot"></i> ARIA AI</div>
-                  <div class="s-sub">Personal AI reading assistant</div>
-                </div>
-              </div>
-              <div class="s-body">
-                <div class="s-row">
-                  <div>
-                    <div class="s-label">Enable ARIA</div>
-                    <div class="s-hint">Adds an AI assistant to your library view</div>
-                  </div>
-                  <label class="toggle">
-                    <input type="checkbox" id="ariaEnabled" />
-                    <div class="toggle-track"></div>
-                    <div class="toggle-thumb"></div>
-                  </label>
-                </div>
-                <div id="ariaSetupPanel" style="display:none">
-                  <div class="s-row" style="flex-direction:column;align-items:flex-start;gap:10px">
-                    <div>
-                      <div class="s-label">Groq API Key</div>
-                      <div class="s-hint">ARIA runs on Groq's free tier — fast and private</div>
-                    </div>
-                    <input type="password" id="ariaApiKey" class="t-input" placeholder="gsk_..." style="width:100%;font-family:monospace;font-size:0.78rem" autocomplete="off" />
-                    <button class="btn-sm" id="ariaSaveKeyBtn">Save Key</button>
-                  </div>
-                  <div class="banner" style="margin-top:10px;padding:12px 14px">
-                    <div class="lbl" style="font-size:0.78rem;margin-bottom:8px">How to get your free Groq key</div>
-                    <ol style="font-size:0.72rem;color:var(--muted);margin:0;padding-left:16px;line-height:1.8">
-                      <li>Go to <strong>console.groq.com</strong> and sign up (free)</li>
-                      <li>Click <strong>API Keys</strong> in the left sidebar</li>
-                      <li>Click <strong>Create API Key</strong>, name it "BookWare"</li>
-                      <li>Copy the key (starts with <code>gsk_</code>) and paste it above</li>
-                      <li>Hit <strong>Save Key</strong> — ARIA is ready!</li>
-                    </ol>
-                    <p style="font-size:0.68rem;color:var(--muted);margin-top:8px;margin-bottom:0">Your key is stored only in your browser. It never touches our servers.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="s-section">
-              <div class="s-head">
-                <div>
-                  <div class="s-title">About</div>
-                  <div class="s-sub">
-                    BookWare v1.0 · Mason High School · Sarvin Sukhe
-                  </div>
+                <div class="color-swatch-row" role="group" aria-label="Accent color">
+                  <button class="color-swatch active" data-color="crimson"  title="Crimson"   aria-label="Crimson"   aria-pressed="true"></button>
+                  <button class="color-swatch"        data-color="ocean"    title="Ocean"     aria-label="Ocean"></button>
+                  <button class="color-swatch"        data-color="forest"   title="Forest"    aria-label="Forest"></button>
+                  <button class="color-swatch"        data-color="amethyst" title="Amethyst"  aria-label="Amethyst"></button>
+                  <button class="color-swatch"        data-color="sunset"   title="Sunset"    aria-label="Sunset"></button>
+                  <button class="color-swatch"        data-color="slate"    title="Slate"     aria-label="Slate"></button>
                 </div>
               </div>
             </div>
           </div>
 
-          <div class="signout-bar" id="signoutBar">
-            <div>
-              <div class="signout-label">Sign Out</div>
-              <div class="signout-hint" id="signoutEmail">—</div>
+          <!-- ARIA AI -->
+          <div class="settings-section">
+            <div class="settings-section-header">
+              <div>
+                <div class="settings-section-title"><i class="bi bi-robot" aria-hidden="true"></i> ARIA AI</div>
+                <div class="settings-section-sub">Personal AI reading assistant</div>
+              </div>
             </div>
-            <span class="signout-arrow"><i class="bi bi-arrow-right"></i></span>
+            <div class="settings-body">
+              <div class="settings-row">
+                <div>
+                  <div class="settings-label">Enable ARIA</div>
+                  <div class="settings-hint">Adds an AI assistant to your library view</div>
+                </div>
+                <label class="toggle" aria-label="Enable ARIA AI">
+                  <input type="checkbox" id="ariaEnabled" />
+                  <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+                </label>
+              </div>
+              <div id="ariaSetupPanel" hidden>
+                <div class="settings-row settings-row--col">
+                  <div>
+                    <div class="settings-label">Groq API Key</div>
+                    <div class="settings-hint">ARIA runs on Groq's free tier — fast and private</div>
+                  </div>
+                  <input type="password" id="ariaApiKey" class="text-input text-input--mono" placeholder="gsk_…" autocomplete="off" aria-label="Groq API key" />
+                  <button class="btn btn--sm" id="ariaSaveKeyBtn">Save Key</button>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
-      <!-- /content -->
-    </div>
-    <!-- /main -->
 
-    <div id="notificationContainer" class="toast-container"></div>
-    <script type="module" src="/js/teacher.js"></script>
-  </body>
+          <!-- About -->
+          <div class="settings-section">
+            <div class="settings-section-header">
+              <div>
+                <div class="settings-section-title">About</div>
+                <div class="settings-section-sub">BookWare v2.0 · Mason High School · Sarvin Sukhe</div>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /settings-wrap -->
+
+        <button class="signout-bar" id="signoutBar" aria-label="Sign out">
+          <div>
+            <div class="signout-label">Sign Out</div>
+            <div class="signout-hint" id="signoutEmail">—</div>
+          </div>
+          <i class="bi bi-arrow-right-circle" aria-hidden="true"></i>
+        </button>
+
+      </section><!-- /settingsPage -->
+
+    </div><!-- /content-area -->
+  </div><!-- /main-area -->
+
+  <div id="toastContainer" class="toast-container" role="region" aria-live="polite" aria-label="Notifications"></div>
+
+  <script type="module" src="/js/teacher.js"></script>
+</body>
 </html>
