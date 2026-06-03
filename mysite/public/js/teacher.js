@@ -429,12 +429,25 @@ async function addSingleCopy(bookId, bookTitle) {
   toast(`<i class='bi bi-check2'></i> "${esc(bookTitle)}" — now ${current + 1} cop${current + 1 !== 1 ? 'ies' : 'y'}`, 'success');
 }
 
+// ── Skeleton helpers ──────────────────────────────────────────────────────────
+function renderSkeletonRows(container, count = 5) {
+  container.innerHTML = Array.from({ length: count }, () => `
+    <div class='skeleton-book-row'>
+      <div class='skeleton skeleton-book-cover'></div>
+      <div class='skeleton-book-info'>
+        <div class='skeleton skeleton-line-title'></div>
+        <div class='skeleton skeleton-line-author'></div>
+        <div class='skeleton skeleton-line-badge'></div>
+      </div>
+    </div>`).join('');
+}
+
 // ── Load library ──────────────────────────────────────────────────────────────
 async function loadLibrary() {
   const listEl  = document.getElementById('libraryList');
   const countEl = document.getElementById('libraryCountChip');
   if (!listEl || !currentUser) return;
-  listEl.innerHTML = `<p class='empty-state'>Loading…</p>`;
+  renderSkeletonRows(listEl, 6);
   const snap = await getDocs(collection(db, 'teachers', currentUser.uid, 'books'));
   allBooks   = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   if (countEl) countEl.textContent = `${allBooks.length} book${allBooks.length !== 1 ? 's' : ''}`;

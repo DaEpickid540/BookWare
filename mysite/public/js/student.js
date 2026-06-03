@@ -527,11 +527,24 @@ async function renderTeacherExtras(tid, name) {
   readPlaceholder?.replaceWith(readCard);
 }
 
+// ── Skeleton helpers ──────────────────────────────────────────────────────────
+function renderSkeletonRows(container, count = 5) {
+  container.innerHTML = Array.from({ length: count }, () => `
+    <div class='skeleton-book-row'>
+      <div class='skeleton skeleton-book-cover'></div>
+      <div class='skeleton-book-info'>
+        <div class='skeleton skeleton-line-title'></div>
+        <div class='skeleton skeleton-line-author'></div>
+        <div class='skeleton skeleton-line-badge'></div>
+      </div>
+    </div>`).join('');
+}
+
 // ── Load teacher books ────────────────────────────────────────────────────────
 async function loadTeacherBooks(tid) {
   const bookListEl = document.getElementById('bookList');
   if (!bookListEl) return;
-  bookListEl.innerHTML = `<p class='empty-state'>Loading books…</p>`;
+  renderSkeletonRows(bookListEl, 6);
 
   const myIds    = new Set([classTeacherId, ...addedTeacherIds].filter(Boolean));
   const isEnrolled = myIds.has(tid);

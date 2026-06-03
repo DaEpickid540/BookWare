@@ -135,12 +135,45 @@ Git commit: see below
 
 ---
 
+## Polish Pass (autonomous session)
+
+**Executed without pauses. All changes deployed.**
+
+### Favicon + Meta
+- Created `public/favicon.svg` — book + red dot logo, works on all sizes
+- Added `<link rel="icon">`, `<link rel="apple-touch-icon">`, `<meta name="description">`, `<meta name="theme-color" content="#1a1a1e">` to all 5 HTML pages
+
+### CSP improvements (firebase.json)
+- Added `https://api.groq.com` to `connect-src` — enables ARIA AI calls when chat is implemented
+- Added `https://books.googleusercontent.com` to `img-src` — covers some Google Books cover URLs that were being blocked
+
+### Admin theme support
+- Added full theme preset grid + brightness slider to admin Settings page (`admin.html`)
+- `admin.js` now imports and calls `initTheme()` from `theme.js` — admin portal now respects brightness/preset/accent stored in localStorage
+- `admin.css` gains `theme-preset-grid`, `theme-preset`, `brightness-slider`, `brightness-slider-row` styles
+
+### Loading skeletons
+- Added `@keyframes shimmer` + `.skeleton`, `.skeleton-book-row`, `.skeleton-book-cover`, `.skeleton-book-info`, `.skeleton-line-*` classes to `app.css`
+- `student.js` `loadTeacherBooks()` now shows 6 skeleton rows while fetching — no more blank flash
+- `teacher.js` `loadLibrary()` now shows 6 skeleton rows while fetching
+
+### Animation + polish
+- Landing page portal cards now stagger in with `cardFadeUp` animation (delays: 0.05s, 0.12s, 0.19s)
+- Heading and subheading fade up on load
+- `.page-title` gets `transition: opacity 0.12s ease` for smooth page-switch feel
+
+### Deploy
+18 files (was 17 — favicon.svg added). Release complete.
+URL: https://bookware-site.web.app
+
+---
+
 ## TODO / In Progress
 
-**All known bugs fixed. Security audit complete. App is live.**
+**All known bugs fixed. Security audit complete. Polish pass complete. App is live.**
 
 Potential future work (not blocking):
-- ARIA AI chat integration — the Groq API key is stored but no chat UI exists yet; would need a chat panel and actual Groq API calls
+- ARIA AI chat integration — Groq key stored, CSP allows api.groq.com, but no chat UI or API calls exist yet
 - Push notifications — `notifications/{userId}` collection exists in Firestore rules but is not used
 - Reading progress tracking (percentage through a book)
-- Book covers for locker reading log (currently shows placeholder if not in bookCache)
+- Mobile slide-in sidebar drawer with backdrop (currently icon-only on mobile, which works)

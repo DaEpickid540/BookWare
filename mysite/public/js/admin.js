@@ -1,5 +1,6 @@
 // admin.js — BookWare Admin Portal
 import { auth, db } from './firebase.js';
+import { initTheme } from './theme.js';
 import { signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import {
   doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
@@ -84,6 +85,7 @@ onAuthStateChanged(auth, async (user) => {
     const emailEl = document.getElementById('adminEmail');
     if (emailEl) emailEl.textContent = user.email;
 
+    initTheme();
     await loadSystemSettings();
     await loadDashboard();
     setupEventListeners();

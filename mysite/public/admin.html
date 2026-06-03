@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BookWare — Admin</title>
+  <meta name="description" content="BookWare Admin Portal — manage users, bans, and system settings." />
+  <meta name="theme-color" content="#1a1a1e" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/favicon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
@@ -177,6 +181,45 @@
         </div>
 
         <div class="settings-stack">
+
+          <div class="panel-card">
+            <div class="panel-title">Appearance</div>
+            <div class="theme-preset-grid" role="group" aria-label="Theme presets" style="margin-bottom:14px">
+              <button class="theme-preset" data-preset="midnight" aria-label="Midnight theme">
+                <div class="theme-preset-swatch" style="background:#0d0d0d"><div class="theme-preset-accent" style="background:#e74c3c"></div></div>
+                <span>Midnight</span>
+              </button>
+              <button class="theme-preset active" data-preset="night" aria-label="Night theme" aria-pressed="true">
+                <div class="theme-preset-swatch" style="background:#2e2e2e"><div class="theme-preset-accent" style="background:#e74c3c"></div></div>
+                <span>Night</span>
+              </button>
+              <button class="theme-preset" data-preset="dusk" aria-label="Dusk theme">
+                <div class="theme-preset-swatch" style="background:#525252"><div class="theme-preset-accent" style="background:#e67e22"></div></div>
+                <span>Dusk</span>
+              </button>
+              <button class="theme-preset" data-preset="ash" aria-label="Ash theme">
+                <div class="theme-preset-swatch" style="background:#858585"><div class="theme-preset-accent" style="background:#607d8b"></div></div>
+                <span>Ash</span>
+              </button>
+              <button class="theme-preset" data-preset="parchment" aria-label="Parchment theme">
+                <div class="theme-preset-swatch" style="background:#b8b8b8"><div class="theme-preset-accent" style="background:#e67e22"></div></div>
+                <span>Parchment</span>
+              </button>
+              <button class="theme-preset" data-preset="snow" aria-label="Snow theme">
+                <div class="theme-preset-swatch" style="background:#f2f2f2"><div class="theme-preset-accent" style="background:#2980b9"></div></div>
+                <span>Snow</span>
+              </button>
+            </div>
+            <div class="brightness-header" style="margin-bottom:8px">
+              <span class="settings-label">Brightness</span>
+              <span id="brightnessLabel" class="settings-hint">Dark</span>
+            </div>
+            <div class="brightness-slider-row">
+              <i class="bi bi-moon-stars-fill" aria-hidden="true"></i>
+              <input type="range" id="brightnessSlider" min="0" max="100" value="18" class="brightness-slider" aria-label="Brightness" />
+              <i class="bi bi-sun-fill" aria-hidden="true"></i>
+            </div>
+          </div>
 
           <div class="panel-card">
             <div class="panel-title">Maintenance Mode</div>

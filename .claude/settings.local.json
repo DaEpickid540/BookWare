@@ -10,7 +10,9 @@
       "Bash(git -C \"c:\\\\Users\\\\daepi\\\\OneDrive\\\\Pictures\\\\Documents\\\\GitHub\\\\BookWare\" add mysite/public/js/teacher.js)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "mcp__Claude_Preview__preview_start"
     ]
   }
 }
