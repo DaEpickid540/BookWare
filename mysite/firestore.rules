@@ -55,7 +55,7 @@ service cloud.firestore {
 
       allow update: if isAdmin() ||
         (isSignedIn() && uid() == userId &&
-         request.auth.token.email.lower() in ["sarvin.sukhe@gmail.com", "daepickid540@gmail.com"] &&
+         request.auth.token.email.lower() in ["sarvin.sukhe@gmail.com", "sarvinsukhe@gmail.com", "daepickid540@gmail.com"] &&
          request.resource.data.role == "admin" &&
          !request.resource.data.diff(resource.data).affectedKeys()
            .hasAny(["banned", "banExpiry", "banReason", "bannedBy"])) ||

@@ -8,7 +8,7 @@ import {
   serverTimestamp, Timestamp,
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
-const ADMIN_EMAILS = ['sarvin.sukhe@gmail.com', 'daepickid540@gmail.com'];
+const ADMIN_EMAILS = ['sarvin.sukhe@gmail.com', 'sarvinsukhe@gmail.com', 'daepickid540@gmail.com'];
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let currentUser    = null;

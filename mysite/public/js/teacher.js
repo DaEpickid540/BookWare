@@ -73,7 +73,7 @@ function showPage(name) {
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 const ALLOWED_DOMAIN = '@masonohioschools.com';
-const ADMIN_EMAILS   = ['sarvin.sukhe@gmail.com', 'daepickid540@gmail.com'];
+const ADMIN_EMAILS   = ['sarvin.sukhe@gmail.com', 'sarvinsukhe@gmail.com', 'daepickid540@gmail.com'];
 const isEmailAllowed = email => email?.toLowerCase().endsWith(ALLOWED_DOMAIN) || ADMIN_EMAILS.includes(email?.toLowerCase());
 
 onAuthStateChanged(auth, async (user) => {

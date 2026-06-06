@@ -8,7 +8,7 @@ const signInBtn = document.getElementById('signInBtn');
 const btnLabel  = document.getElementById('btnLabel');
 
 const ALLOWED_DOMAIN = '@masonohioschools.com';
-const ADMIN_EMAILS   = ['sarvin.sukhe@gmail.com', 'daepickid540@gmail.com'];
+const ADMIN_EMAILS   = ['sarvin.sukhe@gmail.com', 'sarvinsukhe@gmail.com', 'daepickid540@gmail.com'];
 
 function setStatus(msg, type = 'info') {
   statusEl.textContent = msg;
