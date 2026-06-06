@@ -114,6 +114,130 @@ html[data-btnsize="large"] { --btn-scale: 1.18; }
   color: #fff;
 }
 
+/* ── ARIA chat widget ────────────────────────────────────────── */
+.aria-chat {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  max-height: 440px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.aria-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.aria-chat-title {
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.aria-chat-title i { color: var(--accent); }
+.aria-chat-clear {
+  color: var(--text-3);
+  padding: 4px 6px;
+  border-radius: var(--r-sm);
+  transition: color var(--tr), background var(--tr);
+}
+.aria-chat-clear:hover { color: var(--accent); background: var(--accent-bg); }
+.aria-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 140px;
+}
+.aria-msg {
+  max-width: 86%;
+  padding: 8px 12px;
+  border-radius: 13px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.aria-msg--user { align-self: flex-end;   background: var(--accent);   color: #fff;        border-bottom-right-radius: 4px; }
+.aria-msg--bot  { align-self: flex-start; background: var(--bg-inset); color: var(--text); border-bottom-left-radius: 4px; }
+.aria-msg--thinking { opacity: 0.65; font-style: italic; }
+.aria-msg--error { align-self: flex-start; background: var(--danger-bg); color: var(--danger); }
+.aria-chat-input-row {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.aria-chat-input {
+  flex: 1;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  padding: 8px 14px;
+  color: var(--text);
+  font-size: 0.78rem;
+  outline: none;
+  transition: border-color var(--tr);
+}
+.aria-chat-input:focus { border-color: var(--accent); }
+.aria-chat-input:disabled { opacity: 0.6; }
+
+/* ── Settings modal ──────────────────────────────────────────── */
+.settings-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 44px 16px;
+  z-index: 2000;
+  overflow-y: auto;
+  backdrop-filter: blur(2px);
+}
+.settings-modal-box {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  width: 100%;
+  max-width: 660px;
+  padding: 26px 24px;
+  position: relative;
+  box-shadow: var(--shadow-lg);
+  animation: settingsPop 0.18s ease;
+}
+@keyframes settingsPop {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: none; }
+}
+.settings-modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  transition: color var(--tr), border-color var(--tr);
+  z-index: 1;
+}
+.settings-modal-close:hover { color: var(--accent); border-color: var(--accent); }
+
 /* ── RESET ───────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 

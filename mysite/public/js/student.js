@@ -1,7 +1,7 @@
 // student.js — BookWare Student Portal
 import { auth, db } from "./firebase.js";
 import { searchBooks } from "./books.js";
-import { initTheme, initARIA, applyPreset } from "./theme.js";
+import { initTheme, initARIA, applyPreset, initAriaChat, initSettingsModal, openSettingsModal } from "./theme.js";
 import {
   signOut,
   onAuthStateChanged,
@@ -94,6 +94,7 @@ document.querySelectorAll(".nav-item[data-page]").forEach((btn) => {
 });
 
 function showPage(name) {
+  if (name === "settings") { openSettingsModal(); return; }
   document
     .querySelectorAll(".page")
     .forEach((p) => p.classList.remove("active"));
@@ -212,6 +213,8 @@ onAuthStateChanged(auth, async (user) => {
     populateTopBar();
     initTheme();
     initARIA(toast);
+    initAriaChat('ariaChatMount', 'student');
+    initSettingsModal();
     setupSignout();
     populateSettingsInfo();
     renderWishlist();

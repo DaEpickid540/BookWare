@@ -174,6 +174,10 @@
           </div>
 
         </div>
+
+        <!-- ARIA AI chat (appears when enabled in Settings) -->
+        <div id="ariaChatMount" hidden style="margin-top:18px"></div>
+
       </section><!-- /libraryPage -->
 
 
@@ -370,7 +374,9 @@
 
 
       <!-- ═══════════════════════ SETTINGS PAGE ══════════════════════════ -->
-      <section id="settingsPage" class="page" aria-label="Settings">
+      <div id="settingsPage" class="settings-modal" hidden role="dialog" aria-modal="true" aria-label="Settings">
+       <div class="settings-modal-box">
+        <button class="settings-modal-close" type="button" aria-label="Close settings"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
         <div class="settings-wrap">
 
           <!-- Account -->
@@ -534,7 +540,8 @@
           <i class="bi bi-arrow-right-circle" aria-hidden="true"></i>
         </button>
 
-      </section><!-- /settingsPage -->
+       </div><!-- /settings-modal-box -->
+      </div><!-- /settingsPage -->
 
     </div><!-- /content-area -->
   </div><!-- /main-area -->

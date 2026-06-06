@@ -1,7 +1,7 @@
 // teacher.js — BookWare Teacher Portal
 import { auth, db } from './firebase.js';
 import { lookupISBN, searchBooks } from './books.js';
-import { initTheme, initARIA } from './theme.js';
+import { initTheme, initARIA, initAriaChat, initSettingsModal, openSettingsModal } from './theme.js';
 import { signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import {
   doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc,
@@ -57,6 +57,7 @@ document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
 });
 
 function showPage(name) {
+  if (name === 'settings') { openSettingsModal(); return; }
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => { n.classList.remove('active'); n.removeAttribute('aria-current'); });
   document.getElementById(name + 'Page')?.classList.add('active');
@@ -113,6 +114,8 @@ onAuthStateChanged(auth, async (user) => {
     renderSettings();
     initTheme();
     initARIA(toast);
+    initAriaChat('ariaChatMount', 'teacher');
+    initSettingsModal();
     setupSignout();
     await loadRecommendations();
     await loadLibrary();

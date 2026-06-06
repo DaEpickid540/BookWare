@@ -1,6 +1,6 @@
 // admin.js — BookWare Admin Portal
 import { auth, db } from './firebase.js';
-import { initTheme } from './theme.js';
+import { initTheme, initAriaChat, initSettingsModal, openSettingsModal } from './theme.js';
 import { signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import {
   doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
@@ -83,6 +83,7 @@ document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
 });
 
 function showPage(pageName) {
+  if (pageName === 'settings') { openSettingsModal(); return; }
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => { n.classList.remove('active'); n.removeAttribute('aria-current'); });
   document.getElementById(pageName + 'Page')?.classList.add('active');
@@ -133,6 +134,8 @@ onAuthStateChanged(auth, async (user) => {
     if (adminEmailEl) adminEmailEl.textContent = user.email;
 
     initTheme();
+    initAriaChat('ariaChatMount', 'admin');
+    initSettingsModal();
     await loadSystemSettings();
     await loadDashboard();
     setupEventListeners();

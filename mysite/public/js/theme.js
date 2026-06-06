@@ -178,12 +178,135 @@ export function initTheme() {
   }, true /* capture so it fires before the img's own handlers */);
 }
 
-// ARIA AI setup (shared)
+// ─── Settings modal ───────────────────────────────────────────────────────────
+export function openSettingsModal() {
+  const overlay = document.getElementById('settingsPage');
+  if (overlay) {
+    overlay.hidden = false;
+    overlay.querySelector('.settings-modal-box')?.scrollTo?.(0, 0);
+  }
+}
+
+export function initSettingsModal() {
+  const overlay = document.getElementById('settingsPage');
+  if (!overlay) return;
+  const close = () => { overlay.hidden = true; };
+  // Click on the backdrop (outside the box) closes it
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  overlay.querySelector('.settings-modal-close')?.addEventListener('click', close);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !overlay.hidden) close();
+  });
+}
+
+// ─── ARIA AI ──────────────────────────────────────────────────────────────────
+const ARIA_ENABLED_KEY = 'bw-aria-enabled';
+const ARIA_KEY_STORAGE = 'bw-aria-groq-key';
+const ARIA_MODEL       = 'llama-3.1-8b-instant';
+
+const ARIA_SYSTEM = {
+  student: "You are ARIA, a warm and concise reading assistant inside BookWare, a classroom library app. Help students find books, give spoiler-free summaries, suggest similar titles by theme or reading level, and answer book questions. Keep replies short and friendly. You cannot check out books for them — point them to the library page for that.",
+  teacher: "You are ARIA, a concise assistant for a teacher running a classroom library in BookWare. Help with book recommendations by reading level and theme, classroom reading activities, and library ideas. Keep replies short and practical.",
+  admin:   "You are ARIA, a concise assistant for a BookWare administrator. Answer general questions about running a school library system clearly and briefly.",
+};
+
+// Registered chat re-render callbacks so toggling the setting updates live.
+const ariaRefreshers = [];
+export function refreshAriaChats() {
+  ariaRefreshers.forEach(fn => { try { fn(); } catch (_) {} });
+}
+
+async function callGroq(key, messages) {
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+    body: JSON.stringify({ model: ARIA_MODEL, messages, temperature: 0.7, max_tokens: 600 }),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.error?.message ?? ''; } catch (_) {}
+    if (res.status === 401) throw new Error('Invalid Groq key — check Settings → ARIA AI.');
+    throw new Error(detail || `Groq request failed (${res.status}).`);
+  }
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content?.trim() || '(no response)';
+}
+
+// Mount an ARIA chat widget into the element with id `mountId`.
+// role: 'student' | 'teacher' | 'admin' — sets ARIA's persona.
+export function initAriaChat(mountId, role = 'student') {
+  const mount = document.getElementById(mountId);
+  if (!mount) return;
+  const history = [{ role: 'system', content: ARIA_SYSTEM[role] ?? ARIA_SYSTEM.student }];
+
+  function addMsg(container, who, text) {
+    const el = document.createElement('div');
+    el.className = `aria-msg aria-msg--${who}`;
+    el.textContent = text;
+    container.appendChild(el);
+    container.scrollTop = container.scrollHeight;
+    return el;
+  }
+
+  function render() {
+    const enabled = localStorage.getItem(ARIA_ENABLED_KEY) === 'true';
+    const key     = localStorage.getItem(ARIA_KEY_STORAGE) ?? '';
+    if (!enabled) { mount.innerHTML = ''; mount.hidden = true; return; }
+    mount.hidden = false;
+    mount.innerHTML = `
+      <div class="aria-chat">
+        <div class="aria-chat-header">
+          <span class="aria-chat-title"><i class="bi bi-robot" aria-hidden="true"></i> ARIA</span>
+          <button class="aria-chat-clear" type="button" title="Clear chat" aria-label="Clear chat"><i class="bi bi-arrow-counterclockwise"></i></button>
+        </div>
+        <div class="aria-chat-messages" id="${mountId}-msgs" role="log" aria-live="polite"></div>
+        <form class="aria-chat-input-row" id="${mountId}-form">
+          <input id="${mountId}-input" class="aria-chat-input" placeholder="Ask ARIA about books…" autocomplete="off" aria-label="Message ARIA" ${key ? '' : 'disabled'} />
+          <button type="submit" class="btn btn--primary btn--sm" ${key ? '' : 'disabled'} aria-label="Send message"><i class="bi bi-send-fill"></i></button>
+        </form>
+      </div>`;
+    const msgs = document.getElementById(`${mountId}-msgs`);
+    addMsg(msgs, 'bot', key
+      ? "Hi! I'm ARIA. Ask me for book recommendations, summaries, or anything about reading."
+      : "ARIA needs a free Groq API key. Add one in Settings → ARIA AI to start chatting.");
+
+    mount.querySelector('.aria-chat-clear')?.addEventListener('click', () => {
+      history.length = 1; // keep the system prompt
+      render();
+    });
+
+    document.getElementById(`${mountId}-form`)?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = document.getElementById(`${mountId}-input`);
+      const text  = input.value.trim();
+      const k     = localStorage.getItem(ARIA_KEY_STORAGE) ?? '';
+      if (!text || !k) return;
+      input.value = '';
+      addMsg(msgs, 'user', text);
+      history.push({ role: 'user', content: text });
+      const thinking = addMsg(msgs, 'bot', 'Thinking…');
+      thinking.classList.add('aria-msg--thinking');
+      try {
+        const reply = await callGroq(k, history.slice(-12));
+        history.push({ role: 'assistant', content: reply });
+        thinking.classList.remove('aria-msg--thinking');
+        thinking.textContent = reply;
+      } catch (err) {
+        thinking.classList.remove('aria-msg--thinking');
+        thinking.classList.add('aria-msg--error');
+        thinking.textContent = err.message || String(err);
+      }
+      msgs.scrollTop = msgs.scrollHeight;
+    });
+  }
+
+  ariaRefreshers.push(render);
+  render();
+}
+
+// ARIA AI settings (shared) — toggle + Groq key
 // toastFn is optional — pass the page's toast() so feedback shows in-app
 export function initARIA(toastFn) {
-  const ARIA_ENABLED_KEY = 'bw-aria-enabled';
-  const ARIA_KEY_STORAGE = 'bw-aria-groq-key';
-
   const toggle   = document.getElementById('ariaEnabled');
   const panel    = document.getElementById('ariaSetupPanel');
   const keyInput = document.getElementById('ariaApiKey');
@@ -200,6 +323,7 @@ export function initARIA(toastFn) {
     const on = toggle.checked;
     localStorage.setItem(ARIA_ENABLED_KEY, String(on));
     panel.hidden = !on;
+    refreshAriaChats();
     toastFn?.(on ? `<i class='bi bi-robot'></i> ARIA enabled` : 'ARIA disabled', on ? 'success' : 'info');
   });
 
@@ -210,6 +334,7 @@ export function initARIA(toastFn) {
       return;
     }
     localStorage.setItem(ARIA_KEY_STORAGE, key);
+    refreshAriaChats();
     toastFn?.(`<i class='bi bi-check2'></i> Groq key saved — ARIA is ready!`, 'success');
   });
 }
