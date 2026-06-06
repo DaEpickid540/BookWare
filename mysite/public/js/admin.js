@@ -792,7 +792,8 @@ function setupEventListeners() {
   document.getElementById('exportRentalsBtn')?.addEventListener('click',     exportRentalsCSV);
   document.getElementById('createBanBtn')?.addEventListener('click',         () => openBanModal(''));
   document.getElementById('refreshDebugBtn')?.addEventListener('click',      loadDebugInfo);
-  document.getElementById('exportDataBtn')?.addEventListener('click',        exportAllData);
+  document.getElementById('exportDataBtn')?.addEventListener('click',         exportAllData);
+  document.getElementById('exportDataBtnSettings')?.addEventListener('click', exportAllData);
   document.getElementById('logoutAllBtn')?.addEventListener('click',         forceLogoutAll);
   document.getElementById('viewGlobalBansBtn')?.addEventListener('click',    () => showPage('bans'));
   document.getElementById('refreshInvitesBtn')?.addEventListener('click',   loadAdminInvites);
