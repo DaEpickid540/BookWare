@@ -820,6 +820,121 @@ document.getElementById('exportCheckoutsCsvBtn')?.addEventListener('click', asyn
   toast(`<i class='bi bi-check2'></i> Exported as .CSV`, 'success');
 });
 
+// ── Export PDF (clean red/gray theme, baked-in & non-editable) ─────────────────
+document.getElementById('exportCheckoutsPdfBtn')?.addEventListener('click', async (ev) => {
+  const btn  = ev.currentTarget;
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `<i class='bi bi-hourglass-split'></i> Building…`;
+  try {
+    // Lazy-load jsPDF + autotable only when actually exporting
+    const { jsPDF } = await import('https://cdn.jsdelivr.net/npm/jspdf@2.5.2/+esm');
+    const atMod     = (await import('https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/+esm')).default;
+    const autoTable = typeof atMod === 'function' ? atMod : atMod.default;
+
+    const histSnap = await getDocs(collection(db, 'teachers', currentUser.uid, 'history'));
+    const entries  = histSnap.docs.map(d => d.data()).sort((a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0));
+    const tName    = teacherData?.name ?? 'Teacher';
+    const recSet   = new Set(recommendations.map(r => r.bookId));
+    const now      = new Date();
+
+    // Locked theme — these colours are written into the file and can't be changed after export
+    const RED   = [231, 76, 60];
+    const GRAY  = [110, 110, 128];
+    const DARK  = [40, 40, 46];
+    const ALT   = [244, 244, 247];
+
+    const doc    = new jsPDF({ unit: 'pt', format: 'letter' });
+    const pageW  = doc.internal.pageSize.getWidth();
+    const margin = 40;
+
+    // Header band
+    doc.setFillColor(...RED);
+    doc.rect(0, 0, pageW, 68, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');  doc.setFontSize(20);
+    doc.text('BookWare', margin, 32);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(12);
+    doc.text('Checkout Report', margin, 50);
+
+    // Subheader
+    doc.setTextColor(...GRAY); doc.setFontSize(10);
+    doc.text(`Teacher: ${tName}`, margin, 88);
+    doc.text(`Generated: ${now.toLocaleString()}`, margin, 102);
+    doc.setDrawColor(...RED); doc.setLineWidth(1.5);
+    doc.line(margin, 112, pageW - margin, 112);
+
+    // Font-independent vector check mark centred in a cell
+    const drawTick = (cell) => {
+      const cx = cell.x + cell.width / 2, cy = cell.y + cell.height / 2;
+      doc.setDrawColor(...RED); doc.setLineWidth(1.4);
+      doc.line(cx - 4, cy + 0.5, cx - 1, cy + 3.5);
+      doc.line(cx - 1, cy + 3.5, cx + 4.5, cy - 3.5);
+    };
+
+    const headStyles = { fillColor: RED, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 };
+    const bodyStyles = { textColor: DARK, fontSize: 9, cellPadding: 5 };
+    const altRows    = { fillColor: ALT };
+
+    // ── Currently checked out ──
+    const active = allBooks.filter(b => b.status === 'checked_out');
+    const activeRows = active.map(book => {
+      const e = entries.find(x => x.bookId === book.id && !x.dateReturned);
+      return { title: book.title ?? '—', author: book.author ?? '—', student: e?.studentName ?? '—', out: fmtDate(e?.dateOut ?? null), rec: recSet.has(book.id) };
+    });
+    doc.setTextColor(...DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+    doc.text('Currently Checked Out', margin, 138);
+    autoTable(doc, {
+      startY: 148, margin: { left: margin, right: margin },
+      head: [['Book', 'Author', 'Student', 'Date Out', 'Rec.']],
+      body: activeRows.length ? activeRows.map(r => [r.title, r.author, r.student, r.out, '']) : [['No books currently checked out.', '', '', '', '']],
+      headStyles, bodyStyles, alternateRowStyles: altRows,
+      columnStyles: { 4: { halign: 'center', cellWidth: 34 } },
+      didDrawCell: (d) => { if (d.section === 'body' && d.column.index === 4 && activeRows[d.row.index]?.rec) drawTick(d.cell); },
+    });
+
+    // ── Full history ──
+    const histRows = entries.map(e => ({ title: e.bookTitle ?? '—', author: e.author ?? '—', student: e.studentName ?? '—', out: fmtDate(e.dateOut), back: e.dateReturned ? fmtDate(e.dateReturned) : 'Not yet returned', rec: recSet.has(e.bookId) }));
+    const y2 = (doc.lastAutoTable?.finalY ?? 160) + 24;
+    doc.setTextColor(...DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+    doc.text('Full History', margin, y2);
+    autoTable(doc, {
+      startY: y2 + 10, margin: { left: margin, right: margin },
+      head: [['Book', 'Author', 'Student', 'Out', 'Returned', 'Rec.']],
+      body: histRows.length ? histRows.map(r => [r.title, r.author, r.student, r.out, r.back, '']) : [['No history yet.', '', '', '', '', '']],
+      headStyles, bodyStyles, alternateRowStyles: altRows,
+      columnStyles: { 5: { halign: 'center', cellWidth: 34 } },
+      didDrawCell: (d) => { if (d.section === 'body' && d.column.index === 5 && histRows[d.row.index]?.rec) drawTick(d.cell); },
+    });
+
+    // ── Footer with page numbers + recommended legend ──
+    const pages = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pages; i++) {
+      doc.setPage(i);
+      const h = doc.internal.pageSize.getHeight();
+      doc.setDrawColor(...GRAY); doc.setLineWidth(0.5);
+      doc.line(margin, h - 36, pageW - margin, h - 36);
+      // legend tick
+      doc.setDrawColor(...RED); doc.setLineWidth(1.2);
+      doc.line(margin, h - 24, margin + 3, h - 21);
+      doc.line(margin + 3, h - 21, margin + 8, h - 27);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...GRAY);
+      doc.text('= recommended title', margin + 13, h - 22);
+      doc.text('Generated by BookWare · Mason High School', margin, h - 10);
+      doc.text(`Page ${i} of ${pages}`, pageW - margin, h - 10, { align: 'right' });
+    }
+
+    doc.save(`${tName.replace(/\s+/g, '_')}_checkouts_${now.toISOString().slice(0, 10)}.pdf`);
+    toast(`<i class='bi bi-check2'></i> Exported as .PDF`, 'success');
+  } catch (err) {
+    console.error('[teacher] PDF export failed:', err);
+    toast(`PDF export failed: ${esc(err.message ?? 'unknown')}`, 'danger');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
+});
+
 // ── Class Roster ──────────────────────────────────────────────────────────────
 async function loadRoster() {
   const listEl  = document.getElementById('rosterList');
