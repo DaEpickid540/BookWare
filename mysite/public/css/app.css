@@ -6,6 +6,9 @@
 :root {
   color-scheme: dark;
 
+  /* Button size scale — overridden by html[data-btnsize] (small/large) */
+  --btn-scale: 1;
+
   /* Backgrounds — dark gray, never pure black */
   --bg:       #1a1a1e;
   --bg-card:  #22222a;
@@ -83,6 +86,32 @@ html[data-theme="light"] {
 option {
   background: var(--bg-inset);
   color: var(--text);
+}
+
+/* Button size presets */
+html[data-btnsize="small"] { --btn-scale: 0.88; }
+html[data-btnsize="large"] { --btn-scale: 1.18; }
+
+/* Segmented control (button size picker) */
+.btnsize-row {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.btnsize-opt {
+  padding: 6px 12px;
+  font-size: 0.72rem;
+  color: var(--text-3);
+  background: var(--bg-inset);
+  border-right: 1px solid var(--border);
+  transition: background var(--tr), color var(--tr);
+}
+.btnsize-opt:last-child { border-right: none; }
+.btnsize-opt:hover { color: var(--text); }
+.btnsize-opt.active {
+  background: var(--accent);
+  color: #fff;
 }
 
 /* ── RESET ───────────────────────────────────────────────────── */
@@ -478,16 +507,16 @@ html[data-theme="light"] .nav-item:hover { background: rgba(0,0,0,0.04); }
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 16px;
+  padding: calc(8px * var(--btn-scale)) calc(16px * var(--btn-scale));
   border-radius: var(--r-full);
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--btn-scale));
   font-weight: 500;
   letter-spacing: 0.02em;
   border: 1px solid transparent;
   transition: opacity var(--tr), transform var(--tr), background var(--tr), border-color var(--tr), color var(--tr);
   white-space: nowrap;
   cursor: pointer;
-  min-height: 34px;
+  min-height: calc(34px * var(--btn-scale));
 }
 .btn:focus-visible {
   outline: 2px solid var(--accent);
@@ -525,15 +554,15 @@ html[data-theme="light"] .nav-item:hover { background: rgba(0,0,0,0.04); }
 .btn--success:hover { background: var(--success); color: #fff; }
 
 .btn--sm {
-  padding: 5px 12px;
-  font-size: 0.68rem;
-  min-height: 28px;
+  padding: calc(5px * var(--btn-scale)) calc(12px * var(--btn-scale));
+  font-size: calc(0.68rem * var(--btn-scale));
+  min-height: calc(28px * var(--btn-scale));
 }
 
 .btn--xs {
-  padding: 3px 9px;
-  font-size: 0.64rem;
-  min-height: 24px;
+  padding: calc(3px * var(--btn-scale)) calc(9px * var(--btn-scale));
+  font-size: calc(0.64rem * var(--btn-scale));
+  min-height: calc(24px * var(--btn-scale));
   border-radius: var(--r-full);
   border: 1px solid var(--border);
   color: var(--text-3);

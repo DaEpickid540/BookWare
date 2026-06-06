@@ -546,6 +546,34 @@ async function addSingleCopy(bookId, bookTitle) {
   toast(`<i class='bi bi-check2'></i> "${esc(bookTitle)}" — now ${current + 1} cop${current + 1 !== 1 ? 'ies' : 'y'}`, 'success');
 }
 
+// Remove a single copy — e.g. a copy got damaged/lost.
+async function removeSingleCopy(bookId, bookTitle) {
+  const book = allBooks.find(b => b.id === bookId);
+  if (!book) return;
+  const current = book.copies ?? 1;
+  const out     = book.checkedOutCount ?? (book.status === 'checked_out' ? 1 : 0);
+
+  if (current <= 1) {
+    toast(`Only one copy left — use Delete to remove "${esc(bookTitle)}" entirely.`, 'info');
+    return;
+  }
+  if (current - 1 < out) {
+    toast(`Can't reduce below the ${out} copy(ies) currently checked out. Have them returned first.`, 'danger');
+    return;
+  }
+  if (!confirm(`Remove one copy of "${bookTitle}"?\n\n${current} → ${current - 1} copies. Use this when a copy is damaged or lost.`)) return;
+
+  const next = current - 1;
+  await updateDoc(doc(db, 'teachers', currentUser.uid, 'books', bookId), {
+    copies: next,
+    // keep status consistent if it was fully checked out
+    status: out >= next ? 'checked_out' : 'available',
+  });
+  book.copies = next;
+  renderLibraryList(allBooks);
+  toast(`<i class='bi bi-check2'></i> "${esc(bookTitle)}" — now ${next} cop${next !== 1 ? 'ies' : 'y'}`, 'success');
+}
+
 // ── Skeleton helpers ──────────────────────────────────────────────────────────
 function renderSkeletonRows(container, count = 5) {
   container.innerHTML = Array.from({ length: count }, () => `
@@ -606,7 +634,8 @@ function renderLibraryList(books) {
             ${isRec ? '<i class="bi bi-star"></i> Unrecommend' : '<i class="bi bi-star-fill"></i> Recommend'}
           </button>
           ${out > 0 ? `<button class='btn btn--xs success' data-action='return' data-id='${esc(book.id)}' data-title='${esc(book.title)}'><i class='bi bi-arrow-return-left'></i> Return</button>` : ''}
-          <button class='btn btn--xs' data-action='add-copy' data-id='${esc(book.id)}' data-title='${esc(book.title)}'><i class='bi bi-plus-lg'></i> Copy</button>
+          <button class='btn btn--xs' data-action='add-copy' data-id='${esc(book.id)}' data-title='${esc(book.title)}' title='Add a copy'><i class='bi bi-plus-lg'></i> Copy</button>
+          ${copies > 1 ? `<button class='btn btn--xs' data-action='remove-copy' data-id='${esc(book.id)}' data-title='${esc(book.title)}' title='Remove a copy (damaged/lost)'><i class='bi bi-dash-lg'></i> Copy</button>` : ''}
           <button class='btn btn--xs danger' data-action='delete' data-id='${esc(book.id)}' data-title='${esc(book.title)}'><i class='bi bi-trash3-fill'></i> Delete</button>
         </div>
       </div>`;
@@ -615,6 +644,7 @@ function renderLibraryList(books) {
     row.querySelector('[data-action="return"]')?.addEventListener('click',      e => validateReturn(e.currentTarget.dataset.id, e.currentTarget.dataset.title));
     row.querySelector('[data-action="delete"]')?.addEventListener('click',      e => deleteBook(e.currentTarget.dataset.id, e.currentTarget.dataset.title));
     row.querySelector('[data-action="add-copy"]')?.addEventListener('click',    e => addSingleCopy(e.currentTarget.dataset.id, e.currentTarget.dataset.title));
+    row.querySelector('[data-action="remove-copy"]')?.addEventListener('click', e => removeSingleCopy(e.currentTarget.dataset.id, e.currentTarget.dataset.title));
     listEl.appendChild(row);
   });
 }
@@ -639,10 +669,30 @@ async function validateReturn(bookId, bookTitle) {
   const bSnap   = await getDoc(bookRef);
   const bData   = bSnap.exists() ? bSnap.data() : {};
   const newCount = Math.max(0, (bData.checkedOutCount ?? 1) - 1);
-  await updateDoc(bookRef, { checkedOutCount: newCount, status: newCount === 0 ? 'available' : 'checked_out', checkedOutBy: newCount === 0 ? null : bData.checkedOutBy, checkedOutAt: newCount === 0 ? null : bData.checkedOutAt, dueDate: newCount === 0 ? null : bData.dueDate });
+
+  // Find the outstanding checkout in history first — tells us which student to free.
   const q    = query(collection(db, 'teachers', currentUser.uid, 'history'), where('bookId', '==', bookId), where('dateReturned', '==', null));
   const snap = await getDocs(q);
-  if (!snap.empty) await updateDoc(snap.docs[0].ref, { dateReturned: serverTimestamp() });
+  const histDoc   = snap.empty ? null : snap.docs[0];
+  const studentId = histDoc?.data()?.studentId ?? bData.checkedOutBy ?? null;
+
+  await updateDoc(bookRef, { checkedOutCount: newCount, status: newCount === 0 ? 'available' : 'checked_out', checkedOutBy: newCount === 0 ? null : bData.checkedOutBy, checkedOutAt: newCount === 0 ? null : bData.checkedOutAt, dueDate: newCount === 0 ? null : bData.dueDate });
+
+  // Close the history log entry → shows "returned"
+  if (histDoc) await updateDoc(histDoc.ref, { dateReturned: serverTimestamp() });
+
+  // Clear the student's current book so they stop showing a phantom/missing book.
+  // Guarded so a newer checkout by the same student isn't wiped.
+  if (studentId) {
+    try {
+      const sRef  = doc(db, 'students', studentId);
+      const sSnap = await getDoc(sRef);
+      if (sSnap.exists() && sSnap.data().currentBook === bookId) {
+        await updateDoc(sRef, { currentBook: null, currentBookTeacherId: null });
+      }
+    } catch (e) { console.warn('[teacher] could not clear student currentBook:', e?.code ?? e); }
+  }
+
   await loadLibrary();
   if (document.getElementById('studentsPage')?.classList.contains('active')) { loadCheckedOut(); loadHistory(); }
   toast(`<i class='bi bi-check2'></i> "${esc(bookTitle)}" marked returned`, 'success');

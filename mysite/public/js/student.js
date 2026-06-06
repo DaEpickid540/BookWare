@@ -1280,24 +1280,10 @@ async function initiateReturn(bookId) {
     )
   )
     return;
-  const bookTeacherId = studentData.currentBookTeacherId ?? classTeacherId;
-  if (bookTeacherId) {
-    try {
-      const bRef = doc(db, "teachers", bookTeacherId, "books", bookId);
-      const bSnap = await getDoc(bRef);
-      if (bSnap.exists()) {
-        const bData = bSnap.data();
-        const newCount = Math.max(0, (bData.checkedOutCount ?? 1) - 1);
-        await updateDoc(bRef, {
-          checkedOutCount: newCount,
-          status: newCount === 0 ? "available" : "checked_out",
-          checkedOutBy: newCount === 0 ? null : bData.checkedOutBy,
-          checkedOutAt: newCount === 0 ? null : bData.checkedOutAt,
-          dueDate: newCount === 0 ? null : bData.dueDate,
-        });
-      }
-    } catch (_) {}
-  }
+  // Note: we intentionally do NOT decrement the book's copy count here.
+  // The teacher finalizes the return on their end (validateReturn), which is the
+  // single authority for the copy count + history log — this prevents a
+  // double-decrement when both sides act on the same checkout.
   await updateDoc(doc(db, "students", currentUser.uid), {
     currentBook: null,
     currentBookTeacherId: null,

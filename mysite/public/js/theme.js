@@ -4,6 +4,19 @@
 export const BRIGHTNESS_KEY = 'bookware-brightness';
 export const COLOR_KEY      = 'bookware-color';
 export const PRESET_KEY     = 'bookware-preset';
+export const BTNSIZE_KEY    = 'bookware-btnsize';
+
+// ── Button size (small / medium / large) ──────────────────────────────────────
+export function applyButtonSize(size) {
+  const html = document.documentElement;
+  if (!size || size === 'medium') html.removeAttribute('data-btnsize');
+  else                            html.setAttribute('data-btnsize', size);
+  document.querySelectorAll('.btnsize-opt').forEach(b => {
+    const active = b.dataset.size === (size || 'medium');
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-pressed', String(active));
+  });
+}
 
 export const THEME_PRESETS = {
   midnight:  { brightness: 5,  color: 'crimson' },
@@ -94,9 +107,19 @@ export function initTheme() {
   const savedBrightness = parseInt(localStorage.getItem(BRIGHTNESS_KEY) ?? '18', 10);
   const savedColor      = localStorage.getItem(COLOR_KEY) || 'crimson';
   const savedPreset     = localStorage.getItem(PRESET_KEY) || 'night';
+  const savedBtnSize    = localStorage.getItem(BTNSIZE_KEY) || 'medium';
 
   applyBrightness(savedBrightness);
   applyColor(savedColor);
+  applyButtonSize(savedBtnSize);
+
+  document.querySelectorAll('.btnsize-opt').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const size = btn.dataset.size || 'medium';
+      applyButtonSize(size);
+      localStorage.setItem(BTNSIZE_KEY, size);
+    });
+  });
 
   document.querySelectorAll('.theme-preset').forEach(p => {
     const active = p.dataset.preset === savedPreset;
