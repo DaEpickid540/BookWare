@@ -70,6 +70,10 @@
           <i class="bi bi-slash-circle-fill" aria-hidden="true"></i>
           <span>Bans</span>
         </button>
+        <button class="nav-item" data-page="invites">
+          <i class="bi bi-person-plus-fill" aria-hidden="true"></i>
+          <span>Invites</span>
+        </button>
         <button class="nav-item" data-page="settings">
           <i class="bi bi-gear-fill" aria-hidden="true"></i>
           <span>Settings</span>
@@ -257,6 +261,51 @@
           <div class="panel-title">Active Bans</div>
           <div id="bansList" role="list">
             <p class="empty-state">Loading bans…</p>
+          </div>
+        </div>
+      </section>
+
+
+      <!-- ════════════ INVITES ════════════════════════════════════════════ -->
+      <section id="invitesPage" class="page" aria-label="Teacher Invites">
+        <div class="page-header">
+          <h1>Teacher Invites</h1>
+          <button class="btn btn--ghost" id="refreshInvitesBtn">
+            <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Refresh
+          </button>
+        </div>
+
+        <!-- Create invite panel -->
+        <div class="panel-card" style="margin-bottom:20px;max-width:660px">
+          <div class="panel-title"><i class="bi bi-link-45deg" aria-hidden="true"></i> Create Invite Link</div>
+          <p class="settings-hint" style="margin-bottom:14px">
+            Enter the new teacher's email to lock the invite to that address, or leave blank for an open link anyone with a school account can claim. Valid for 7 days.
+          </p>
+          <div class="form-group" style="margin-bottom:12px">
+            <label for="adminInviteEmailInput" class="form-label">Teacher Email <span style="opacity:0.55">(optional — leave blank for open invite)</span></label>
+            <input type="email" id="adminInviteEmailInput" class="text-input" placeholder="teacher@masonohioschools.com" autocomplete="off" />
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button class="btn btn--primary" id="adminCreateInviteBtn">
+              <i class="bi bi-link-45deg" aria-hidden="true"></i> Generate &amp; Copy Link
+            </button>
+            <button class="btn btn--ghost" id="adminEmailInviteBtn" hidden>
+              <i class="bi bi-envelope-fill" aria-hidden="true"></i> Share via Email
+            </button>
+          </div>
+          <div id="adminInviteOutput" style="margin-top:12px"></div>
+          <div id="adminInviteQrContainer" hidden style="margin-top:14px">
+            <div class="panel-title" style="margin-bottom:8px;font-size:0.8rem">QR Code — scan to open invite</div>
+            <img id="adminInviteQrImg" src="" alt="QR code for invite link"
+                 style="width:160px;height:160px;background:#fff;padding:6px;border-radius:8px;display:block" />
+          </div>
+        </div>
+
+        <!-- All invites list -->
+        <div class="panel-card">
+          <div class="panel-title"><i class="bi bi-clock-history" aria-hidden="true"></i> All Invites</div>
+          <div id="adminInvitesList" role="list">
+            <p class="empty-state">Loading…</p>
           </div>
         </div>
       </section>

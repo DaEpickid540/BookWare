@@ -99,20 +99,31 @@ async function completeLogin(user, role) {
   }
 
   // ── Teacher ───────────────────────────────────────────────────────────────
-  // Open registration: anyone who clicks "Teacher" gets a teacher account.
+  // Invite-only: the "Teacher" button is for existing teachers signing back in.
+  // New accounts must come through an admin or teacher invite link.
   if (role === "teacher") {
-    await ensureUserDoc(user, "teacher");
-    const tRef = doc(db, "teachers", user.uid);
-    const tSnap = await getDoc(tRef);
-    if (!tSnap.exists()) {
-      await setDoc(tRef, {
-        name: user.displayName ?? "",
-        email: user.email ?? "",
-        libraryPublic: false,
-        createdAt: serverTimestamp(),
-      });
+    const uRef  = doc(db, "users", user.uid);
+    const uSnap = await getDoc(uRef);
+
+    if (uSnap.exists()) {
+      const r = uSnap.data().role;
+      if (r === "teacher" || r === "admin") {
+        // Existing teacher / admin — let through
+        window.location.href = "/teacher.html";
+        return;
+      }
+      // Has a student account — wrong portal
+      await signOut(auth);
+      showError("Your account is registered as a student. Please use the Student sign-in.");
+      return;
     }
-    window.location.href = "/teacher.html";
+
+    // No account at all — must be invited first
+    await signOut(auth);
+    showError(
+      "Teacher accounts require an invite link. " +
+      "Ask your school admin or an existing teacher for one."
+    );
     return;
   }
 

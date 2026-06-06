@@ -1327,9 +1327,13 @@ document.getElementById('createInviteBtn')?.addEventListener('click', async () =
   const expiresAt = new Date(Date.now() + 7 * 86400000);
   try {
     const ref = await addDoc(collection(db, 'invites'), {
-      recipientEmail: email, used: false,
+      recipientEmail: email,
+      used:           false,
+      revoked:        false,
       expiresAt:      Timestamp.fromDate(expiresAt),
       createdBy:      currentUser.uid,
+      createdByName:  teacherData?.name ?? currentUser.displayName ?? 'Teacher',
+      createdByRole:  'teacher',
       createdAt:      serverTimestamp(),
     });
     const link = `${window.location.origin}/teacher-signup.html?token=${ref.id}`;
@@ -1380,23 +1384,94 @@ async function loadPastInvites() {
   const el = document.getElementById('pastInvitesList');
   if (!el) return;
   el.innerHTML = `<p class='empty-state'>Loading…</p>`;
-  const snap = await getDocs(query(collection(db, 'invites'), where('createdBy', '==', currentUser.uid)));
-  if (snap.empty) { el.innerHTML = `<p class='empty-state'>No invites sent yet.</p>`; return; }
-  const invites = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0));
-  el.innerHTML = '';
-  invites.forEach(inv => {
-    const expired = inv.expiresAt?.toDate() < new Date();
-    const row     = document.createElement('div');
-    row.className = 'book-row';
-    row.innerHTML = `
-      <div class='book-info'>
-        <div class='book-title'>${esc(inv.recipientEmail)}</div>
-        <div style='display:flex;gap:6px;flex-wrap:wrap;margin-top:4px'>
-          ${inv.used ? `<span class='badge badge--available'>Used</span>` : expired ? `<span class='badge badge--checked-out'>Expired</span>` : `<span class='t-badge t-badge--available'>Active · Expires ${fmtDate(inv.expiresAt)}</span>`}
+  try {
+    const snap = await getDocs(query(collection(db, 'invites'), where('createdBy', '==', currentUser.uid)));
+    if (snap.empty) { el.innerHTML = `<p class='empty-state'>No invites sent yet.</p>`; return; }
+    const now     = new Date();
+    const invites = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => {
+      const aActive = !a.used && !a.revoked && a.expiresAt?.toDate?.() > now;
+      const bActive = !b.used && !b.revoked && b.expiresAt?.toDate?.() > now;
+      if (aActive !== bActive) return bActive ? 1 : -1;
+      return (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0);
+    });
+    el.innerHTML = '';
+    invites.forEach(inv => {
+      const expDate  = inv.expiresAt?.toDate?.();
+      const expired  = expDate && expDate < now;
+      const isActive = !inv.used && !inv.revoked && !expired;
+      const link     = `${window.location.origin}/teacher-signup.html?token=${inv.id}`;
+
+      const statusBadge = inv.used
+        ? `<span class='t-badge'>Used</span>`
+        : inv.revoked
+        ? `<span class='t-badge' style='color:var(--danger)'>Revoked</span>`
+        : expired
+        ? `<span class='t-badge' style='opacity:0.5'>Expired</span>`
+        : `<span class='t-badge t-badge--available'>Active · Expires ${fmtDate(inv.expiresAt)}</span>`;
+
+      const row = document.createElement('div');
+      row.className = 'book-row';
+      row.innerHTML = `
+        <div class='book-info' style='flex:1;min-width:0'>
+          <div class='book-title'>${esc(inv.recipientEmail || 'Open invite')}</div>
+          <div style='display:flex;gap:6px;flex-wrap:wrap;margin-top:4px'>${statusBadge}</div>
+          <div class='teacher-invite-qr' hidden style='margin-top:10px'>
+            <img src='' alt='QR code'
+                 style='width:120px;height:120px;background:#fff;padding:5px;border-radius:7px;display:block'>
+            <p class='muted-text small-text' style='margin-top:4px'>Scan to open invite</p>
+          </div>
         </div>
-      </div>`;
-    el.appendChild(row);
-  });
+        <div style='display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap'>
+          ${isActive ? `
+            <button class='btn btn--ghost btn--sm' data-action='copy' data-link='${esc(link)}'
+                    title='Copy link' aria-label='Copy invite link'><i class='bi bi-clipboard'></i></button>
+            <button class='btn btn--ghost btn--sm' data-action='qr' data-link='${esc(link)}'
+                    title='QR code' aria-label='Show QR code'><i class='bi bi-qr-code'></i></button>
+            <button class='btn btn--danger btn--sm' data-action='revoke' data-id='${esc(inv.id)}'>
+              Revoke
+            </button>
+          ` : ''}
+        </div>`;
+      el.appendChild(row);
+    });
+
+    el.querySelectorAll('[data-action]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const { action, link, id } = btn.dataset;
+        if (action === 'copy') {
+          navigator.clipboard.writeText(link)
+            .then(() => toast('<i class="bi bi-check2"></i> Link copied', 'success'))
+            .catch(() => toast(`Copy failed — link: ${link}`, 'info'));
+        }
+        if (action === 'qr') {
+          const row    = btn.closest('.book-row');
+          const qrDiv  = row?.querySelector('.teacher-invite-qr');
+          const qrImg  = qrDiv?.querySelector('img');
+          if (!qrDiv) return;
+          qrDiv.hidden = !qrDiv.hidden;
+          if (!qrDiv.hidden && qrImg && !qrImg.src) {
+            qrImg.src = `https://chart.googleapis.com/chart?chs=180x180&cht=qr&chl=${encodeURIComponent(link)}&choe=UTF-8`;
+          }
+        }
+        if (action === 'revoke') {
+          if (!confirm('Revoke this invite? The link will stop working immediately.')) return;
+          try {
+            await updateDoc(doc(db, 'invites', id), {
+              revoked:   true,
+              revokedAt: serverTimestamp(),
+              revokedBy: currentUser.uid,
+            });
+            toast('Invite revoked', 'success');
+            loadPastInvites();
+          } catch (err) {
+            toast(`Revoke failed: ${esc(err.message)}`, 'danger');
+          }
+        }
+      });
+    });
+  } catch (err) {
+    el.innerHTML = `<p class='empty-state'>Could not load invites: ${esc(err.message)}</p>`;
+  }
 }
 
 // ── Bi-weekly notification ────────────────────────────────────────────────────

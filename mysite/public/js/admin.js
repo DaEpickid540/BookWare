@@ -3,7 +3,7 @@ import { auth, db } from './firebase.js';
 import { initTheme, initAriaChat, initSettingsModal, openSettingsModal } from './theme.js';
 import { signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import {
-  doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
+  doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc,
   collection, query, where, orderBy, limit,
   serverTimestamp, Timestamp,
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
@@ -14,6 +14,7 @@ const ADMIN_EMAILS = ['sarvin.sukhe@gmail.com', 'sarvinsukhe@gmail.com', 'daepic
 let currentUser    = null;
 let allUsers       = [];
 let allBans        = [];
+let allInvites     = [];
 let systemSettings = {};
 let allRentals     = [];
 let allLibraries   = [];
@@ -94,6 +95,7 @@ function showPage(pageName) {
   if (pageName === 'bans')      loadBans();
   if (pageName === 'libraries') loadAllLibraries();
   if (pageName === 'rentals')   loadAllRentals();
+  if (pageName === 'invites')   loadAdminInvites();
   if (pageName === 'debug')     loadDebugInfo();
 }
 
@@ -581,6 +583,182 @@ async function loadAuthStats() {
     <tr><td>Last Updated</td><td>${new Date().toLocaleTimeString()}</td></tr>`;
 }
 
+// ── Invites ───────────────────────────────────────────────────────────────
+let _adminLastInviteLink  = '';
+let _adminLastInviteEmail = '';
+
+async function loadAdminInvites() {
+  const el = document.getElementById('adminInvitesList');
+  if (!el) return;
+  el.innerHTML = `<p class='empty-state'>Loading…</p>`;
+  try {
+    const snap = await getDocs(query(collection(db, 'invites'), orderBy('createdAt', 'desc'), limit(200)));
+    allInvites = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderAdminInvitesList(allInvites);
+  } catch (err) {
+    el.innerHTML = `<p class='empty-state'>Could not load invites: ${esc(err.message)}</p>`;
+  }
+}
+
+function renderAdminInvitesList(invites) {
+  const el = document.getElementById('adminInvitesList');
+  if (!el) return;
+  if (!invites.length) {
+    el.innerHTML = `<p class='empty-state'>No invites yet — create the first one above.</p>`;
+    return;
+  }
+  el.innerHTML = '';
+  const now = new Date();
+  invites.forEach(inv => {
+    const expDate  = inv.expiresAt?.toDate?.();
+    const expired  = expDate && expDate < now;
+    const isActive = !inv.used && !inv.revoked && !expired;
+    const link     = `${window.location.origin}/teacher-signup.html?token=${inv.id}`;
+
+    const statusBadge = inv.used
+      ? `<span class='status-indicator active' style='font-size:0.72rem'><span class='status-dot'></span>Used</span>`
+      : inv.revoked
+      ? `<span class='status-indicator banned' style='font-size:0.72rem'><span class='status-dot'></span>Revoked</span>`
+      : expired
+      ? `<span class='status-indicator' style='font-size:0.72rem;opacity:0.5'><span class='status-dot'></span>Expired</span>`
+      : `<span class='status-indicator active' style='font-size:0.72rem;color:var(--accent)'><span class='status-dot' style='background:var(--accent)'></span>Active</span>`;
+
+    const entry = document.createElement('div');
+    entry.className = 'ban-entry';
+    entry.style.cssText = 'flex-wrap:wrap;gap:8px;align-items:flex-start';
+    entry.innerHTML = `
+      <div style='flex:1;min-width:180px'>
+        <div class='ban-email'>${inv.recipientEmail
+          ? esc(inv.recipientEmail)
+          : '<em style="opacity:0.65">Open invite (any school email)</em>'}</div>
+        <div class='ban-detail'>
+          By ${esc(inv.createdByName ?? '—')} ·
+          Created ${fmtDate(inv.createdAt)} ·
+          Expires ${expDate ? expDate.toLocaleDateString() : '—'}
+          ${inv.claimedBy ? ' · <strong>Claimed</strong>' : ''}
+        </div>
+        <div style='margin-top:6px'>${statusBadge}</div>
+        <div class='admin-invite-qr' hidden style='margin-top:10px'>
+          <img src='' alt='QR code for invite'
+               style='width:130px;height:130px;background:#fff;padding:5px;border-radius:7px;display:block'>
+          <p class='ban-detail' style='margin-top:4px'>Scan with phone camera to open invite</p>
+        </div>
+      </div>
+      <div style='display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start'>
+        ${isActive ? `
+          <button class='btn btn--ghost btn--sm' data-action='copy-link' data-link='${esc(link)}'
+                  title='Copy invite link' aria-label='Copy invite link'>
+            <i class='bi bi-clipboard' aria-hidden='true'></i>
+          </button>
+          <button class='btn btn--ghost btn--sm' data-action='show-qr' data-link='${esc(link)}'
+                  title='Toggle QR code' aria-label='Toggle QR code'>
+            <i class='bi bi-qr-code' aria-hidden='true'></i>
+          </button>
+          <button class='btn btn--danger btn--sm' data-action='revoke' data-id='${esc(inv.id)}'>
+            Revoke
+          </button>
+        ` : ''}
+      </div>`;
+    el.appendChild(entry);
+  });
+
+  el.querySelectorAll('[data-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const { action, link, id } = btn.dataset;
+      if (action === 'copy-link') {
+        navigator.clipboard.writeText(link)
+          .then(() => toast('<i class="bi bi-check2"></i> Link copied', 'success'))
+          .catch(() => toast(`Copy failed — link: ${link}`, 'info'));
+      }
+      if (action === 'show-qr') {
+        const entry = btn.closest('.ban-entry');
+        const qrDiv = entry?.querySelector('.admin-invite-qr');
+        const qrImg = qrDiv?.querySelector('img');
+        if (!qrDiv) return;
+        qrDiv.hidden = !qrDiv.hidden;
+        if (!qrDiv.hidden && qrImg && !qrImg.src) {
+          qrImg.src = `https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=${encodeURIComponent(link)}&choe=UTF-8`;
+        }
+      }
+      if (action === 'revoke') revokeAdminInvite(id);
+    });
+  });
+}
+
+async function createAdminInvite() {
+  const emailInput  = document.getElementById('adminInviteEmailInput');
+  const output      = document.getElementById('adminInviteOutput');
+  const qrContainer = document.getElementById('adminInviteQrContainer');
+  const qrImg       = document.getElementById('adminInviteQrImg');
+  const emailBtn    = document.getElementById('adminEmailInviteBtn');
+  const email       = (emailInput?.value.trim() ?? '').toLowerCase();
+
+  // Email is optional; if provided it must look valid
+  if (email && !email.includes('@')) {
+    toast('Enter a valid email address or leave blank for an open invite.', 'danger');
+    return;
+  }
+
+  const expiresAt = new Date(Date.now() + 7 * 86400000);
+  try {
+    const ref = await addDoc(collection(db, 'invites'), {
+      recipientEmail: email,
+      used:           false,
+      revoked:        false,
+      expiresAt:      Timestamp.fromDate(expiresAt),
+      createdBy:      currentUser.uid,
+      createdByName:  currentUser.displayName ?? 'Admin',
+      createdByRole:  'admin',
+      createdAt:      serverTimestamp(),
+    });
+    const link = `${window.location.origin}/teacher-signup.html?token=${ref.id}`;
+    _adminLastInviteLink  = link;
+    _adminLastInviteEmail = email;
+
+    await navigator.clipboard.writeText(link).catch(() => {});
+    if (output) output.innerHTML = `
+      <div style='background:var(--bg-inset);border:1px solid var(--border);border-radius:8px;
+                  padding:12px;font-size:0.78rem;word-break:break-all;font-family:monospace;
+                  margin-top:4px'>${esc(link)}</div>
+      <p class='settings-hint' style='margin-top:8px'>
+        <i class='bi bi-check2'></i> Copied! Valid 7 days${email
+          ? ` · locked to ${esc(email)}`
+          : ' · open — any school account can claim'}.
+      </p>`;
+
+    if (qrImg && qrContainer) {
+      qrImg.src = `https://chart.googleapis.com/chart?chs=220x220&cht=qr&chl=${encodeURIComponent(link)}&choe=UTF-8`;
+      qrContainer.hidden = false;
+    }
+    if (emailBtn) emailBtn.hidden = !email; // only show email button if there's a recipient
+
+    if (emailInput) emailInput.value = '';
+    toast(`<i class='bi bi-check2'></i> Invite created &amp; copied`, 'success');
+    loadAdminInvites();
+  } catch (err) {
+    toast(`Failed to create invite: ${esc(err.message ?? 'unknown')}`, 'danger');
+  }
+}
+
+async function revokeAdminInvite(inviteId) {
+  const ok = await appConfirm(
+    'Revoke this invite? The link will stop working immediately.',
+    'Revoke', true
+  );
+  if (!ok) return;
+  try {
+    await updateDoc(doc(db, 'invites', inviteId), {
+      revoked:   true,
+      revokedAt: serverTimestamp(),
+      revokedBy: currentUser.uid,
+    });
+    toast('Invite revoked', 'success');
+    loadAdminInvites();
+  } catch (err) {
+    toast(`Revoke failed: ${esc(err.message)}`, 'danger');
+  }
+}
+
 // ── Danger Zone ───────────────────────────────────────────────────────────────
 async function exportAllData() {
   const ok = await appConfirm('Export all user data as JSON? This may be large.', 'Export', false);
@@ -617,6 +795,20 @@ function setupEventListeners() {
   document.getElementById('exportDataBtn')?.addEventListener('click',        exportAllData);
   document.getElementById('logoutAllBtn')?.addEventListener('click',         forceLogoutAll);
   document.getElementById('viewGlobalBansBtn')?.addEventListener('click',    () => showPage('bans'));
+  document.getElementById('refreshInvitesBtn')?.addEventListener('click',   loadAdminInvites);
+  document.getElementById('adminCreateInviteBtn')?.addEventListener('click', createAdminInvite);
+  document.getElementById('adminEmailInviteBtn')?.addEventListener('click',  () => {
+    if (!_adminLastInviteLink) return;
+    const subject = encodeURIComponent("You've been invited to BookWare");
+    const body    = encodeURIComponent(
+      `Hi,\n\nYou've been invited to join BookWare as a teacher at Mason High School.\n\n` +
+      `Click the link below to create your account:\n${_adminLastInviteLink}\n\n` +
+      `${_adminLastInviteEmail ? `This invite is locked to ${_adminLastInviteEmail}.\n` : ''}` +
+      `It expires in 7 days.\n\n— BookWare Admin`
+    );
+    window.open(`mailto:${_adminLastInviteEmail}?subject=${subject}&body=${body}`);
+    toast('<i class="bi bi-envelope-fill"></i> Opening email client…', 'info');
+  });
   document.getElementById('maintenanceModeToggle')?.addEventListener('change', e => setMaintenanceMode(e.target.checked));
 
   // Ban modal

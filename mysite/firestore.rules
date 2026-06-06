@@ -183,19 +183,36 @@ service cloud.firestore {
 
     // ── invites/{token} ────────────────────────────────────────────────────────
     match /invites/{token} {
-      allow read: if true;
+      // Single-doc reads are open (claim page validates token before sign-in)
+      allow get: if true;
+      // Only authenticated teachers/admins may query the collection
+      allow list: if isSignedIn() && (isTeacher() || isAdmin());
 
-      allow create: if isSignedIn() && (isTeacher() || isAdmin()) &&
+      // Admin or teacher with canInvite may create
+      allow create: if isSignedIn() &&
+        (isAdmin() ||
+         (isTeacher() &&
+          get(/databases/$(database)/documents/teachers/$(uid())).data.get("canInvite", false) == true)) &&
         request.resource.data.keys().hasAll(["recipientEmail", "used", "expiresAt", "createdBy"]) &&
         request.resource.data.used == false;
 
-      allow update: if isSignedIn() &&
-        request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(["used", "claimedBy", "claimedAt", "revokedAt", "revokedBy"]) &&
-        request.resource.data.used == true &&
-        (request.auth.token.email.lower() == resource.data.recipientEmail.lower() ||
-         request.auth.uid == resource.data.createdBy ||
-         isAdmin());
+      // Three distinct update paths:
+      // 1. Admin can change anything
+      // 2. Creator can revoke their own invite
+      // 3. Claim flow — recipient (or anyone for open invites) marks as used
+      allow update: if isSignedIn() && (
+        isAdmin() ||
+        (request.auth.uid == resource.data.createdBy &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(["revoked", "revokedAt", "revokedBy"])) ||
+        (request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(["used", "claimedBy", "claimedAt"]) &&
+         request.resource.data.used == true &&
+         resource.data.used == false &&
+         resource.data.get("revoked", false) == false &&
+         (resource.data.get("recipientEmail", "") == "" ||
+          request.auth.token.email.lower() == resource.data.recipientEmail.lower()))
+      );
 
       allow delete: if isAdmin();
     }
