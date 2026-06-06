@@ -96,7 +96,8 @@ onAuthStateChanged(auth, async (user) => {
     }
 
     const userSnap = await getDoc(doc(db, 'users', user.uid));
-    if (!userSnap.exists() || userSnap.data().role !== 'teacher') { await signOut(auth); window.location.href = '/'; return; }
+    const userRole = userSnap.exists() ? userSnap.data().role : null;
+    if (!userSnap.exists() || (userRole !== 'teacher' && userRole !== 'admin')) { await signOut(auth); window.location.href = '/'; return; }
 
     currentUser   = user;
     const tSnap   = await getDoc(doc(db, 'teachers', user.uid));
