@@ -3,6 +3,7 @@
    ============================================================ */
 
 :root {
+  color-scheme: dark;
   --bg:       #1a1a1e;
   --bg-card:  #22222a;
   --bg-inset: #16161a;
@@ -32,8 +33,14 @@
 }
 
 html[data-theme="light"] {
+  color-scheme: light;
   --bg: #ffffff; --bg-card: #f5f5f8; --bg-inset: #ececf0;
   --border: #dcdce8; --text: #18181b; --text-2: #4a4a58; --text-3: #8a8a9a;
+}
+
+option {
+  background: var(--bg-inset);
+  color: var(--text);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

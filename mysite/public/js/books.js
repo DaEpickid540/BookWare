@@ -9,9 +9,9 @@ const GBOOKS    = 'https://www.googleapis.com/books/v1/volumes';
 function parseOL(d) {
   if (!d) return null;
   const cover = d.cover_i
-    ? `${OL_COVERS}/id/${d.cover_i}-M.jpg`
+    ? `${OL_COVERS}/id/${d.cover_i}-M.jpg?default=false`
     : d.isbn?.[0]
-    ? `${OL_COVERS}/isbn/${d.isbn[0]}-M.jpg`
+    ? `${OL_COVERS}/isbn/${d.isbn[0]}-M.jpg?default=false`
     : '';
   return {
     sourceId:    d.key ?? '',

@@ -51,8 +51,13 @@ export function applyBrightness(val) {
   const vars = brightnessToVars(val);
   const html  = document.documentElement;
   for (const [k, v] of Object.entries(vars)) html.style.setProperty(k, v);
-  if (val >= 50) html.setAttribute('data-theme', 'light');
-  else           html.removeAttribute('data-theme');
+  if (val >= 50) {
+    html.setAttribute('data-theme', 'light');
+    html.style.setProperty('color-scheme', 'light');
+  } else {
+    html.removeAttribute('data-theme');
+    html.style.setProperty('color-scheme', 'dark');
+  }
   const label = document.getElementById('brightnessLabel');
   if (label) label.textContent = brightnessLabel(val);
 }
@@ -132,6 +137,22 @@ export function initTheme() {
 
   // Reveal page after theme is applied
   document.documentElement.style.visibility = 'visible';
+
+  // Global book-cover fallback: swap broken <img> to placeholder div
+  // Catches both real 404s and OpenLibrary silent placeholders (via ?default=false on the URL)
+  document.addEventListener('error', (e) => {
+    const img = e.target;
+    if (img.tagName !== 'IMG') return;
+    const isSearch = img.classList.contains('book-search-cover');
+    const isCover  = img.classList.contains('book-cover');
+    if (!isCover && !isSearch) return;
+    const ph = document.createElement('div');
+    ph.className = isSearch ? 'book-search-cover-ph' : 'book-cover-ph';
+    ph.setAttribute('aria-hidden', 'true');
+    ph.innerHTML = '<i class="bi bi-book-fill"></i>';
+    if (img.style.cssText) ph.style.cssText = img.style.cssText;
+    img.replaceWith(ph);
+  }, true /* capture so it fires before the img's own handlers */);
 }
 
 // ARIA AI setup (shared)
