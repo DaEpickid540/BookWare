@@ -1,6 +1,11 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getAuth }        from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-import { getFirestore }   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import {
+  getAuth,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
+} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { getFirestore } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const firebaseConfig = {
   apiKey:            'AIzaSyAHYS-XvdJ5O0uEU-e8-aSDwRDm6_nWOSs',
@@ -15,6 +20,13 @@ const firebaseConfig = {
 export const app  = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db   = getFirestore(app);
+
+// Apply auth session persistence based on user preference.
+// Default ON (browserLocalPersistence) — stays logged in across browser restarts.
+// If the user turns off "Stay Signed In" it switches to session-only persistence.
+const _staySignedIn = localStorage.getItem('bw-stay-signed-in') !== 'false';
+setPersistence(auth, _staySignedIn ? browserLocalPersistence : browserSessionPersistence)
+  .catch(() => {/* ignore — non-critical */});
 
 // Safety net: if body is hidden and something throws before auth reveals it,
 // show a readable error instead of a blank gray screen.

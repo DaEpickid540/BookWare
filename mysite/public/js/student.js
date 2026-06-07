@@ -1,10 +1,11 @@
 // student.js — BookWare Student Portal
 import { auth, db } from "./firebase.js";
 import { searchBooks } from "./books.js";
-import { initTheme, initARIA, applyPreset, initAriaChat, initSettingsModal, openSettingsModal } from "./theme.js";
+import { initTheme, initARIA, applyPreset, initAriaChat, initAriaRecommends, refreshAriaChats, initSettingsModal, openSettingsModal, initStaySignedIn } from "./theme.js";
+import { runReadingQuiz } from "./quiz.js";
 import {
-  signOut,
-  onAuthStateChanged,
+  signOut, onAuthStateChanged,
+  setPersistence, browserLocalPersistence, browserSessionPersistence,
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import {
   doc,
@@ -103,9 +104,11 @@ function showPage(name) {
     n.removeAttribute("aria-current");
   });
   document.getElementById(name + "Page")?.classList.add("active");
-  const navBtn = document.querySelector(`[data-page="${name}"]`);
-  navBtn?.classList.add("active");
-  navBtn?.setAttribute("aria-current", "page");
+  // Mark ALL matching nav buttons (sidebar + bottom nav) as active
+  document.querySelectorAll(`[data-page="${name}"]`).forEach(btn => {
+    btn.classList.add("active");
+    btn.setAttribute("aria-current", "page");
+  });
   const pt = document.getElementById("pageTitle");
   if (pt) pt.textContent = PAGE_TITLES[name] ?? name;
   if (name === "locker") renderLockerPage();
@@ -213,8 +216,11 @@ onAuthStateChanged(auth, async (user) => {
     populateTopBar();
     initTheme();
     initARIA(toast);
-    initAriaChat('ariaChatMount', 'student');
+    initAriaChat('ariaChatMount', 'student', () => studentData?.readingProfile);
+    initAriaRecommends('ariaRecommendsMount', 'student', () => studentData?.readingProfile);
     initSettingsModal();
+    initStaySignedIn((stay) => setPersistence(auth, stay ? browserLocalPersistence : browserSessionPersistence));
+    setupRetakeQuiz();
     setupSignout();
     populateSettingsInfo();
     renderWishlist();
@@ -234,6 +240,10 @@ onAuthStateChanged(auth, async (user) => {
       );
       sessionStorage.setItem("bw-welcomed", "1");
     }
+
+    // First-time reading-preferences quiz (fire-and-forget — pops up over the
+    // already-loaded page so it never blocks the rest of the portal).
+    maybeRunOnboardingQuiz();
 
     // Auto-select first linked library
     const firstId = classTeacherId ?? addedTeacherIds[0] ?? null;
@@ -270,6 +280,44 @@ function populateTopBar() {
     .toUpperCase();
   if (av) av.textContent = initials;
   if (nameEl) nameEl.textContent = display.split(" ")[0];
+}
+
+// ── Reading-preferences quiz (first run + retake) ─────────────────────────────
+async function maybeRunOnboardingQuiz() {
+  if (studentData?.readingProfile) return; // already taken (or skipped) before
+  await runQuizFlow({ silent: false, isFirstRun: true });
+}
+
+async function retakeReadingQuiz() {
+  await runQuizFlow({ silent: false, isFirstRun: false });
+}
+
+async function runQuizFlow({ isFirstRun }) {
+  try {
+    const answers = await runReadingQuiz('student');
+    const profile = answers
+      ? { ...answers, completedAt: serverTimestamp() }
+      : { skipped: true, skippedAt: serverTimestamp() };
+    await updateDoc(doc(db, 'students', currentUser.uid), { readingProfile: profile });
+    studentData.readingProfile = profile;
+    if (answers) {
+      toast(`<i class="bi bi-stars"></i> Thanks! ARIA now knows what you like to read.`, 'success');
+      refreshAriaChats();
+    } else if (!isFirstRun) {
+      toast('No worries — you can take the quiz anytime from here.', 'info');
+    }
+  } catch (err) {
+    console.error('[student] Reading quiz failed:', err);
+  }
+}
+
+function setupRetakeQuiz() {
+  const btn = document.getElementById('retakeQuizBtn');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    btn.disabled = true;
+    retakeReadingQuiz().finally(() => { btn.disabled = false; });
+  });
 }
 
 // ── Sign out ──────────────────────────────────────────────────────────────────

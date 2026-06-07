@@ -702,5 +702,58 @@ input, select { font-family: inherit; font-size: inherit; }
 
 @media (max-width: 600px) {
   .sidebar { display: none; }
-  .main-area { padding: 16px; }
+  .main-area { padding: 16px 14px calc(72px + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* ── ADMIN BOTTOM NAV (mobile ≤ 600px) ──────────────────────── */
+.admin-bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  z-index: 300;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.admin-bottom-nav-items {
+  display: flex;
+  height: 58px;
+}
+.admin-bnav-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: var(--text-3);
+  font-size: 0.58rem;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  border: none;
+  background: none;
+  cursor: pointer;
+  transition: color var(--tr);
+  -webkit-tap-highlight-color: transparent;
+}
+.admin-bnav-btn i { font-size: 1.2rem; line-height: 1; }
+.admin-bnav-btn.active { color: var(--accent); }
+
+@media (max-width: 600px) {
+  .admin-bottom-nav { display: block; }
+  .stats-row { grid-template-columns: 1fr 1fr; }
+  .filter-bar { flex-direction: column; }
+  .modal { max-width: 100%; margin: 0 8px; }
+  /* Toast clears the bottom nav */
+  .toast-container {
+    bottom: calc(66px + env(safe-area-inset-bottom, 0px));
+    right: 12px;
+    max-width: calc(100vw - 24px);
+  }
+}
+
+@supports (-webkit-touch-callout: none) {
+  body { min-height: -webkit-fill-available; }
 }

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BookWare — Get Teacher Access</title>
+  <meta name="description" content="Join BookWare as a teacher using an invite code or by requesting admin approval." />
+  <meta name="theme-color" content="#1a1a1e" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="BookWare" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+  <link rel="stylesheet" href="/css/signup.css" />
+</head>
+<body>
+
+  <div class="signup-page">
+    <div class="signup-card access-card">
+
+      <!-- Logo -->
+      <div class="signup-logo">
+        <span class="logo-dot" aria-hidden="true"></span>
+        <span class="signup-logo-name">BookWare</span>
+      </div>
+
+      <h1 class="signup-heading">Teacher Access</h1>
+      <p class="signup-subheading" id="pageSubheading">
+        Checking your account…
+      </p>
+
+      <!-- Signed-in user badge -->
+      <div id="userBadge" class="user-badge" hidden aria-label="Signed-in account">
+        <img id="userAvatar" class="user-badge-img" src="" alt="" aria-hidden="true" />
+        <div>
+          <div id="userName" class="user-badge-name"></div>
+          <div id="userEmail" class="user-badge-email"></div>
+        </div>
+      </div>
+
+      <!-- Status / feedback message -->
+      <div id="statusMessage" class="status-message" role="status" aria-live="polite"></div>
+
+      <!-- ── Option 1: Invite code ──────────────────────────── -->
+      <div id="inviteSection" class="access-option" hidden>
+        <div class="access-option-label">
+          <i class="bi bi-link-45deg" aria-hidden="true"></i> Have an invite code?
+        </div>
+        <div class="access-code-row">
+          <input
+            id="inviteCodeInput"
+            type="text"
+            class="access-input"
+            placeholder="Paste your invite code"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="Invite code"
+          />
+          <button id="joinWithCodeBtn" class="btn-join" aria-label="Join with invite code">
+            <span id="joinBtnLabel">Join</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ── OR divider ────────────────────────────────────── -->
+      <div id="orDivider" class="access-or" hidden><span>or</span></div>
+
+      <!-- ── Option 2: Request admin approval ─────────────── -->
+      <div id="requestSection" class="access-option" hidden>
+        <div class="access-option-label">
+          <i class="bi bi-envelope-fill" aria-hidden="true"></i> No code? Ask admin for access
+        </div>
+        <button id="requestAccessBtn" class="signin-btn" aria-live="polite">
+          <i class="bi bi-person-check-fill" aria-hidden="true"></i>
+          <span id="requestBtnLabel">Request Admin Approval</span>
+        </button>
+        <p class="access-hint">
+          Your school admin will be notified and can approve or deny your request. You'll be redirected automatically once approved.
+        </p>
+      </div>
+
+      <!-- ── Sign out ───────────────────────────────────────── -->
+      <button id="signOutBtn" class="access-back-link" hidden>
+        ← Sign out &amp; go back
+      </button>
+
+      <!-- Footer -->
+      <p class="signup-footer">
+        <i class="bi bi-shield-lock-fill" aria-hidden="true"></i>
+        Secured · Mason City Schools · BookWare
+      </p>
+
+    </div>
+  </div>
+
+  <script type="module" src="/js/teacher-access.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js')
+        .catch(err => console.warn('[SW] registration failed:', err));
+    }
+  </script>
+</body>
+</html>

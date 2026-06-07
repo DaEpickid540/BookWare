@@ -217,6 +217,39 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // ── accessRequests/{uid} ──────────────────────────────────────────────────────
+    // Users who want teacher access submit a request here; admins approve or deny.
+    match /accessRequests/{reqId} {
+      // Requester and admins can read (live status updates on teacher-access.html)
+      allow read: if isSignedIn() && (uid() == reqId || isAdmin());
+
+      // Requester creates their own request (must be pending, cannot self-promote)
+      allow create: if isSignedIn() && uid() == reqId &&
+        request.resource.data.status == "pending" &&
+        request.resource.data.keys().hasAll(["name", "email", "requestedAt", "status"]);
+
+      // Admin approves/denies; requester can re-submit by resetting to pending
+      allow update: if isAdmin() ||
+        (isSignedIn() && uid() == reqId &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(["requestedAt", "status", "name", "email", "photoURL"]) &&
+         request.resource.data.status == "pending");
+
+      // Admin or the requester themselves can delete (withdraw request)
+      allow delete: if isAdmin() || (isSignedIn() && uid() == reqId);
+    }
+
+    // ── pendingUsers/{emailKey} — admin-pre-registered accounts ──────────────────
+    // Admin creates these via "Add User". On first sign-in the matching user reads
+    // their own record (to learn their assigned role) and deletes it once claimed.
+    match /pendingUsers/{emailKey} {
+      allow get:    if isSignedIn();          // claim lookup by deterministic id
+      allow list:   if isAdmin();
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin() ||
+        (isSignedIn() && request.auth.token.email.lower() == resource.data.email);
+    }
+
     // ── admin/settings ─────────────────────────────────────────────────────────
     match /admin/{doc} {
       allow read: if isSignedIn();

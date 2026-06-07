@@ -7,7 +7,12 @@
   <meta name="description" content="BookWare Teacher Portal — manage your classroom library, classes, checkouts, and student roster." />
   <meta name="theme-color" content="#1a1a1e" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="/favicon.svg" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="BookWare" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
@@ -155,6 +160,8 @@
                 <strong>Public</strong> — any Mason student can discover and browse. Checkout still requires class enrollment.
               </p>
             </div>
+
+            <div class="panel-card" id="ariaRecommendsMount" hidden></div>
 
           </div>
 
@@ -491,6 +498,28 @@
             </div>
           </div>
 
+          <!-- Session -->
+          <div class="settings-section">
+            <div class="settings-section-header">
+              <div>
+                <div class="settings-section-title">Session</div>
+                <div class="settings-section-sub">Sign-in persistence</div>
+              </div>
+            </div>
+            <div class="settings-body">
+              <div class="settings-row">
+                <div>
+                  <div class="settings-label">Stay Signed In</div>
+                  <div class="settings-hint">If off, you'll be signed out when you close the browser</div>
+                </div>
+                <label class="toggle" aria-label="Stay signed in">
+                  <input type="checkbox" id="staySignedInToggle" />
+                  <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+                </label>
+              </div>
+            </div>
+          </div>
+
           <!-- ARIA AI -->
           <div class="settings-section">
             <div class="settings-section-header">
@@ -502,6 +531,15 @@
             <div class="settings-body">
               <div class="settings-row">
                 <div>
+                  <div class="settings-label">Reading preferences quiz</div>
+                  <div class="settings-hint">Retake it anytime — ARIA uses your answers to recommend titles for you and your shelves</div>
+                </div>
+                <button type="button" class="btn btn--sm" id="retakeQuizBtn">
+                  <i class="bi bi-stars" aria-hidden="true"></i> Retake quiz
+                </button>
+              </div>
+              <div class="settings-row">
+                <div>
                   <div class="settings-label">Enable ARIA</div>
                   <div class="settings-hint">Adds an AI assistant to your library view</div>
                 </div>
@@ -511,13 +549,44 @@
                 </label>
               </div>
               <div id="ariaSetupPanel" hidden>
+                <!-- Provider selector -->
+                <div class="settings-row settings-row--col" style="border-top:1px solid var(--border);margin-top:10px;padding-top:12px">
+                  <div class="settings-label">AI Provider</div>
+                  <select id="ariaProvider" class="select-input" aria-label="AI provider">
+                    <option value="anthropic">⭐ Claude (Anthropic) — Best</option>
+                    <option value="openai">OpenAI (GPT)</option>
+                    <option value="gemini">Google Gemini</option>
+                    <option value="openrouter">OpenRouter (free models)</option>
+                    <option value="cloudflare">Cloudflare Workers AI</option>
+                    <option value="groq" selected>Groq (default · free)</option>
+                  </select>
+                </div>
+                <!-- API key -->
                 <div class="settings-row settings-row--col">
                   <div>
-                    <div class="settings-label">Groq API Key</div>
-                    <div class="settings-hint">ARIA runs on Groq's free tier — fast and private</div>
+                    <div class="settings-label" id="ariaKeyLabel">Groq API Key</div>
+                    <div class="settings-hint" id="ariaKeyHint">console.groq.com — fast &amp; free</div>
                   </div>
-                  <input type="password" id="ariaApiKey" class="text-input text-input--mono" placeholder="gsk_…" autocomplete="off" aria-label="Groq API key" />
+                  <input type="password" id="ariaApiKey" class="text-input text-input--mono" placeholder="gsk_…" autocomplete="off" aria-label="AI API key" />
                   <button class="btn btn--sm" id="ariaSaveKeyBtn">Save Key</button>
+                </div>
+                <!-- Web search (optional) -->
+                <div class="settings-row settings-row--col" style="border-top:1px solid var(--border);margin-top:10px;padding-top:12px">
+                  <div class="settings-label">Web Search <span style="background:var(--bg-inset);border:1px solid var(--border);border-radius:4px;font-size:0.6rem;padding:1px 5px;margin-left:4px;font-weight:400;opacity:0.7">optional</span></div>
+                  <div class="settings-hint">Lets ARIA search the web for up-to-date info — pick a provider</div>
+                  <select id="ariaSearchProvider" class="select-input" aria-label="Web search provider">
+                    <option value="contextwire" selected>⭐ ContextWire — Recommended (free)</option>
+                    <option value="brave">Brave Search</option>
+                    <option value="serpapi">SerpAPI</option>
+                  </select>
+                </div>
+                <div class="settings-row settings-row--col">
+                  <div>
+                    <div class="settings-label" id="ariaSearchKeyLabel">ContextWire API Key</div>
+                    <div class="settings-hint" id="ariaSearchKeyHint">1,000 free searches/mo, no card required — <a href="https://contextwire.dev" target="_blank" rel="noopener" style="color:var(--accent)">contextwire.dev</a></div>
+                  </div>
+                  <input type="password" id="ariaSearchKey" class="text-input text-input--mono" placeholder="contextwire api key…" autocomplete="off" aria-label="Web search API key" />
+                  <button class="btn btn--sm" id="ariaSaveSearchBtn">Save</button>
                 </div>
               </div>
             </div>
@@ -551,6 +620,40 @@
 
   <div id="toastContainer" class="toast-container" role="region" aria-live="polite" aria-label="Notifications"></div>
 
+  <!-- ═══ MOBILE BOTTOM NAV ═══════════════════════════════════════════════ -->
+  <nav class="bottom-nav" aria-label="Main navigation">
+    <div class="bottom-nav-items">
+      <button class="bottom-nav-btn nav-item active" data-page="library" aria-label="Library" aria-current="page">
+        <i class="bi bi-collection-fill" aria-hidden="true"></i>
+        <span>Library</span>
+      </button>
+      <button class="bottom-nav-btn nav-item" data-page="students" aria-label="Students">
+        <i class="bi bi-people-fill" aria-hidden="true"></i>
+        <span>Students</span>
+      </button>
+      <button class="bottom-nav-btn nav-item" data-page="reading" aria-label="Now Reading">
+        <i class="bi bi-book-fill" aria-hidden="true"></i>
+        <span>Reading</span>
+      </button>
+      <button class="bottom-nav-btn nav-item" data-page="invites" aria-label="Invites">
+        <i class="bi bi-link-45deg" aria-hidden="true"></i>
+        <span>Invites</span>
+      </button>
+      <button class="bottom-nav-btn nav-item" data-page="settings" aria-label="Settings">
+        <i class="bi bi-gear-fill" aria-hidden="true"></i>
+        <span>Settings</span>
+      </button>
+    </div>
+  </nav>
+
   <script type="module" src="/js/teacher.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .catch(err => console.warn('[SW] registration failed:', err));
+      });
+    }
+  </script>
 </body>
 </html>

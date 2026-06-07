@@ -7,7 +7,12 @@
   <meta name="description" content="BookWare Admin Portal — manage users, bans, libraries, and system settings." />
   <meta name="theme-color" content="#1a1a1e" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="/favicon.svg" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="BookWare" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
@@ -73,6 +78,9 @@
         <button class="nav-item" data-page="invites">
           <i class="bi bi-person-plus-fill" aria-hidden="true"></i>
           <span>Invites</span>
+          <span id="invitesBadge" hidden
+            style="margin-left:auto;background:var(--accent);color:#fff;font-size:0.65rem;font-weight:700;border-radius:10px;padding:1px 6px;line-height:1.6"
+            aria-label="pending access requests"></span>
         </button>
         <button class="nav-item" data-page="settings">
           <i class="bi bi-gear-fill" aria-hidden="true"></i>
@@ -152,9 +160,40 @@
       <section id="usersPage" class="page" aria-label="User Management">
         <div class="page-header">
           <h1>User Management</h1>
-          <button class="btn btn--ghost" id="refreshUsersBtn">
-            <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Refresh
-          </button>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn--primary" id="addUserBtn">
+              <i class="bi bi-person-plus-fill" aria-hidden="true"></i> Add User
+            </button>
+            <button class="btn btn--ghost" id="refreshUsersBtn">
+              <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Refresh
+            </button>
+          </div>
+        </div>
+
+        <!-- Add User modal -->
+        <div id="addUserOverlay" hidden style="position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:200;padding:20px">
+          <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:28px 24px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.5)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+              <h2 style="font-family:var(--font-serif);font-size:1.1rem;font-weight:400">Add User</h2>
+              <button id="addUserCloseBtn" class="btn btn--ghost btn--sm" aria-label="Close"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="form-group" style="margin-bottom:14px">
+              <label class="form-label" for="addUserEmails">Email Address(es)</label>
+              <textarea id="addUserEmails" class="text-input" rows="4" placeholder="jane@masonohioschools.com&#10;john@masonohioschools.com" autocomplete="off" style="resize:vertical;font-family:monospace;font-size:0.85rem;width:100%"></textarea>
+              <div class="settings-hint" style="margin-top:6px">One per line or comma-separated. They get an account automatically the first time they sign in with Google.</div>
+            </div>
+            <div class="form-group" style="margin-bottom:20px">
+              <label class="form-label" for="addUserRole">Role</label>
+              <select id="addUserRole" class="select-input">
+                <option value="student">Student</option>
+                <option value="teacher">Teacher</option>
+              </select>
+            </div>
+            <div id="addUserStatus" style="font-size:0.8rem;min-height:1.2rem;margin-bottom:14px"></div>
+            <button class="btn btn--primary" id="addUserSubmitBtn" style="width:100%">
+              <i class="bi bi-person-check-fill" aria-hidden="true"></i> <span id="addUserBtnLabel">Add User</span>
+            </button>
+          </div>
         </div>
 
         <div class="filter-bar">
@@ -275,6 +314,22 @@
           </button>
         </div>
 
+        <!-- Access Requests panel -->
+        <div class="panel-card" style="margin-bottom:20px;max-width:660px">
+          <div class="panel-title" style="display:flex;align-items:center;gap:8px">
+            <i class="bi bi-person-exclamation" aria-hidden="true"></i>
+            Pending Access Requests
+            <span id="requestsCountBadge" hidden
+              style="background:var(--accent);color:#fff;font-size:0.65rem;font-weight:700;border-radius:10px;padding:1px 7px;line-height:1.6"></span>
+          </div>
+          <p class="settings-hint" style="margin-bottom:14px">
+            Teachers who signed in without an invite link will appear here. Approve to create their account, or deny to dismiss the request.
+          </p>
+          <div id="adminRequestsList" role="list">
+            <p class="empty-state">No pending access requests.</p>
+          </div>
+        </div>
+
         <!-- Create invite panel -->
         <div class="panel-card" style="margin-bottom:20px;max-width:660px">
           <div class="panel-title"><i class="bi bi-link-45deg" aria-hidden="true"></i> Create Invite Link</div>
@@ -332,6 +387,16 @@
                 </div>
                 <label class="toggle" aria-label="Maintenance mode">
                   <input type="checkbox" id="maintenanceModeToggle" />
+                  <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+                </label>
+              </div>
+              <div class="settings-row" style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px">
+                <div>
+                  <div class="settings-label">Stay Signed In</div>
+                  <div class="settings-hint">If off, you'll be signed out when the browser is closed</div>
+                </div>
+                <label class="toggle" aria-label="Stay signed in">
+                  <input type="checkbox" id="staySignedInToggle" />
                   <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
                 </label>
               </div>
@@ -432,6 +497,76 @@
               <button class="btn btn--danger" id="logoutAllBtn" style="width:100%">
                 <i class="bi bi-box-arrow-right" aria-hidden="true"></i> Force Logout All Users
               </button>
+            </div>
+          </div>
+
+          <!-- ARIA AI panel -->
+          <div class="panel-card">
+            <div class="panel-title"><i class="bi bi-robot" aria-hidden="true"></i> ARIA AI</div>
+            <div class="settings-panel-body">
+              <div class="settings-row">
+                <div>
+                  <div class="settings-label">Enable ARIA</div>
+                  <div class="settings-hint">AI chat assistant on the Dashboard</div>
+                </div>
+                <label class="toggle" aria-label="Enable ARIA AI">
+                  <input type="checkbox" id="ariaEnabled" />
+                  <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+                </label>
+              </div>
+              <div id="ariaSetupPanel" hidden>
+                <div class="settings-row settings-row--col" style="border-top:1px solid var(--border);margin-top:10px;padding-top:12px">
+                  <div class="settings-label">AI Provider</div>
+                  <select id="ariaProvider" class="select-input" aria-label="AI provider">
+                    <option value="anthropic">⭐ Claude (Anthropic) — Best</option>
+                    <option value="openai">OpenAI (GPT)</option>
+                    <option value="gemini">Google Gemini</option>
+                    <option value="openrouter">OpenRouter (free models)</option>
+                    <option value="cloudflare">Cloudflare Workers AI</option>
+                    <option value="groq" selected>Groq (default · free)</option>
+                  </select>
+                </div>
+                <div class="settings-row settings-row--col">
+                  <div>
+                    <div class="settings-label" id="ariaKeyLabel">Groq API Key</div>
+                    <div class="settings-hint" id="ariaKeyHint">console.groq.com — fast &amp; free</div>
+                  </div>
+                  <input type="password" id="ariaApiKey" class="text-input text-input--mono" placeholder="gsk_…" autocomplete="off" aria-label="AI API key" />
+                  <button class="btn btn--sm" id="ariaSaveKeyBtn">Save Key</button>
+                </div>
+                <!-- Web search (optional) -->
+                <div class="settings-row settings-row--col" style="border-top:1px solid var(--border);margin-top:10px;padding-top:12px">
+                  <div class="settings-label">Web Search <span style="background:var(--bg-inset);border:1px solid var(--border);border-radius:4px;font-size:0.6rem;padding:1px 5px;margin-left:4px;font-weight:400;opacity:0.7">optional</span></div>
+                  <div class="settings-hint">Gives ARIA real-time web search — pick a provider</div>
+                  <select id="ariaSearchProvider" class="select-input" aria-label="Web search provider">
+                    <option value="contextwire" selected>⭐ ContextWire — Recommended (free)</option>
+                    <option value="brave">Brave Search</option>
+                    <option value="serpapi">SerpAPI</option>
+                  </select>
+                </div>
+                <div class="settings-row settings-row--col">
+                  <div>
+                    <div class="settings-label" id="ariaSearchKeyLabel">ContextWire API Key</div>
+                    <div class="settings-hint" id="ariaSearchKeyHint">1,000 free searches/mo, no card required — <a href="https://contextwire.dev" target="_blank" rel="noopener" style="color:var(--accent)">contextwire.dev</a></div>
+                  </div>
+                  <input type="password" id="ariaSearchKey" class="text-input text-input--mono" placeholder="contextwire api key…" autocomplete="off" aria-label="Web search API key" />
+                  <button class="btn btn--sm" id="ariaSaveSearchBtn">Save</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Teacher Access Requests panel -->
+          <div class="panel-card">
+            <div class="panel-title" style="display:flex;align-items:center;gap:8px">
+              <i class="bi bi-person-exclamation" aria-hidden="true"></i>
+              Teacher Access Requests
+              <span id="settingsRequestsBadge" hidden
+                style="background:var(--accent);color:#fff;font-size:0.65rem;font-weight:700;border-radius:10px;padding:1px 7px;line-height:1.6"></span>
+            </div>
+            <p class="settings-hint" style="margin-bottom:14px">Teachers who signed in without an invite will appear here.</p>
+            <div id="settingsRequestsList" role="list">
+              <p class="empty-state">No pending access requests.</p>
             </div>
           </div>
 
@@ -540,6 +675,40 @@
 
   <div id="toastContainer" class="toast-container" role="region" aria-live="polite" aria-label="Notifications"></div>
 
+  <!-- ═══ ADMIN MOBILE BOTTOM NAV ══════════════════════════════════════════ -->
+  <nav class="admin-bottom-nav" aria-label="Admin navigation">
+    <div class="admin-bottom-nav-items">
+      <button class="admin-bnav-btn nav-item active" data-page="dashboard" aria-label="Dashboard" aria-current="page">
+        <i class="bi bi-bar-chart-fill" aria-hidden="true"></i>
+        <span>Dashboard</span>
+      </button>
+      <button class="admin-bnav-btn nav-item" data-page="users" aria-label="Users">
+        <i class="bi bi-people-fill" aria-hidden="true"></i>
+        <span>Users</span>
+      </button>
+      <button class="admin-bnav-btn nav-item" data-page="bans" aria-label="Bans">
+        <i class="bi bi-slash-circle-fill" aria-hidden="true"></i>
+        <span>Bans</span>
+      </button>
+      <button class="admin-bnav-btn nav-item" data-page="invites" aria-label="Invites">
+        <i class="bi bi-person-plus-fill" aria-hidden="true"></i>
+        <span>Invites</span>
+      </button>
+      <button class="admin-bnav-btn nav-item" data-page="settings" aria-label="Settings">
+        <i class="bi bi-gear-fill" aria-hidden="true"></i>
+        <span>Settings</span>
+      </button>
+    </div>
+  </nav>
+
   <script type="module" src="/js/admin.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .catch(err => console.warn('[SW] registration failed:', err));
+      });
+    }
+  </script>
 </body>
 </html>

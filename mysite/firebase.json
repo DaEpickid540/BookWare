@@ -8,6 +8,13 @@
     ],
     "headers": [
       {
+        "source": "/sw.js",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
+          { "key": "Service-Worker-Allowed", "value": "/" }
+        ]
+      },
+      {
         "source": "**",
         "headers": [
           {
@@ -32,7 +39,7 @@
           },
           {
             "key": "Content-Security-Policy",
-            "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://apis.google.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' https://cdn.jsdelivr.net https://fonts.gstatic.com; img-src 'self' data: https://covers.openlibrary.org https://books.google.com https://lh3.googleusercontent.com https://books.googleusercontent.com https://chart.googleapis.com; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://openlibrary.org https://www.googleapis.com https://api.groq.com wss://*.firebaseio.com; frame-src https://accounts.google.com https://*.firebaseapp.com; object-src 'none'; base-uri 'self';"
+            "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://apis.google.com https://cdn.jsdelivr.net; worker-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' https://cdn.jsdelivr.net https://fonts.gstatic.com; img-src 'self' data: https://covers.openlibrary.org https://books.google.com https://lh3.googleusercontent.com https://books.googleusercontent.com https://chart.googleapis.com; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://openlibrary.org https://www.googleapis.com https://api.groq.com https://api.anthropic.com https://api.openai.com https://api.cloudflare.com https://openrouter.ai https://contextwire.dev https://api.search.brave.com https://serpapi.com wss://*.firebaseio.com; frame-src https://accounts.google.com https://*.firebaseapp.com; object-src 'none'; base-uri 'self';"
           }
         ]
       }

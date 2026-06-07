@@ -1,8 +1,12 @@
 // teacher.js — BookWare Teacher Portal
 import { auth, db } from './firebase.js';
 import { lookupISBN, searchBooks } from './books.js';
-import { initTheme, initARIA, initAriaChat, initSettingsModal, openSettingsModal } from './theme.js';
-import { signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { initTheme, initARIA, initAriaChat, initAriaRecommends, refreshAriaChats, initSettingsModal, openSettingsModal, initStaySignedIn } from './theme.js';
+import { runReadingQuiz } from './quiz.js';
+import {
+  signOut, onAuthStateChanged,
+  setPersistence, browserLocalPersistence, browserSessionPersistence,
+} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import {
   doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc,
   collection, query, where, onSnapshot, serverTimestamp, Timestamp, arrayRemove,
@@ -61,9 +65,11 @@ function showPage(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => { n.classList.remove('active'); n.removeAttribute('aria-current'); });
   document.getElementById(name + 'Page')?.classList.add('active');
-  const navBtn = document.querySelector(`[data-page="${name}"]`);
-  navBtn?.classList.add('active');
-  navBtn?.setAttribute('aria-current', 'page');
+  // Mark ALL matching nav buttons (sidebar + bottom nav) as active
+  document.querySelectorAll(`[data-page="${name}"]`).forEach(btn => {
+    btn.classList.add('active');
+    btn.setAttribute('aria-current', 'page');
+  });
   const pt = document.getElementById('pageTitle');
   if (pt) pt.textContent = PAGE_TITLES[name] ?? name;
   if (name === 'students')        { loadCheckedOut(); loadHistory(); loadActiveBans(); loadRoster(); loadPendingRequests(); }
@@ -114,9 +120,17 @@ onAuthStateChanged(auth, async (user) => {
     renderSettings();
     initTheme();
     initARIA(toast);
-    initAriaChat('ariaChatMount', 'teacher');
+    initAriaChat('ariaChatMount', 'teacher', () => teacherData?.readingProfile);
+    initAriaRecommends('ariaRecommendsMount', 'teacher', () => teacherData?.readingProfile);
+    initStaySignedIn((stay) => setPersistence(auth, stay ? browserLocalPersistence : browserSessionPersistence));
     initSettingsModal();
+    setupRetakeQuiz();
     setupSignout();
+
+    // First-time reading-preferences quiz (fire-and-forget — pops up over the
+    // already-loaded portal so it never blocks the rest of the page).
+    maybeRunOnboardingQuiz();
+
     await loadRecommendations();
     await loadLibrary();
     await loadStudentCode();
@@ -135,6 +149,44 @@ function setupSignout() {
   document.getElementById('signoutBar')?.addEventListener('click', () => signOut(auth));
   const hint = document.getElementById('signoutEmail');
   if (hint && currentUser) hint.textContent = currentUser.email;
+}
+
+// ── Reading-preferences quiz (first run + retake) ─────────────────────────────
+async function maybeRunOnboardingQuiz() {
+  if (teacherData?.readingProfile) return; // already taken (or skipped) before
+  await runQuizFlow({ isFirstRun: true });
+}
+
+async function retakeReadingQuiz() {
+  await runQuizFlow({ isFirstRun: false });
+}
+
+async function runQuizFlow({ isFirstRun }) {
+  try {
+    const answers = await runReadingQuiz('teacher');
+    const profile = answers
+      ? { ...answers, completedAt: serverTimestamp() }
+      : { skipped: true, skippedAt: serverTimestamp() };
+    await updateDoc(doc(db, 'teachers', currentUser.uid), { readingProfile: profile });
+    teacherData.readingProfile = profile;
+    if (answers) {
+      toast(`<i class="bi bi-stars"></i> Thanks! ARIA now knows what to recommend for you and your shelves.`, 'success');
+      refreshAriaChats();
+    } else if (!isFirstRun) {
+      toast('No worries — you can take the quiz anytime from here.', 'info');
+    }
+  } catch (err) {
+    console.error('[teacher] Reading quiz failed:', err);
+  }
+}
+
+function setupRetakeQuiz() {
+  const btn = document.getElementById('retakeQuizBtn');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    btn.disabled = true;
+    retakeReadingQuiz().finally(() => { btn.disabled = false; });
+  });
 }
 
 function populateTopBar() {

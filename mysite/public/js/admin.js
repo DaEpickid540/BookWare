@@ -1,10 +1,13 @@
 // admin.js — BookWare Admin Portal
 import { auth, db } from './firebase.js';
-import { initTheme, initAriaChat, initSettingsModal, openSettingsModal } from './theme.js';
-import { signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { initTheme, initAriaChat, initARIA, initSettingsModal, openSettingsModal, initStaySignedIn } from './theme.js';
+import {
+  signOut, onAuthStateChanged,
+  setPersistence, browserLocalPersistence, browserSessionPersistence,
+} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import {
   doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc,
-  collection, query, where, orderBy, limit,
+  collection, query, where, orderBy, limit, onSnapshot,
   serverTimestamp, Timestamp,
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
@@ -14,7 +17,9 @@ const ADMIN_EMAILS = ['sarvin.sukhe@gmail.com', 'sarvinsukhe@gmail.com', 'daepic
 let currentUser    = null;
 let allUsers       = [];
 let allBans        = [];
-let allInvites     = [];
+let allInvites        = [];
+let allAccessRequests = [];
+let _requestsBadgeUnsub = null;
 let systemSettings = {};
 let allRentals     = [];
 let allLibraries   = [];
@@ -88,14 +93,16 @@ function showPage(pageName) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => { n.classList.remove('active'); n.removeAttribute('aria-current'); });
   document.getElementById(pageName + 'Page')?.classList.add('active');
-  const btn = document.querySelector(`[data-page="${pageName}"]`);
-  btn?.classList.add('active');
-  btn?.setAttribute('aria-current', 'page');
+  // Mark ALL matching nav buttons (sidebar + bottom nav) as active
+  document.querySelectorAll(`[data-page="${pageName}"]`).forEach(btn => {
+    btn.classList.add('active');
+    btn.setAttribute('aria-current', 'page');
+  });
   if (pageName === 'users')     loadAllUsers();
   if (pageName === 'bans')      loadBans();
   if (pageName === 'libraries') loadAllLibraries();
   if (pageName === 'rentals')   loadAllRentals();
-  if (pageName === 'invites')   loadAdminInvites();
+  if (pageName === 'invites')   { loadAccessRequests(); loadAdminInvites(); }
   if (pageName === 'debug')     loadDebugInfo();
 }
 
@@ -136,11 +143,14 @@ onAuthStateChanged(auth, async (user) => {
     if (adminEmailEl) adminEmailEl.textContent = user.email;
 
     initTheme();
+    initARIA(toast);
     initAriaChat('ariaChatMount', 'admin');
     initSettingsModal();
+    initStaySignedIn((stay) => setPersistence(auth, stay ? browserLocalPersistence : browserSessionPersistence));
     await loadSystemSettings();
     await loadDashboard();
     setupEventListeners();
+    watchPendingRequests();
 
   } catch (err) {
     console.error('[admin] Init failed:', err);
@@ -583,6 +593,136 @@ async function loadAuthStats() {
     <tr><td>Last Updated</td><td>${new Date().toLocaleTimeString()}</td></tr>`;
 }
 
+// ── Access Requests ───────────────────────────────────────────────────────────
+
+/** Live badge on the Invites nav button showing pending request count */
+function watchPendingRequests() {
+  if (_requestsBadgeUnsub) _requestsBadgeUnsub();
+  _requestsBadgeUnsub = onSnapshot(
+    query(collection(db, 'accessRequests'), where('status', '==', 'pending')),
+    (snap) => {
+      const count = snap.docs.length;
+      ['invitesBadge', 'requestsCountBadge', 'settingsRequestsBadge'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = count;
+        el.hidden = count === 0;
+      });
+    },
+    (err) => console.warn('[admin] watchPendingRequests error:', err)
+  );
+}
+
+async function loadAccessRequests() {
+  const el = document.getElementById('adminRequestsList');
+  if (!el) return;
+  el.innerHTML = '<p class="empty-state">Loading…</p>';
+  try {
+    const snap = await getDocs(query(
+      collection(db, 'accessRequests'),
+      where('status', '==', 'pending'),
+      orderBy('requestedAt', 'asc')
+    ));
+    allAccessRequests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderAccessRequests(allAccessRequests);
+  } catch (err) {
+    console.error('[admin] loadAccessRequests failed:', err);
+    el.innerHTML = '<p class="empty-state" style="color:var(--danger)">Failed to load requests.</p>';
+  }
+}
+
+function renderAccessRequests(requests) {
+  const el = document.getElementById('adminRequestsList');
+  if (!el) return;
+  if (!requests.length) {
+    el.innerHTML = '<p class="empty-state">No pending access requests.</p>';
+    return;
+  }
+  const esc = (s = '') => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  el.innerHTML = requests.map(r => {
+    const time = r.requestedAt?.toDate?.()
+      ? r.requestedAt.toDate().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })
+      : '—';
+    const initials = esc((r.name || r.email || '?')[0].toUpperCase());
+    const avatar = r.photoURL
+      ? `<img src="${esc(r.photoURL)}" alt="" style="width:34px;height:34px;border-radius:50%;object-fit:cover;background:var(--bg-inset);flex-shrink:0" />`
+      : `<div style="width:34px;height:34px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:0.75rem;font-weight:700;color:#fff;flex-shrink:0">${initials}</div>`;
+    return `
+      <div class="ban-entry" role="listitem">
+        <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
+          ${avatar}
+          <div style="min-width:0">
+            <div class="ban-email">${esc(r.name || '—')}</div>
+            <div class="ban-detail">${esc(r.email || '—')} · Requested ${time}</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button class="btn btn--sm btn--success"
+            onclick="approveAccessRequest('${esc(r.id)}','${esc(r.name||'')}','${esc(r.email||'')}','${esc(r.photoURL||'')}')">
+            <i class="bi bi-check-lg" aria-hidden="true"></i> Approve
+          </button>
+          <button class="btn btn--sm btn--danger"
+            onclick="denyAccessRequest('${esc(r.id)}','${esc(r.name||'')}')">
+            <i class="bi bi-x-lg" aria-hidden="true"></i> Deny
+          </button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function approveAccessRequest(uid, name, email, photoURL) {
+  if (!uid) return;
+  try {
+    await setDoc(doc(db, 'users', uid), {
+      name:      name  || '',
+      email:     email || '',
+      role:      'teacher',
+      banned:    false,
+      class:     null,
+      createdAt: serverTimestamp(),
+    });
+    await setDoc(doc(db, 'teachers', uid), {
+      name:         name  || '',
+      email:        email || '',
+      ...(photoURL ? { photoURL } : {}),
+      createdAt:    serverTimestamp(),
+      canInvite:    true,
+      libraryPublic:false,
+    });
+    await updateDoc(doc(db, 'accessRequests', uid), {
+      status:     'approved',
+      reviewedBy: currentUser.uid,
+      reviewedAt: serverTimestamp(),
+    });
+    toast(`${name || email} approved as teacher.`, 'success');
+    loadAccessRequests();
+  } catch (err) {
+    console.error('[admin] approveAccessRequest failed:', err);
+    toast(`Failed to approve: ${err.message ?? 'unknown error'}`, 'danger');
+  }
+}
+
+async function denyAccessRequest(uid, name) {
+  if (!uid) return;
+  if (!confirm(`Deny access request from ${name || uid}? They can re-request later.`)) return;
+  try {
+    await updateDoc(doc(db, 'accessRequests', uid), {
+      status:     'denied',
+      reviewedBy: currentUser.uid,
+      reviewedAt: serverTimestamp(),
+    });
+    toast('Access request denied.', 'success');
+    loadAccessRequests();
+  } catch (err) {
+    console.error('[admin] denyAccessRequest failed:', err);
+    toast(`Failed to deny: ${err.message ?? 'unknown error'}`, 'danger');
+  }
+}
+
+// Make approve/deny callable from inline onclick handlers
+window.approveAccessRequest = approveAccessRequest;
+window.denyAccessRequest    = denyAccessRequest;
+
 // ── Invites ───────────────────────────────────────────────────────────────
 let _adminLastInviteLink  = '';
 let _adminLastInviteEmail = '';
@@ -837,7 +977,157 @@ function setupEventListeners() {
   });
   overlay?.addEventListener('click', e => { if (e.target === overlay) overlay.hidden = true; });
 
+  // Add User modal
+  document.getElementById('addUserBtn')?.addEventListener('click',  openAddUserModal);
+  document.getElementById('addUserCloseBtn')?.addEventListener('click', closeAddUserModal);
+  document.getElementById('addUserOverlay')?.addEventListener('click', e => { if (e.target.id === 'addUserOverlay') closeAddUserModal(); });
+  document.getElementById('addUserSubmitBtn')?.addEventListener('click', submitAddUser);
+
+  // Settings modal: load requests when it opens
+  document.getElementById('settingsPage')?.addEventListener('transitionend', () => {}, { once: false });
+  // Use MutationObserver to detect when settings modal becomes visible
+  const settingsEl = document.getElementById('settingsPage');
+  if (settingsEl) {
+    new MutationObserver(() => {
+      if (!settingsEl.hidden) loadSettingsRequests();
+    }).observe(settingsEl, { attributeFilter: ['hidden'] });
+  }
+
   // Initial page loads
   loadAllUsers();
   loadBans();
+}
+
+// ── Settings modal: access requests panel ─────────────────────────────────────
+async function loadSettingsRequests() {
+  const el = document.getElementById('settingsRequestsList');
+  if (!el) return;
+  el.innerHTML = '<p class="empty-state">Loading…</p>';
+  try {
+    const snap = await getDocs(query(
+      collection(db, 'accessRequests'),
+      where('status', '==', 'pending'),
+      orderBy('requestedAt', 'asc')
+    ));
+    const requests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (!requests.length) { el.innerHTML = '<p class="empty-state">No pending access requests.</p>'; return; }
+    const esc = (s = '') => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    el.innerHTML = requests.map(r => {
+      const time = r.requestedAt?.toDate?.()
+        ? r.requestedAt.toDate().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })
+        : '—';
+      const initials = esc((r.name || r.email || '?')[0].toUpperCase());
+      const avatar = r.photoURL
+        ? `<img src="${esc(r.photoURL)}" alt="" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0" />`
+        : `<div style="width:32px;height:32px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:0.75rem;font-weight:700;color:#fff;flex-shrink:0">${initials}</div>`;
+      return `
+        <div class="ban-entry" role="listitem">
+          <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
+            ${avatar}
+            <div style="min-width:0">
+              <div class="ban-email">${esc(r.name || '—')}</div>
+              <div class="ban-detail">${esc(r.email || '—')} · ${time}</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0">
+            <button class="btn btn--sm btn--success"
+              onclick="approveAccessRequest('${esc(r.id)}','${esc(r.name||'')}','${esc(r.email||'')}','${esc(r.photoURL||'')}')">
+              <i class="bi bi-check-lg"></i> Approve
+            </button>
+            <button class="btn btn--sm btn--danger"
+              onclick="denyAccessRequest('${esc(r.id)}','${esc(r.name||'')}')">
+              <i class="bi bi-x-lg"></i> Deny
+            </button>
+          </div>
+        </div>`;
+    }).join('');
+  } catch (err) {
+    console.error('[admin] loadSettingsRequests failed:', err);
+    el.innerHTML = '<p class="empty-state" style="color:var(--danger)">Failed to load.</p>';
+  }
+}
+
+// ── Add User ──────────────────────────────────────────────────────────────────
+// Admin enters one or more emails → a pendingUsers record is created for each.
+// The account is auto-provisioned the first time that person signs in with Google
+// (claimed in auth.js completeLogin via consumePendingUser).
+function openAddUserModal() {
+  const overlay = document.getElementById('addUserOverlay');
+  if (overlay) {
+    overlay.hidden = false;
+    document.getElementById('addUserEmails').value = '';
+    document.getElementById('addUserRole').value   = 'student';
+    document.getElementById('addUserStatus').textContent = '';
+    document.getElementById('addUserBtnLabel').textContent = 'Add User';
+    document.getElementById('addUserSubmitBtn').disabled = false;
+    document.getElementById('addUserEmails').focus();
+  }
+}
+function closeAddUserModal() {
+  const overlay = document.getElementById('addUserOverlay');
+  if (overlay) overlay.hidden = true;
+}
+
+const _emailKey = (email) => email.toLowerCase().trim().replace(/\./g, '_');
+const _isValidEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+
+async function submitAddUser() {
+  const raw       = document.getElementById('addUserEmails').value;
+  const role      = document.getElementById('addUserRole').value;
+  const statusEl  = document.getElementById('addUserStatus');
+  const submitBtn = document.getElementById('addUserSubmitBtn');
+  const btnLabel  = document.getElementById('addUserBtnLabel');
+
+  // Parse: split on newlines, commas, semicolons, or whitespace
+  const emails = [...new Set(
+    raw.split(/[\s,;]+/).map(e => e.trim().toLowerCase()).filter(Boolean)
+  )];
+
+  if (!emails.length) {
+    statusEl.textContent = 'Please enter at least one email address.';
+    statusEl.style.color = 'var(--danger)';
+    return;
+  }
+
+  const invalid = emails.filter(e => !_isValidEmail(e));
+  if (invalid.length) {
+    statusEl.innerHTML = `<span style="color:var(--danger)">Invalid email${invalid.length > 1 ? 's' : ''}: ${invalid.map(e => esc(e)).join(', ')}</span>`;
+    return;
+  }
+
+  statusEl.textContent = '';
+  submitBtn.disabled = true;
+  btnLabel.innerHTML = `<span style="opacity:0.7">Adding ${emails.length}…</span>`;
+
+  let ok = 0;
+  const failed = [];
+  for (const email of emails) {
+    try {
+      await setDoc(doc(db, 'pendingUsers', _emailKey(email)), {
+        email,                       // stored lowercased — matched on sign-in
+        role,
+        createdBy: currentUser.uid,
+        createdAt: serverTimestamp(),
+      });
+      ok++;
+    } catch (err) {
+      console.error('[admin] addUser failed for', email, err);
+      failed.push(email);
+    }
+  }
+
+  const roleLabel = role === 'teacher' ? 'teacher' : 'student';
+  if (ok) {
+    statusEl.innerHTML =
+      `<span style="color:var(--success)">✓ Added ${ok} ${roleLabel}${ok > 1 ? 's' : ''}.</span> ` +
+      `They'll get an account automatically on first Google sign-in.` +
+      (failed.length ? `<br><span style="color:var(--danger)">Failed: ${failed.map(e => esc(e)).join(', ')}</span>` : '');
+    toast(`Added ${ok} ${roleLabel}${ok > 1 ? 's' : ''}`, 'success');
+    document.getElementById('addUserEmails').value = '';
+  } else {
+    statusEl.innerHTML = `<span style="color:var(--danger)">Failed to add users. Check the console.</span>`;
+  }
+
+  submitBtn.disabled = false;
+  btnLabel.textContent = 'Add More';
 }

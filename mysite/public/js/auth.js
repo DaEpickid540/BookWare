@@ -14,6 +14,7 @@ import {
   getDoc,
   setDoc,
   updateDoc,
+  deleteDoc,
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
@@ -84,6 +85,55 @@ async function ensureUserDoc(user, role) {
   }
 }
 
+// ─── Admin pre-registration claim ──────────────────────────────────────────────
+// Mirrors the doc-id transform used by admin.js submitAddUser.
+const emailKeyFor = (email) => (email ?? "").toLowerCase().trim().replace(/\./g, "_");
+
+// If an admin pre-added this email via "Add User", return the assigned role and
+// remove the pending record. Returns "teacher" | "student" | null.
+async function consumePendingUser(user) {
+  try {
+    const ref  = doc(db, "pendingUsers", emailKeyFor(user.email));
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return null;
+    const role = snap.data().role === "teacher" ? "teacher" : "student";
+    await deleteDoc(ref).catch(() => {/* non-critical */});
+    return role;
+  } catch (_) {
+    return null;
+  }
+}
+
+// Create the users doc + role-specific doc for a brand-new account.
+async function provisionUser(user, role) {
+  await setDoc(doc(db, "users", user.uid), {
+    name: user.displayName ?? "",
+    email: user.email ?? "",
+    role,
+    banned: false,
+    class: null,
+    createdAt: serverTimestamp(),
+  });
+  if (role === "teacher") {
+    await setDoc(doc(db, "teachers", user.uid), {
+      name: user.displayName ?? "",
+      email: user.email ?? "",
+      createdAt: serverTimestamp(),
+      canInvite: true,
+      libraryPublic: false,
+    });
+  } else {
+    await setDoc(doc(db, "students", user.uid), {
+      name: user.displayName ?? "",
+      email: user.email ?? "",
+      currentBook: null,
+      wishlist: [],
+      wishlistMeta: {},
+      banned: false,
+    });
+  }
+}
+
 // ─── Post-auth provisioning + routing (shared by popup and redirect paths) ─────
 async function completeLogin(user, role) {
   // ── Admin ─────────────────────────────────────────────────────────────────
@@ -118,12 +168,17 @@ async function completeLogin(user, role) {
       return;
     }
 
-    // No account at all — must be invited first
-    await signOut(auth);
-    showError(
-      "Teacher accounts require an invite link. " +
-      "Ask your school admin or an existing teacher for one."
-    );
+    // No account — was this email pre-added by an admin?
+    const pending = await consumePendingUser(user);
+    if (pending) {
+      await provisionUser(user, pending);
+      window.location.href = pending === "teacher" ? "/teacher.html" : "/student.html";
+      return;
+    }
+
+    // Not pre-registered — send to the access page so they can enter
+    // an invite code or submit an admin approval request (stay signed in)
+    window.location.href = '/teacher-access.html';
     return;
   }
 
@@ -139,16 +194,19 @@ async function completeLogin(user, role) {
   }
 
   if (!uSnap.exists()) {
-    await setDoc(uRef, {
-      name: user.displayName ?? "",
-      email: user.email ?? "",
-      role: "student",
-      banned: false,
-      class: null,
-      createdAt: serverTimestamp(),
-    });
+    // New account — honor an admin pre-registration if one exists
+    const pending = await consumePendingUser(user);
+    if (pending === "teacher") {
+      await provisionUser(user, "teacher");
+      window.location.href = "/teacher.html";
+      return;
+    }
+    await provisionUser(user, "student");
+    window.location.href = "/student.html";
+    return;
   }
 
+  // Existing student — make sure their students doc exists
   const sRef = doc(db, "students", user.uid);
   const sSnap = await getDoc(sRef);
   if (!sSnap.exists()) {
