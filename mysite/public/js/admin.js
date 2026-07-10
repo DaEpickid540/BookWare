@@ -251,6 +251,9 @@ function renderUsersTable(users) {
           ${!u.banned
             ? `<button class='btn btn--danger btn--sm' data-action='ban'    data-uid='${esc(u.uid)}'>Ban</button>`
             : `<button class='btn btn--success btn--sm' data-action='unban' data-uid='${esc(u.uid)}'>Unban</button>`}
+          ${u.role === 'student' || u.role === 'teacher'
+            ? `<button class='btn btn--ghost btn--sm' data-action='reset-onboarding' data-uid='${esc(u.uid)}' data-role='${esc(u.role)}' title='Replay the welcome tour and reading quiz next time they sign in'>Replay Onboarding</button>`
+            : ''}
           <button class='btn btn--danger btn--sm' data-action='delete' data-uid='${esc(u.uid)}' style='opacity:0.7'>Delete</button>
         </td>
       </tr>`;
@@ -259,13 +262,35 @@ function renderUsersTable(users) {
   container.innerHTML = html;
   container.querySelectorAll('[data-action]').forEach(btn => {
     btn.addEventListener('click', e => {
-      const { action, uid } = e.currentTarget.dataset;
-      if (action === 'ban')    openBanModal(uid);
-      if (action === 'unban')  unbanUser(uid);
-      if (action === 'view')   viewUserDetails(uid);
-      if (action === 'delete') deleteUserRecord(uid);
+      const { action, uid, role } = e.currentTarget.dataset;
+      if (action === 'ban')              openBanModal(uid);
+      if (action === 'unban')            unbanUser(uid);
+      if (action === 'view')             viewUserDetails(uid);
+      if (action === 'delete')           deleteUserRecord(uid);
+      if (action === 'reset-onboarding') resetUserOnboarding(uid, role);
     });
   });
+}
+
+// Clears a user's saved reading profile so the app treats them as brand-new
+// again on their next sign-in: the onboarding reading quiz auto-triggers
+// exactly like it does for a first-time account (see maybeRunOnboardingQuiz()
+// in student.js / teacher.js).
+async function resetUserOnboarding(uid, role) {
+  const u = allUsers.find(x => x.uid === uid);
+  const label = u?.name || u?.email || uid;
+  const ok = await appConfirm(
+    `Replay the first-time reading quiz for "${label}"? They'll be prompted to take it again next time they sign in, just like a brand-new account.`,
+    'Replay', false
+  );
+  if (!ok) return;
+  try {
+    const collectionName = role === 'teacher' ? 'teachers' : 'students';
+    await updateDoc(doc(db, collectionName, uid), { readingProfile: null });
+    toast(`<i class="bi bi-stars"></i> ${esc(label)} will be prompted with the reading quiz again next sign-in.`, 'success');
+  } catch (err) {
+    toast(`Failed to reset onboarding: ${esc(err.message ?? 'unknown error')}`, 'danger');
+  }
 }
 
 function filterUsers() {

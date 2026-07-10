@@ -507,14 +507,14 @@
               <div class="settings-row">
                 <div>
                   <div class="settings-label">Enable ARIA</div>
-                  <div class="settings-hint">AI chat assistant on the Dashboard</div>
+                  <div class="settings-hint" id="ariaGateHint">AI chat assistant on the Dashboard</div>
                 </div>
                 <label class="toggle" aria-label="Enable ARIA AI">
                   <input type="checkbox" id="ariaEnabled" />
                   <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
                 </label>
               </div>
-              <div id="ariaSetupPanel" hidden>
+              <div id="ariaSetupPanel">
                 <div class="aria-active-line" id="ariaActiveProviderLine" style="border-top:1px solid var(--border);margin-top:10px">
                   <i class="bi bi-info-circle-fill" aria-hidden="true"></i> <span id="ariaActiveProviderText">No AI key saved yet — add one below to turn ARIA on.</span>
                 </div>
@@ -525,12 +525,18 @@
                 </div>
 
                 <div class="settings-row settings-row--col" style="padding-bottom:2px">
-                  <div class="settings-label">Paste Your AI API Key(s)</div>
-                  <div class="settings-hint">Add any you have — ARIA automatically uses the best one available (Claude first, for quality)</div>
+                  <div class="settings-label">AI Provider</div>
+                  <div class="settings-hint">Pick the one you want to use — only its key box shows below</div>
                 </div>
+                <select id="ariaProviderSelect" class="select-input" aria-label="AI provider" style="margin-bottom:10px">
+                  <option value="anthropic">⭐ Claude — Highest Quality</option>
+                  <option value="openai">ChatGPT (OpenAI)</option>
+                  <option value="gemini">Gemini — Free tier</option>
+                  <option value="groq" selected>Groq — Free &amp; fast</option>
+                </select>
 
                 <!-- Claude -->
-                <div class="aria-key-row" data-provider="anthropic">
+                <div class="aria-key-row" data-provider="anthropic" hidden>
                   <div class="aria-key-row-head">
                     <span class="aria-key-row-label">Claude <span class="aria-badge aria-badge--best">⭐ Highest Quality</span></span>
                     <span class="aria-key-row-status" data-status="anthropic"></span>
@@ -543,7 +549,7 @@
                 </div>
 
                 <!-- ChatGPT -->
-                <div class="aria-key-row" data-provider="openai">
+                <div class="aria-key-row" data-provider="openai" hidden>
                   <div class="aria-key-row-head">
                     <span class="aria-key-row-label">ChatGPT (OpenAI)</span>
                     <span class="aria-key-row-status" data-status="openai"></span>
@@ -556,7 +562,7 @@
                 </div>
 
                 <!-- Gemini -->
-                <div class="aria-key-row" data-provider="gemini">
+                <div class="aria-key-row" data-provider="gemini" hidden>
                   <div class="aria-key-row-head">
                     <span class="aria-key-row-label">Gemini <span class="aria-badge aria-badge--free">Free tier</span></span>
                     <span class="aria-key-row-status" data-status="gemini"></span>

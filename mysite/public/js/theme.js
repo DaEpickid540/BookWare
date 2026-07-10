@@ -223,10 +223,14 @@ export function initStaySignedIn(onChangeFn) {
 }
 
 // ─── ARIA AI ──────────────────────────────────────────────────────────────────
-const ARIA_ENABLED_KEY  = 'bw-aria-enabled';
+// The localStorage key constants below are exported so other entry points
+// (currently: quiz.js's onboarding ARIA-setup step) can read/write the exact
+// same keys Settings uses, instead of re-declaring their own copies that
+// could silently drift out of sync.
+export const ARIA_ENABLED_KEY  = 'bw-aria-enabled';
 // Web search is multi-provider too — pick whichever backend you have a key for.
-const ARIA_SEARCH_PROVIDER_KEY  = 'bw-aria-search-provider';
-const ARIA_SEARCH_PROVIDER_KEYS = {
+export const ARIA_SEARCH_PROVIDER_KEY  = 'bw-aria-search-provider';
+export const ARIA_SEARCH_PROVIDER_KEYS = {
   contextwire: 'bw-aria-search-key-contextwire',
   brave:       'bw-aria-search-key-brave',
   serpapi:     'bw-aria-search-key-serpapi',
@@ -250,7 +254,7 @@ const SEARCH_PROVIDER_META = {
 };
 
 // Per-provider localStorage keys (keep old groq key for backward compat)
-const ARIA_PROVIDER_KEYS = {
+export const ARIA_PROVIDER_KEYS = {
   anthropic:  'bw-aria-key-anthropic',
   openai:     'bw-aria-key-openai',
   gemini:     'bw-aria-key-gemini',
@@ -268,12 +272,11 @@ const PROVIDER_META = {
   groq:       { label: 'Groq API Key',                         hint: 'console.groq.com — fast & free',           placeholder: 'gsk_…'          },
 };
 
-// Priority order ARIA auto-selects from when multiple keys are saved — Claude
-// first because Anthropic models give the highest-quality recommendations and
-// chat replies of any provider we support. Falls through to whichever else the
-// user has configured.
-const PROVIDER_PRIORITY = ['anthropic', 'openai', 'gemini', 'groq', 'openrouter', 'cloudflare'];
-const PROVIDER_DISPLAY_NAME = {
+// Which single provider the user has chosen to use — the UI only ever shows
+// that one provider's key box (see the AI Provider dropdown in Settings and
+// in the onboarding quiz), so there's no priority list to fall back through.
+export const ARIA_PROVIDER_KEY = 'bw-aria-provider';
+export const PROVIDER_DISPLAY_NAME = {
   anthropic: 'Claude', openai: 'ChatGPT', gemini: 'Gemini',
   groq: 'Groq', openrouter: 'OpenRouter', cloudflare: 'Cloudflare',
 };
@@ -373,13 +376,13 @@ function buildQuickReplies(profile, role = 'student') {
   return out.slice(0, 4);
 }
 
-// Auto-picks the best-available provider: the highest-priority one (Claude
-// first) that actually has a saved key. Returns null if none are configured.
-function getAriaProvider() {
-  for (const provider of PROVIDER_PRIORITY) {
-    if (localStorage.getItem(ARIA_PROVIDER_KEYS[provider])) return provider;
-  }
-  return null;
+// Returns the user's explicitly chosen provider (from the AI Provider
+// dropdown), but only if they've actually saved a key for it — an unconfigured
+// selection doesn't silently fall back to a different provider. Returns null
+// if not ready.
+export function getAriaProvider() {
+  const chosen = localStorage.getItem(ARIA_PROVIDER_KEY) ?? 'groq';
+  return localStorage.getItem(ARIA_PROVIDER_KEYS[chosen]) ? chosen : null;
 }
 function getAriaKey() {
   const provider = getAriaProvider();
@@ -710,7 +713,7 @@ export function initAriaChat(mountId, role = 'student', getProfile = null) {
 const AR_LOCAL_COUNT    = 4; // picks drawn from BookWare's curated on-file list
 const AR_INTERNET_COUNT = 4; // picks ARIA sources beyond the on-file list
 
-function hasSearchKeyConfigured() {
+export function hasSearchKeyConfigured() {
   const sp = localStorage.getItem(ARIA_SEARCH_PROVIDER_KEY) ?? 'contextwire';
   return !!localStorage.getItem(ARIA_SEARCH_PROVIDER_KEYS[sp] ?? '');
 }
@@ -886,10 +889,14 @@ export function initAriaRecommends(mountId, role = 'student', getProfile = null)
 // ── ARIA settings panel (shared across all portals) ───────────────────────────
 /** Wire the ARIA AI settings section.
  *  toastFn is optional — pass the page's toast() for in-app feedback. */
+const ARIA_PROVIDER_CHOICES = ['anthropic', 'openai', 'gemini', 'groq'];
+
 export function initARIA(toastFn) {
-  const toggle      = document.getElementById('ariaEnabled');
-  const panel       = document.getElementById('ariaSetupPanel');
-  const activeLine  = document.getElementById('ariaActiveProviderText');
+  const toggle         = document.getElementById('ariaEnabled');
+  const panel          = document.getElementById('ariaSetupPanel');
+  const activeLine     = document.getElementById('ariaActiveProviderText');
+  const gateHint       = document.getElementById('ariaGateHint');
+  const providerSelect = document.getElementById('ariaProviderSelect');
   // Web search — provider-aware (ContextWire / Brave / SerpAPI)
   const searchProvSelect = document.getElementById('ariaSearchProvider');
   const searchInput      = document.getElementById('ariaSearchKey');
@@ -898,24 +905,43 @@ export function initARIA(toastFn) {
   const searchSaveBtn    = document.getElementById('ariaSaveSearchBtn');
   if (!toggle || !panel) return;
 
+  // The key-entry rows are always visible (not gated by the toggle) so users
+  // can actually configure the prerequisite keys before ARIA can be switched
+  // on — see updateAriaGate() below.
+  panel.hidden = false;
+
   // Restore state
   toggle.checked = localStorage.getItem(ARIA_ENABLED_KEY) === 'true';
-  panel.hidden   = !toggle.checked;
 
   const savedSearchProvider = localStorage.getItem(ARIA_SEARCH_PROVIDER_KEY) ?? 'contextwire';
   if (searchProvSelect) searchProvSelect.value = savedSearchProvider;
   updateSearchKeyUI(savedSearchProvider);
 
   // Restore each provider's saved key into its own row + refresh status badges
-  ['anthropic', 'openai', 'gemini', 'groq'].forEach(provider => {
+  ARIA_PROVIDER_CHOICES.forEach(provider => {
     const input = document.getElementById(`ariaKey-${provider}`);
     if (input) input.value = localStorage.getItem(ARIA_PROVIDER_KEYS[provider]) ?? '';
   });
+
+  // Only the chosen provider's key box is shown — that's the whole point of
+  // this dropdown: don't clutter the page with Claude/OpenAI/Gemini rows for
+  // someone who only wants Groq.
+  const savedChoice = localStorage.getItem(ARIA_PROVIDER_KEY) ?? 'groq';
+  if (providerSelect) providerSelect.value = savedChoice;
+  updateProviderRowVisibility(savedChoice);
   refreshProviderStatus();
+  updateAriaGate();
+
+  function updateProviderRowVisibility(chosen) {
+    ARIA_PROVIDER_CHOICES.forEach(provider => {
+      const row = document.querySelector(`.aria-key-row[data-provider="${provider}"]`);
+      if (row) row.hidden = provider !== chosen;
+    });
+  }
 
   function refreshProviderStatus() {
     const active = getAriaProvider();
-    ['anthropic', 'openai', 'gemini', 'groq'].forEach(provider => {
+    ARIA_PROVIDER_CHOICES.forEach(provider => {
       const badge = document.querySelector(`.aria-key-row-status[data-status="${provider}"]`);
       if (!badge) return;
       const hasKey = !!localStorage.getItem(ARIA_PROVIDER_KEYS[provider]);
@@ -924,7 +950,34 @@ export function initARIA(toastFn) {
     if (activeLine) {
       activeLine.innerHTML = active
         ? `ARIA is running on <strong>${PROVIDER_DISPLAY_NAME[active] ?? active}</strong>${active === 'anthropic' ? ' <span class="aria-badge aria-badge--best">⭐ Highest Quality</span>' : ''}.`
-        : 'No AI key saved yet — add one below to turn ARIA on.';
+        : `No key saved for ${PROVIDER_DISPLAY_NAME[getSelectedProvider()] ?? 'the selected provider'} yet — add one below to turn ARIA on.`;
+    }
+  }
+
+  function getSelectedProvider() {
+    return providerSelect?.value ?? localStorage.getItem(ARIA_PROVIDER_KEY) ?? 'groq';
+  }
+
+  // ARIA can only be switched ON once BOTH an AI key and a Web Search key are
+  // configured — without both, recommendations and chat are unreliable (see
+  // the setup warning above), so the toggle is physically locked (greyed out,
+  // not-allowed cursor, un-clickable) rather than letting someone flip it on
+  // to a half-working state. Turning ARIA OFF is never blocked.
+  function updateAriaGate() {
+    const ready = !!getAriaProvider() && hasSearchKeyConfigured();
+    toggle.disabled = !ready;
+    toggle.closest('.toggle')?.classList.toggle('toggle--disabled', !ready);
+    if (gateHint) {
+      gateHint.textContent = ready
+        ? 'Adds an AI chat button and book recommendations to your library.'
+        : 'Locked — add an AI key AND a Web Search key below to unlock ARIA.';
+    }
+    if (!ready && toggle.checked) {
+      // A required key was removed after ARIA was already on — turn it back
+      // off automatically rather than leaving it running half-configured.
+      toggle.checked = false;
+      localStorage.setItem(ARIA_ENABLED_KEY, 'false');
+      refreshAriaChats();
     }
   }
 
@@ -939,11 +992,22 @@ export function initARIA(toastFn) {
     }
   }
 
-  // Enable/disable toggle
+  // AI Provider dropdown — switches which single key box is visible
+  providerSelect?.addEventListener('change', () => {
+    const chosen = providerSelect.value;
+    localStorage.setItem(ARIA_PROVIDER_KEY, chosen);
+    updateProviderRowVisibility(chosen);
+    refreshProviderStatus();
+    updateAriaGate();
+    refreshAriaChats();
+  });
+
+  // Enable/disable toggle — the browser already blocks interaction while
+  // toggle.disabled is true, but the guard below is a harmless backstop.
   toggle.addEventListener('change', () => {
+    if (toggle.disabled) return;
     const on = toggle.checked;
     localStorage.setItem(ARIA_ENABLED_KEY, String(on));
-    panel.hidden = !on;
     refreshAriaChats();
     toastFn?.(on ? `<i class='bi bi-robot'></i> ARIA enabled` : 'ARIA disabled', on ? 'success' : 'info');
   });
@@ -958,12 +1022,14 @@ export function initARIA(toastFn) {
       if (!key) {
         localStorage.removeItem(ARIA_PROVIDER_KEYS[provider]);
         refreshProviderStatus();
+        updateAriaGate();
         refreshAriaChats();
         toastFn?.(`${name} key removed.`, 'info');
         return;
       }
       localStorage.setItem(ARIA_PROVIDER_KEYS[provider], key);
       refreshProviderStatus();
+      updateAriaGate();
       refreshAriaChats();
       toastFn?.(`<i class='bi bi-check2'></i> ${name} key saved!`, 'success');
     });
@@ -974,6 +1040,7 @@ export function initARIA(toastFn) {
     const p = searchProvSelect.value;
     localStorage.setItem(ARIA_SEARCH_PROVIDER_KEY, p);
     updateSearchKeyUI(p);
+    updateAriaGate();
     refreshAriaChats();
   });
 
@@ -985,10 +1052,12 @@ export function initARIA(toastFn) {
     const name = SEARCH_PROVIDER_META[provider]?.label?.replace(/ API Key$/, '') ?? 'Search';
     if (key) {
       localStorage.setItem(storageKey, key);
+      updateAriaGate();
       refreshAriaChats();
       toastFn?.(`<i class="bi bi-search"></i> ${name} key saved — ARIA can now search the web!`, 'success');
     } else {
       localStorage.removeItem(storageKey);
+      updateAriaGate();
       refreshAriaChats();
       toastFn?.(`${name} key removed.`, 'info');
     }
