@@ -707,8 +707,8 @@ export function initAriaChat(mountId, role = 'student', getProfile = null) {
 }
 
 // ── ARIA Recommends panel ─────────────────────────────────────────────────────
-const AR_LOCAL_COUNT    = 2; // picks drawn from BookWare's curated on-file list
-const AR_INTERNET_COUNT = 2; // picks ARIA sources beyond the on-file list
+const AR_LOCAL_COUNT    = 4; // picks drawn from BookWare's curated on-file list
+const AR_INTERNET_COUNT = 4; // picks ARIA sources beyond the on-file list
 
 function hasSearchKeyConfigured() {
   const sp = localStorage.getItem(ARIA_SEARCH_PROVIDER_KEY) ?? 'contextwire';
@@ -720,15 +720,43 @@ function normTitle(s) {
   return String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-/** Mount an "ARIA Recommends" card into `mountId`. Blends two sources so picks
- *  aren't limited to BookWare's on-file list: a couple of curated titles from
- *  `booklist.js` (guaranteed real, vetted books) plus a couple ARIA sources
+/** Parse "one book per line" AI output leniently — real-world models rarely
+ *  follow a requested format perfectly, so this accepts the requested
+ *  "Title | Author | reason" pipe format AND a common natural-language
+ *  fallback ("Title by Author — reason" / ": reason" / ", reason"), and
+ *  strips leading numbering/bullets before trying either. Returns
+ *  [{title, author, reason}], skipping any line it can't parse. */
+function parseBookLines(text) {
+  const out = [];
+  for (let line of String(text ?? '').split('\n')) {
+    line = line.trim().replace(/^[\s\-•*\d.)]+/, '').trim();
+    if (!line) continue;
+    if (line.includes('|')) {
+      const parts = line.split('|').map(p => p.trim()).filter(Boolean);
+      if (parts.length >= 3) {
+        out.push({ title: parts[0], author: parts[1], reason: parts.slice(2).join(' — ') });
+        continue;
+      }
+    }
+    const m = line.match(/^["“]?(.+?)["”]?\s+by\s+(.+?)\s*[:\-–—,]\s*(.+)$/i);
+    if (m) out.push({ title: m[1].trim(), author: m[2].trim(), reason: m[3].trim() });
+  }
+  return out;
+}
+
+/** Mount an "ARIA Recommends" card into `mountId`. Blends two independent
+ *  sources so picks aren't limited to BookWare's on-file list: curated titles
+ *  from `booklist.js` (guaranteed real, vetted books) plus titles ARIA sources
  *  itself — grounded in live web-search results when a Web Search key is
  *  configured (Settings → ARIA AI), or its own general knowledge otherwise.
- *  Every pick across both sources is deduplicated by normalized title so the
- *  same book is never shown twice in one refresh. Renders nothing unless ARIA
- *  is enabled AND has a working API key — i.e. "only works if the AI is
- *  wired", per spec.
+ *  The two sources are fetched as separate, independently-parsed AI calls
+ *  (run in parallel) so a formatting slip in one never wipes out the other —
+ *  a single combined "reply in this exact multi-section format" call was
+ *  fragile with weaker/free models, which regularly dropped the whole second
+ *  half. Every pick across both sources is deduplicated by normalized title
+ *  so the same book is never shown twice in one refresh. Renders nothing
+ *  unless ARIA is enabled AND has a working API key — i.e. "only works if the
+ *  AI is wired", per spec.
  *  role: 'student' | 'teacher'
  *  getProfile: optional () => readingProfile getter (see initAriaChat). */
 export function initAriaRecommends(mountId, role = 'student', getProfile = null) {
@@ -757,57 +785,58 @@ export function initAriaRecommends(mountId, role = 'student', getProfile = null)
       </div>`;
 
     const webGrounded = hasSearchKeyConfigured();
+    const who = role === 'teacher' ? 'a teacher looking for classroom library picks' : 'a highschool student';
+    const profileLine = describeProfile(profile, role);
     const localPicks = pickBooksForProfile(profile, AR_LOCAL_COUNT);
     let localReasons = localPicks.map(b => b.blurb);
-    const internetPicks = []; // { title, author, genres:[], reason }
+    const internetPicks = []; // { title, author, reason }
 
-    try {
-      const who = role === 'teacher' ? 'a teacher looking for classroom library picks' : 'a highschool student';
-      const profileLine = describeProfile(profile, role);
-      const excludeTitles = localPicks.map(b => `"${b.title}"`).join(', ');
+    // ── Call A: personalized reasons for the on-file picks ──────────────────
+    async function fetchLocalReasons() {
       const prompt =
-        `The reader is ${who}.${profileLine ? ` ${profileLine}` : ' They have not taken the reading quiz yet, so just go on general highschool-appropriate appeal.'}\n\n` +
-        `PART 1 — Here are ${localPicks.length} books already chosen for them from our on-file library list:\n${formatBooksForPrompt(localPicks)}\n\n` +
-        `For each one, in the SAME order, write one short, warm sentence (max 28 words) telling this specific reader why they'd enjoy it. Prefix each line with "REASON: ".\n\n` +
-        `PART 2 — Now suggest ${AR_INTERNET_COUNT} MORE real, well-known, highschool-appropriate books that match this reader, drawing on your own knowledge${webGrounded ? ' and any web search context provided below' : ''} — books that are NOT in our on-file list. ` +
-        `Do not repeat any of these titles: ${excludeTitles}. Every suggestion must be a real, existing, published book — never invent a title or author.\n` +
-        `Reply with one line per suggestion in EXACTLY this format:\n` +
-        `NEW: Title | Author | genre1,genre2 | one warm sentence (max 28 words) on why this reader would enjoy it\n\n` +
-        `Reply with EXACTLY ${localPicks.length} "REASON:" lines followed by EXACTLY ${AR_INTERNET_COUNT} "NEW:" lines, nothing else — no numbering, no preamble, no closing remarks.`;
+        `The reader is ${who}.${profileLine ? ` ${profileLine}` : ' They have not taken the reading quiz yet, so just go on the books themselves.'}\n\n` +
+        `Here are ${localPicks.length} books chosen for them from our library list:\n${formatBooksForPrompt(localPicks)}\n\n` +
+        `For each book, in the SAME order, write exactly one short, warm sentence (max 28 words) ` +
+        `telling this specific reader why they would enjoy it. Reply with EXACTLY ${localPicks.length} lines, one ` +
+        `sentence per line, no numbering or bullets, no extra commentary before or after.`;
       const reply = await callAriaProvider(provider, key, [
-        { role: 'system', content: 'You are ARIA, a warm, concise reading-recommendation assistant inside the BookWare app. Follow the requested output format exactly — no preamble, no extra lines, no markdown.' },
+        { role: 'system', content: 'You are ARIA, a warm, concise reading-recommendation assistant inside the BookWare app. Follow the requested output format exactly — no preamble, no extra lines.' },
         { role: 'user', content: prompt },
       ]);
-
-      const lines = reply.split('\n').map(l => l.trim()).filter(Boolean);
-      const reasonLines = lines.filter(l => /^REASON:/i.test(l)).map(l => l.replace(/^REASON:\s*/i, '').trim());
-      const newLines    = lines.filter(l => /^NEW:/i.test(l)).map(l => l.replace(/^NEW:\s*/i, '').trim());
-
-      if (reasonLines.length >= localPicks.length) localReasons = reasonLines.slice(0, localPicks.length);
-
-      // Dedupe internet picks against the local picks AND against each other,
-      // so the same book can never appear twice in one refresh.
-      const seenTitles = new Set(localPicks.map(b => normTitle(b.title)));
-      for (const line of newLines) {
-        if (internetPicks.length >= AR_INTERNET_COUNT) break;
-        const parts = line.split('|').map(p => p.trim());
-        if (parts.length < 4) continue;
-        const [title, author, genreStr, reason] = parts;
-        if (!title || !author || !reason) continue;
-        const tKey = normTitle(title);
-        if (seenTitles.has(tKey)) continue;
-        seenTitles.add(tKey);
-        internetPicks.push({
-          title, author, reason,
-          genres: genreStr.split(',').map(g => g.trim()).filter(Boolean).slice(0, 3),
-        });
-      }
-    } catch (_) {
-      // AI personalization / internet lookup failed (rate limit, bad key,
-      // offline, etc.) — fall back to the curated on-file blurbs so the box
-      // still shows real picks instead of an error. This is exactly the
-      // degraded mode the setup warning above the API key fields describes.
+      const lines = reply.split('\n').map(l => l.replace(/^[\s\-•\d.)]+/, '').trim()).filter(Boolean);
+      if (lines.length >= localPicks.length) localReasons = lines.slice(0, localPicks.length);
     }
+
+    // ── Call B: fresh picks beyond the on-file list ──────────────────────────
+    async function fetchInternetPicks() {
+      const excludeTitles = localPicks.map(b => `"${b.title}"`).join(', ');
+      const topGenres = (profile?.genres ?? []).slice(0, 2).map(g => lbl('genres', g)).join(' and ');
+      const prompt =
+        `${topGenres ? `${topGenres} book recommendations` : 'Highschool book recommendations'} for ${who}.` +
+        `${profileLine ? ` ${profileLine}` : ''}\n\n` +
+        `Suggest exactly ${AR_INTERNET_COUNT} real, well-known, highschool-appropriate books this reader would enjoy that are NOT ` +
+        `any of: ${excludeTitles}. Every title must be a real, existing, published book — never invent one.\n\n` +
+        `Reply with EXACTLY ${AR_INTERNET_COUNT} lines, one book per line, in this format and nothing else, no numbering, no preamble:\n` +
+        `Title | Author | one warm sentence (max 25 words) on why this reader would enjoy it`;
+      const reply = await callAriaProvider(provider, key, [
+        { role: 'system', content: 'You are ARIA, a well-read reading-recommendation assistant. Only suggest real, existing, published books. Follow the requested output format exactly — no preamble, no extra lines, no markdown.' },
+        { role: 'user', content: prompt },
+      ]);
+      const parsed = parseBookLines(reply);
+      const seenTitles = new Set(localPicks.map(b => normTitle(b.title)));
+      for (const b of parsed) {
+        if (internetPicks.length >= AR_INTERNET_COUNT) break;
+        if (!b.title || !b.author || !b.reason) continue;
+        const tKey = normTitle(b.title);
+        if (seenTitles.has(tKey)) continue; // dedupe vs. local picks + earlier internet picks
+        seenTitles.add(tKey);
+        internetPicks.push(b);
+      }
+    }
+
+    // Independent calls in parallel — a format slip or failure in one doesn't
+    // wipe out the other, unlike a single combined multi-section request.
+    await Promise.allSettled([fetchLocalReasons(), fetchInternetPicks()]);
     inFlight = false;
 
     const localCards = localPicks.map((b, i) => `
@@ -829,7 +858,6 @@ export function initAriaRecommends(mountId, role = 'student', getProfile = null)
           <div class="aria-rec-author">by ${escHtml(b.author)}</div>
         </div>
         <p class="aria-rec-reason">${escHtml(b.reason)}</p>
-        <div class="aria-rec-genres">${b.genres.map(g => `<span class="aria-rec-chip">${escHtml(g)}</span>`).join('')}</div>
       </div>`).join('');
 
     mount.innerHTML = `
@@ -840,7 +868,7 @@ export function initAriaRecommends(mountId, role = 'student', getProfile = null)
         ${localCards}
         ${internetCards}
       </div>
-      ${!internetPicks.length ? `<p class="settings-hint" style="margin-top:6px">Add a Web Search key in Settings → ARIA AI for fresh, internet-grounded picks too.</p>` : ''}
+      ${!internetPicks.length ? `<p class="settings-hint" style="margin-top:6px">${webGrounded ? 'ARIA couldn\'t fetch fresh web picks this time — try "Show different picks."' : 'Add a Web Search key in Settings → ARIA AI for fresh, internet-grounded picks too.'}</p>` : ''}
       <button type="button" class="btn btn--ghost btn--sm aria-recs-refresh">
         <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Show different picks
       </button>`;
