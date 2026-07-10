@@ -1,5 +1,6 @@
 // student.js — BookWare Student Portal
 import { auth, db } from "./firebase.js";
+import { shouldForceLogout } from "./config.js";
 import { searchBooks } from "./books.js";
 import { initTheme, initARIA, applyPreset, initAriaChat, initAriaRecommends, refreshAriaChats, initSettingsModal, openSettingsModal, initStaySignedIn } from "./theme.js";
 import { runReadingQuiz } from "./quiz.js";
@@ -46,7 +47,8 @@ function esc(s) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function toast(msg, type = "info") {
@@ -129,7 +131,7 @@ onAuthStateChanged(auth, async (user) => {
   }
 
   try {
-    // Maintenance check
+    // Maintenance + admin force-logout check
     try {
       const settingsSnap = await getDoc(doc(db, "admin", "settings"));
       if (
@@ -138,6 +140,11 @@ onAuthStateChanged(auth, async (user) => {
       ) {
         await signOut(auth);
         window.location.href = "/?maintenance=1";
+        return;
+      }
+      if (shouldForceLogout(settingsSnap, user)) {
+        await signOut(auth);
+        window.location.href = "/";
         return;
       }
     } catch (_) {}
@@ -325,6 +332,9 @@ function setupSignout() {
   document
     .getElementById("signoutBar")
     ?.addEventListener("click", () => signOut(auth));
+  document
+    .getElementById("sidebarSignoutBtn")
+    ?.addEventListener("click", () => signOut(auth));
   const hint = document.getElementById("signoutEmail");
   if (hint && currentUser) hint.textContent = currentUser.email;
 }
@@ -371,6 +381,25 @@ async function populateSettingsInfo() {
     ?.addEventListener("keydown", (e) => {
       if (e.key === "Enter") addTeacherByCode();
     });
+
+  // Wishlist-availability alerts toggle (persists to the student doc; honored by
+  // renderNotifications). Defaults to on when unset.
+  const wishToggle = document.getElementById("notifWishlist");
+  if (wishToggle) {
+    wishToggle.checked = studentData.notifWishlist !== false;
+    wishToggle.addEventListener("change", async () => {
+      studentData.notifWishlist = wishToggle.checked;
+      try {
+        await updateDoc(doc(db, "students", currentUser.uid), {
+          notifWishlist: wishToggle.checked,
+        });
+        renderNotifications();
+      } catch (err) {
+        console.error("[student] Failed to save notification preference:", err);
+        toast("Couldn't save that setting. Try again.", "danger");
+      }
+    });
+  }
 }
 
 // ── Teacher code (join library) ───────────────────────────────────────────────
@@ -503,8 +532,9 @@ async function renderNotifications() {
   const notifs = [];
   const wishlist = studentData.wishlist ?? [];
   const notifTeacherId = selectedTeacherId ?? classTeacherId;
+  const wishlistAlertsOn = studentData.notifWishlist !== false;
 
-  if (wishlist.length > 0 && notifTeacherId) {
+  if (wishlistAlertsOn && wishlist.length > 0 && notifTeacherId) {
     for (const bookId of wishlist.slice(0, 5)) {
       try {
         const bSnap = await getDoc(
@@ -1169,6 +1199,10 @@ async function requestCheckout(bookId, bookTitle) {
     });
   } catch (e) {
     console.error("[student] History write failed:", e?.code ?? e);
+    toast(
+      "Book checked out, but logging it to your teacher's history failed. Let them know if it doesn't appear.",
+      "danger",
+    );
   }
 
   studentData.currentBook = bookId;
@@ -1684,7 +1718,6 @@ document
 async function renderProfilePage() {
   await renderProfileCurrentBook();
   await renderReadingStats();
-  await renderSimilarReaders();
   await renderMyRecommendations();
 }
 
@@ -1806,43 +1839,11 @@ async function renderReadingStats() {
     }'>${overdueCount}</div><div class='stat-label'>Overdue</div></div>`;
 }
 
-async function renderSimilarReaders() {
-  const el = document.getElementById("similarReaders");
-  if (!el) return;
-  if (!classTeacherId) {
-    el.innerHTML = `<p class='empty-state'>Join a class to see similar readers.</p>`;
-    return;
-  }
-  const snap = await getDocs(
-    query(collection(db, "students"), where("class", "==", classTeacherId)),
-  );
-  const others = snap.docs.filter((d) => d.id !== currentUser.uid).slice(0, 6);
-  if (others.length === 0) {
-    el.innerHTML = `<p class='empty-state'>No other students in your class yet.</p>`;
-    return;
-  }
-  el.innerHTML = "";
-  others.forEach((d) => {
-    const s = d.data();
-    const initials = (s.name ?? "?")
-      .split(" ")
-      .map((w) => w[0])
-      .join("")
-      .slice(0, 2)
-      .toUpperCase();
-    const card = document.createElement("div");
-    card.className = "reader-card";
-    card.innerHTML = `
-      <div class='reader-avatar'>${esc(initials)}</div>
-      <div class='reader-name'>${esc(s.name?.split(" ")[0] ?? "Student")} ${esc(
-      (s.name?.split(" ")[1] ?? "")[0] ?? "",
-    )}.</div>
-      <div class='reader-status'>${
-        s.currentBook ? "Currently reading" : "No active loan"
-      }</div>`;
-    el.appendChild(card);
-  });
-}
+// NOTE: "Similar Readers" was removed intentionally. Showing classmates would
+// require students to read each other's `students/{uid}` records, which the
+// Firestore rules (correctly) forbid to protect student privacy. Enforcing that
+// on the client while leaving the door open on the server would be a false sense
+// of privacy, so the feature is gone rather than faked.
 
 // ── Student recommendations ───────────────────────────────────────────────────
 async function loadMyRecIds() {

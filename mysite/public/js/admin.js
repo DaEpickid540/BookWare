@@ -1,5 +1,6 @@
 // admin.js — BookWare Admin Portal
 import { auth, db } from './firebase.js';
+import { ADMIN_EMAILS } from './config.js';
 import { initTheme, initAriaChat, initARIA, initSettingsModal, openSettingsModal, initStaySignedIn } from './theme.js';
 import {
   signOut, onAuthStateChanged,
@@ -10,8 +11,6 @@ import {
   collection, query, where, orderBy, limit, onSnapshot,
   serverTimestamp, Timestamp,
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
-
-const ADMIN_EMAILS = ['sarvin.sukhe@gmail.com', 'sarvinsukhe@gmail.com', 'daepickid540@gmail.com'];
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let currentUser    = null;
@@ -26,7 +25,9 @@ let allLibraries   = [];
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 function esc(s) {
-  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s ?? '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 function fmtDate(ts) {
@@ -161,7 +162,7 @@ onAuthStateChanged(auth, async (user) => {
 // ── System Settings ───────────────────────────────────────────────────────────
 async function loadSystemSettings() {
   const snap = await getDoc(doc(db, 'admin', 'settings'));
-  systemSettings = snap.exists() ? snap.data() : { maintenanceMode: false, globalBanList: [] };
+  systemSettings = snap.exists() ? snap.data() : { maintenanceMode: false };
   const toggle = document.getElementById('maintenanceModeToggle');
   if (toggle) toggle.checked = systemSettings.maintenanceMode ?? false;
   const stat = document.getElementById('statMaintenance');
@@ -169,7 +170,7 @@ async function loadSystemSettings() {
 }
 
 async function setMaintenanceMode(enabled) {
-  await setDoc(doc(db, 'admin', 'settings'), { maintenanceMode: enabled, globalBanList: systemSettings.globalBanList ?? [] }, { merge: true });
+  await setDoc(doc(db, 'admin', 'settings'), { maintenanceMode: enabled }, { merge: true });
   systemSettings.maintenanceMode = enabled;
   const stat = document.getElementById('statMaintenance');
   if (stat) stat.textContent = enabled ? 'ON' : 'OFF';
@@ -638,7 +639,6 @@ function renderAccessRequests(requests) {
     el.innerHTML = '<p class="empty-state">No pending access requests.</p>';
     return;
   }
-  const esc = (s = '') => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   el.innerHTML = requests.map(r => {
     const time = r.requestedAt?.toDate?.()
       ? r.requestedAt.toDate().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })
@@ -657,17 +657,34 @@ function renderAccessRequests(requests) {
           </div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0">
-          <button class="btn btn--sm btn--success"
-            onclick="approveAccessRequest('${esc(r.id)}','${esc(r.name||'')}','${esc(r.email||'')}','${esc(r.photoURL||'')}')">
+          <button class="btn btn--sm btn--success" data-req-action="approve" data-req-id="${esc(r.id)}">
             <i class="bi bi-check-lg" aria-hidden="true"></i> Approve
           </button>
-          <button class="btn btn--sm btn--danger"
-            onclick="denyAccessRequest('${esc(r.id)}','${esc(r.name||'')}')">
+          <button class="btn btn--sm btn--danger" data-req-action="deny" data-req-id="${esc(r.id)}">
             <i class="bi bi-x-lg" aria-hidden="true"></i> Deny
           </button>
         </div>
       </div>`;
   }).join('');
+  bindAccessRequestButtons(el, requests);
+}
+
+// Attach approve/deny handlers via delegation. Request data comes from the
+// in-memory `requests` array keyed by id — never interpolated into markup, so a
+// crafted display name can't inject anything.
+function bindAccessRequestButtons(container, requests) {
+  const byId = new Map(requests.map(r => [r.id, r]));
+  container.querySelectorAll('[data-req-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const r = byId.get(btn.dataset.reqId);
+      if (!r) return;
+      if (btn.dataset.reqAction === 'approve') {
+        approveAccessRequest(r.id, r.name || '', r.email || '', r.photoURL || '');
+      } else {
+        denyAccessRequest(r.id, r.name || '');
+      }
+    });
+  });
 }
 
 async function approveAccessRequest(uid, name, email, photoURL) {
@@ -704,7 +721,8 @@ async function approveAccessRequest(uid, name, email, photoURL) {
 
 async function denyAccessRequest(uid, name) {
   if (!uid) return;
-  if (!confirm(`Deny access request from ${name || uid}? They can re-request later.`)) return;
+  const ok = await appConfirm(`Deny access request from ${name || uid}? They can re-request later.`, 'Deny', true);
+  if (!ok) return;
   try {
     await updateDoc(doc(db, 'accessRequests', uid), {
       status:     'denied',
@@ -718,10 +736,6 @@ async function denyAccessRequest(uid, name) {
     toast(`Failed to deny: ${err.message ?? 'unknown error'}`, 'danger');
   }
 }
-
-// Make approve/deny callable from inline onclick handlers
-window.approveAccessRequest = approveAccessRequest;
-window.denyAccessRequest    = denyAccessRequest;
 
 // ── Invites ───────────────────────────────────────────────────────────────
 let _adminLastInviteLink  = '';
@@ -913,8 +927,24 @@ async function exportAllData() {
   toast('Data exported', 'success');
 }
 
+// Force every non-admin session to re-authenticate. We stamp a `sessionEpoch`
+// on admin/settings; the student and teacher portals compare it against the
+// user's Firebase `lastSignInTime` on load and sign out anyone who logged in
+// before the stamp. It takes effect the next time each client loads or its auth
+// state refreshes (there is no server to revoke tokens instantly without a
+// Cloud Function), and admins are never affected.
 async function forceLogoutAll() {
-  const ok = await appConfirm('This would force-logout all users. This feature requires a Cloud Function on the server side and is not yet implemented.', 'Understood', false);
+  const ok = await appConfirm(
+    'Force all students and teachers to sign in again? Their sessions end the next time their app loads. Admins are not affected.',
+    'Force Re-login', true
+  );
+  if (!ok) return;
+  try {
+    await setDoc(doc(db, 'admin', 'settings'), { sessionEpoch: serverTimestamp() }, { merge: true });
+    toast('All non-admin users will be signed out on their next app load.', 'success');
+  } catch (err) {
+    toast(`Failed: ${esc(err.message ?? 'unknown error')}`, 'danger');
+  }
 }
 
 // ── Event Listeners ───────────────────────────────────────────────────────────
@@ -1011,7 +1041,6 @@ async function loadSettingsRequests() {
     ));
     const requests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if (!requests.length) { el.innerHTML = '<p class="empty-state">No pending access requests.</p>'; return; }
-    const esc = (s = '') => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     el.innerHTML = requests.map(r => {
       const time = r.requestedAt?.toDate?.()
         ? r.requestedAt.toDate().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })
@@ -1030,17 +1059,16 @@ async function loadSettingsRequests() {
             </div>
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0">
-            <button class="btn btn--sm btn--success"
-              onclick="approveAccessRequest('${esc(r.id)}','${esc(r.name||'')}','${esc(r.email||'')}','${esc(r.photoURL||'')}')">
+            <button class="btn btn--sm btn--success" data-req-action="approve" data-req-id="${esc(r.id)}">
               <i class="bi bi-check-lg"></i> Approve
             </button>
-            <button class="btn btn--sm btn--danger"
-              onclick="denyAccessRequest('${esc(r.id)}','${esc(r.name||'')}')">
+            <button class="btn btn--sm btn--danger" data-req-action="deny" data-req-id="${esc(r.id)}">
               <i class="bi bi-x-lg"></i> Deny
             </button>
           </div>
         </div>`;
     }).join('');
+    bindAccessRequestButtons(el, requests);
   } catch (err) {
     console.error('[admin] loadSettingsRequests failed:', err);
     el.innerHTML = '<p class="empty-state" style="color:var(--danger)">Failed to load.</p>';

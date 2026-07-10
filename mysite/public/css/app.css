@@ -1049,6 +1049,97 @@ html[data-theme="light"] .book-row:hover { background: rgba(0,0,0,0.015); }
 
 .settings-label { font-size: 0.78rem; font-weight: 500; color: var(--text); }
 .settings-hint  { font-size: 0.68rem; color: var(--text-3); margin-top: 2px; line-height: 1.5; }
+.settings-hint a { color: var(--accent); }
+
+/* ── ARIA setup warning ──────────────────────────────────────── */
+.aria-setup-warning {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  background: rgba(243, 156, 18, 0.09);
+  border: 1px solid rgba(243, 156, 18, 0.3);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  margin: 4px 0 10px;
+  font-size: 0.72rem;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.aria-setup-warning i { color: var(--warning); flex-shrink: 0; margin-top: 1px; }
+.aria-setup-warning strong { color: var(--text); }
+
+/* ── ARIA active-provider status line ───────────────────────── */
+.aria-active-line {
+  font-size: 0.72rem;
+  color: var(--text-2);
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.aria-active-line i { color: var(--accent); }
+.aria-active-line strong { color: var(--text); }
+
+/* ── ARIA per-provider key rows ──────────────────────────────── */
+.aria-key-row {
+  border-top: 1px solid var(--border);
+  padding: 10px 0;
+}
+.aria-key-row:first-of-type { border-top: none; padding-top: 0; }
+.aria-key-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.aria-key-row-label {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.aria-key-row-input {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.aria-key-row-input .text-input { flex: 1; }
+
+.aria-badge {
+  font-size: 0.6rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  color: var(--text-3);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.aria-badge--best {
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+.aria-badge--free {
+  background: var(--success-bg);
+  border-color: var(--success-border);
+  color: var(--success);
+}
+.aria-key-row-status {
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: var(--success);
+  white-space: nowrap;
+}
 
 /* ── TOGGLE ──────────────────────────────────────────────────── */
 .toggle {
@@ -1870,6 +1961,8 @@ html[data-theme="light"] .book-row:hover { background: rgba(0,0,0,0.015); }
   transition: border-color var(--tr);
 }
 .aria-rec-card:hover { border-color: var(--accent-border); }
+.aria-rec-card--web { border-style: dashed; }
+.aria-rec-title .aria-badge { margin-left: 4px; vertical-align: middle; text-transform: none; }
 .aria-rec-head {
   display: flex;
   align-items: baseline;

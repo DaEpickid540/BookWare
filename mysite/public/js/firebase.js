@@ -33,7 +33,8 @@ setPersistence(auth, _staySignedIn ? browserLocalPersistence : browserSessionPer
 function revealWithError(reason) {
   if (document.documentElement.style.visibility !== 'hidden') return;
   document.documentElement.style.visibility = 'visible';
-  const msg = (reason && reason.message) || String(reason || 'Unknown error');
+  const raw = (reason && reason.message) || String(reason || 'Unknown error');
+  const msg = raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   document.body.innerHTML =
     '<div style="max-width:520px;margin:80px auto;padding:28px;text-align:center;' +
     'font-family:system-ui,sans-serif;color:#e74c3c;">' +

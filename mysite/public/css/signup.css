@@ -295,3 +295,15 @@ body {
   text-align: center;
 }
 .access-back-link:hover { color: var(--text); }
+
+/* ── RESPONSIVE (small phones) ───────────────────────────────── */
+@media (max-width: 480px) {
+  body { padding: 12px; }
+  .signup-card { padding: 30px 20px 26px; border-radius: 14px; }
+  .signup-heading { font-size: 1.25rem; }
+  .access-card { max-width: 100%; }
+
+  /* Stack the invite-code input above its button so neither gets cramped */
+  .access-code-row { flex-direction: column; }
+  .btn-join { width: 100%; justify-content: center; }
+}

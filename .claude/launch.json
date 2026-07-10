@@ -7,6 +7,20 @@
       "runtimeArgs": ["serve", "--only", "hosting", "--port", "5050"],
       "cwd": "mysite",
       "port": 5050
+    },
+    {
+      "name": "bookware-static",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "5055"],
+      "cwd": "mysite/public",
+      "port": 5055
+    },
+    {
+      "name": "bookware-static2",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "5058"],
+      "cwd": "mysite/public",
+      "port": 5058
     }
   ]
 }

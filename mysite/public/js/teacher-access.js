@@ -1,5 +1,6 @@
 // teacher-access.js — Teacher access request / invite claim page
 import { auth, db } from './firebase.js';
+import { ADMIN_EMAILS, ALLOWED_DOMAIN } from './config.js';
 import {
   onAuthStateChanged,
   signOut,
@@ -8,10 +9,6 @@ import {
   doc, getDoc, setDoc, updateDoc, onSnapshot,
   runTransaction, serverTimestamp,
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-const ALLOWED_DOMAIN = '@masonohioschools.com';
-const ADMIN_EMAILS   = ['sarvin.sukhe@gmail.com', 'sarvinsukhe@gmail.com', 'daepickid540@gmail.com'];
 
 // ─── DOM refs ─────────────────────────────────────────────────────────────────
 const subheadingEl    = document.getElementById('pageSubheading');

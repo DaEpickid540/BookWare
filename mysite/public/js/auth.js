@@ -2,6 +2,7 @@
 // auth.js — BookWare login handler  (imported by index.html)
 // ─────────────────────────────────────────────────────────────────────────────
 import { auth, db } from "./firebase.js";
+import { ADMIN_EMAILS } from "./config.js";
 import {
   GoogleAuthProvider,
   signInWithPopup,
@@ -17,13 +18,6 @@ import {
   deleteDoc,
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-const ADMIN_EMAILS = [
-  "sarvin.sukhe@gmail.com",
-  "sarvinsukhe@gmail.com",
-  "daepickid540@gmail.com",
-];
 
 // Errors where the popup can't work in this environment (blocked, COOP handshake
 // failure, storage disabled, etc.) — for these we fall back to a full-page redirect.

@@ -1,5 +1,6 @@
 // teacher.js — BookWare Teacher Portal
 import { auth, db } from './firebase.js';
+import { ADMIN_EMAILS, isTeacherEmail as isEmailAllowed, shouldForceLogout } from './config.js';
 import { lookupISBN, searchBooks } from './books.js';
 import { initTheme, initARIA, initAriaChat, initAriaRecommends, refreshAriaChats, initSettingsModal, openSettingsModal, initStaySignedIn } from './theme.js';
 import { runReadingQuiz } from './quiz.js';
@@ -26,7 +27,9 @@ let allClasses           = [];
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 function esc(s) {
-  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s ?? '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 function toast(msg, type = 'info') {
@@ -45,7 +48,13 @@ function fmtDate(ts) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function genCode() { return Math.random().toString(36).substring(2, 8).toUpperCase(); }
+function genCode() {
+  // Cryptographically-random 6-char code from an unambiguous alphabet
+  // (no 0/O/1/I/L) so codes are hard to guess and easy to read aloud.
+  const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const bytes = crypto.getRandomValues(new Uint8Array(6));
+  return Array.from(bytes, b => alphabet[b % alphabet.length]).join('');
+}
 
 // ── Sidebar + routing ─────────────────────────────────────────────────────────
 document.getElementById('sidebarToggle')?.addEventListener('click', () => {
@@ -79,10 +88,6 @@ function showPage(name) {
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
-const ALLOWED_DOMAIN = '@masonohioschools.com';
-const ADMIN_EMAILS   = ['sarvin.sukhe@gmail.com', 'sarvinsukhe@gmail.com', 'daepickid540@gmail.com'];
-const isEmailAllowed = email => email?.toLowerCase().endsWith(ALLOWED_DOMAIN) || ADMIN_EMAILS.includes(email?.toLowerCase());
-
 onAuthStateChanged(auth, async (user) => {
   if (!user) { window.location.href = '/'; return; }
   document.documentElement.style.visibility = 'visible';
@@ -96,6 +101,11 @@ onAuthStateChanged(auth, async (user) => {
         if (s.exists() && s.data().maintenanceMode === true) {
           await signOut(auth);
           alert('BookWare is currently under maintenance. Please check back soon.');
+          window.location.href = '/';
+          return;
+        }
+        if (await shouldForceLogout(s, user)) {
+          await signOut(auth);
           window.location.href = '/';
           return;
         }
@@ -758,7 +768,9 @@ async function loadCheckedOut() {
   const el = document.getElementById('checkedOutList');
   if (!el) return;
   el.innerHTML = `<p class='empty-state'>Loading…</p>`;
-  const checkedOut = allBooks.filter(b => b.status === 'checked_out');
+  // Include multi-copy books with only some copies out (status stays 'available'
+  // until every copy is gone, so filtering on status alone hid partial checkouts).
+  const checkedOut = allBooks.filter(b => (b.checkedOutCount ?? 0) > 0 || b.status === 'checked_out');
   if (checkedOut.length === 0) { el.innerHTML = `<p class='empty-state'>No books currently out.</p>`; return; }
   el.innerHTML = '';
   for (const book of checkedOut) {
@@ -820,7 +832,7 @@ document.getElementById('exportCheckoutsMdBtn')?.addEventListener('click', async
   const entries  = histSnap.docs.map(d => d.data()).sort((a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0));
   const tName    = teacherData?.name ?? 'Teacher';
   let md = `# BookWare — Checkout Report\n\n**Teacher:** ${tName}  \n**Generated:** ${new Date().toLocaleString()}  \n\n---\n\n`;
-  const active = allBooks.filter(b => b.status === 'checked_out');
+  const active = allBooks.filter(b => (b.checkedOutCount ?? 0) > 0 || b.status === 'checked_out');
   md += `## Currently Checked Out\n\n`;
   if (active.length === 0) { md += `*No books currently checked out.*\n\n`; }
   else {

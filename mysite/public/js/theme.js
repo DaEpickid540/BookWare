@@ -224,7 +224,6 @@ export function initStaySignedIn(onChangeFn) {
 
 // ─── ARIA AI ──────────────────────────────────────────────────────────────────
 const ARIA_ENABLED_KEY  = 'bw-aria-enabled';
-const ARIA_PROVIDER_KEY = 'bw-aria-provider';
 // Web search is multi-provider too — pick whichever backend you have a key for.
 const ARIA_SEARCH_PROVIDER_KEY  = 'bw-aria-search-provider';
 const ARIA_SEARCH_PROVIDER_KEYS = {
@@ -267,6 +266,16 @@ const PROVIDER_META = {
   cloudflare: { label: 'Cloudflare Key (AccountID::APIToken)', hint: 'dash.cloudflare.com → AI → API Tokens',   placeholder: 'abc123::token'  },
   openrouter: { label: 'OpenRouter API Key',                   hint: 'openrouter.ai/keys — free models available', placeholder: 'sk-or-…'      },
   groq:       { label: 'Groq API Key',                         hint: 'console.groq.com — fast & free',           placeholder: 'gsk_…'          },
+};
+
+// Priority order ARIA auto-selects from when multiple keys are saved — Claude
+// first because Anthropic models give the highest-quality recommendations and
+// chat replies of any provider we support. Falls through to whichever else the
+// user has configured.
+const PROVIDER_PRIORITY = ['anthropic', 'openai', 'gemini', 'groq', 'openrouter', 'cloudflare'];
+const PROVIDER_DISPLAY_NAME = {
+  anthropic: 'Claude', openai: 'ChatGPT', gemini: 'Gemini',
+  groq: 'Groq', openrouter: 'OpenRouter', cloudflare: 'Cloudflare',
 };
 
 const ARIA_SYSTEM = {
@@ -364,12 +373,17 @@ function buildQuickReplies(profile, role = 'student') {
   return out.slice(0, 4);
 }
 
-function getAriaKey() {
-  const provider = localStorage.getItem(ARIA_PROVIDER_KEY) ?? 'groq';
-  return localStorage.getItem(ARIA_PROVIDER_KEYS[provider] ?? ARIA_PROVIDER_KEYS.groq) ?? '';
-}
+// Auto-picks the best-available provider: the highest-priority one (Claude
+// first) that actually has a saved key. Returns null if none are configured.
 function getAriaProvider() {
-  return localStorage.getItem(ARIA_PROVIDER_KEY) ?? 'groq';
+  for (const provider of PROVIDER_PRIORITY) {
+    if (localStorage.getItem(ARIA_PROVIDER_KEYS[provider])) return provider;
+  }
+  return null;
+}
+function getAriaKey() {
+  const provider = getAriaProvider();
+  return provider ? (localStorage.getItem(ARIA_PROVIDER_KEYS[provider]) ?? '') : '';
 }
 
 // Registered chat re-render callbacks so toggling the setting updates live.
@@ -603,8 +617,7 @@ export function initAriaChat(mountId, role = 'student', getProfile = null) {
     const enabled  = localStorage.getItem(ARIA_ENABLED_KEY) === 'true';
     const key      = getAriaKey();
     const provider = getAriaProvider();
-    const _searchProvider = localStorage.getItem(ARIA_SEARCH_PROVIDER_KEY) ?? 'contextwire';
-    const hasSearchKey = !!(localStorage.getItem(ARIA_SEARCH_PROVIDER_KEYS[_searchProvider] ?? '') ?? '');
+    const hasSearchKey = hasSearchKeyConfigured();
     if (!enabled) { mount.innerHTML = ''; mount.hidden = true; return; }
     mount.hidden = false;
     const providerName = PROVIDER_META[provider]?.label?.split(' ')[0] ?? 'AI';
@@ -694,11 +707,28 @@ export function initAriaChat(mountId, role = 'student', getProfile = null) {
 }
 
 // ── ARIA Recommends panel ─────────────────────────────────────────────────────
-/** Mount an "ARIA Recommends" card into `mountId`. Surfaces exactly 3 picks
- *  drawn from BookWare's curated highschool reading-list RAG (`booklist.js`),
- *  matched to the reader's quiz profile, with a one-line personal "why you'll
- *  like this" from ARIA itself. Renders nothing unless ARIA is enabled AND has
- *  a working API key — i.e. "only works if the AI is wired", per spec.
+const AR_LOCAL_COUNT    = 2; // picks drawn from BookWare's curated on-file list
+const AR_INTERNET_COUNT = 2; // picks ARIA sources beyond the on-file list
+
+function hasSearchKeyConfigured() {
+  const sp = localStorage.getItem(ARIA_SEARCH_PROVIDER_KEY) ?? 'contextwire';
+  return !!localStorage.getItem(ARIA_SEARCH_PROVIDER_KEYS[sp] ?? '');
+}
+
+/** Normalize a title for duplicate-detection ("The Hobbit!" == "the hobbit"). */
+function normTitle(s) {
+  return String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/** Mount an "ARIA Recommends" card into `mountId`. Blends two sources so picks
+ *  aren't limited to BookWare's on-file list: a couple of curated titles from
+ *  `booklist.js` (guaranteed real, vetted books) plus a couple ARIA sources
+ *  itself — grounded in live web-search results when a Web Search key is
+ *  configured (Settings → ARIA AI), or its own general knowledge otherwise.
+ *  Every pick across both sources is deduplicated by normalized title so the
+ *  same book is never shown twice in one refresh. Renders nothing unless ARIA
+ *  is enabled AND has a working API key — i.e. "only works if the AI is
+ *  wired", per spec.
  *  role: 'student' | 'teacher'
  *  getProfile: optional () => readingProfile getter (see initAriaChat). */
 export function initAriaRecommends(mountId, role = 'student', getProfile = null) {
@@ -726,44 +756,91 @@ export function initAriaRecommends(mountId, role = 'student', getProfile = null)
         <p class="empty-state"><i class="bi bi-hourglass-split" aria-hidden="true"></i> ARIA is picking books for you…</p>
       </div>`;
 
-    const picks = pickBooksForProfile(profile, 3);
-    let reasons = picks.map(b => b.blurb);
+    const webGrounded = hasSearchKeyConfigured();
+    const localPicks = pickBooksForProfile(profile, AR_LOCAL_COUNT);
+    let localReasons = localPicks.map(b => b.blurb);
+    const internetPicks = []; // { title, author, genres:[], reason }
+
     try {
       const who = role === 'teacher' ? 'a teacher looking for classroom library picks' : 'a highschool student';
       const profileLine = describeProfile(profile, role);
+      const excludeTitles = localPicks.map(b => `"${b.title}"`).join(', ');
       const prompt =
-        `The reader is ${who}.${profileLine ? ` ${profileLine}` : ' They have not taken the reading quiz yet, so just go on the books themselves.'}\n\n` +
-        `Here are 3 books chosen for them from our library list:\n${formatBooksForPrompt(picks)}\n\n` +
-        `For each book, in the SAME order, write exactly one short, warm sentence (max 28 words) ` +
-        `telling this specific reader why they would enjoy it. Reply with EXACTLY 3 lines, one ` +
-        `sentence per line, no numbering or bullets, no extra commentary before or after.`;
+        `The reader is ${who}.${profileLine ? ` ${profileLine}` : ' They have not taken the reading quiz yet, so just go on general highschool-appropriate appeal.'}\n\n` +
+        `PART 1 — Here are ${localPicks.length} books already chosen for them from our on-file library list:\n${formatBooksForPrompt(localPicks)}\n\n` +
+        `For each one, in the SAME order, write one short, warm sentence (max 28 words) telling this specific reader why they'd enjoy it. Prefix each line with "REASON: ".\n\n` +
+        `PART 2 — Now suggest ${AR_INTERNET_COUNT} MORE real, well-known, highschool-appropriate books that match this reader, drawing on your own knowledge${webGrounded ? ' and any web search context provided below' : ''} — books that are NOT in our on-file list. ` +
+        `Do not repeat any of these titles: ${excludeTitles}. Every suggestion must be a real, existing, published book — never invent a title or author.\n` +
+        `Reply with one line per suggestion in EXACTLY this format:\n` +
+        `NEW: Title | Author | genre1,genre2 | one warm sentence (max 28 words) on why this reader would enjoy it\n\n` +
+        `Reply with EXACTLY ${localPicks.length} "REASON:" lines followed by EXACTLY ${AR_INTERNET_COUNT} "NEW:" lines, nothing else — no numbering, no preamble, no closing remarks.`;
       const reply = await callAriaProvider(provider, key, [
-        { role: 'system', content: 'You are ARIA, a warm, concise reading-recommendation assistant inside the BookWare app. Follow the requested output format exactly — no preamble, no extra lines.' },
+        { role: 'system', content: 'You are ARIA, a warm, concise reading-recommendation assistant inside the BookWare app. Follow the requested output format exactly — no preamble, no extra lines, no markdown.' },
         { role: 'user', content: prompt },
       ]);
-      const lines = reply.split('\n').map(l => l.replace(/^[\s\-•\d.)]+/, '').trim()).filter(Boolean);
-      if (lines.length >= picks.length) reasons = lines.slice(0, picks.length);
+
+      const lines = reply.split('\n').map(l => l.trim()).filter(Boolean);
+      const reasonLines = lines.filter(l => /^REASON:/i.test(l)).map(l => l.replace(/^REASON:\s*/i, '').trim());
+      const newLines    = lines.filter(l => /^NEW:/i.test(l)).map(l => l.replace(/^NEW:\s*/i, '').trim());
+
+      if (reasonLines.length >= localPicks.length) localReasons = reasonLines.slice(0, localPicks.length);
+
+      // Dedupe internet picks against the local picks AND against each other,
+      // so the same book can never appear twice in one refresh.
+      const seenTitles = new Set(localPicks.map(b => normTitle(b.title)));
+      for (const line of newLines) {
+        if (internetPicks.length >= AR_INTERNET_COUNT) break;
+        const parts = line.split('|').map(p => p.trim());
+        if (parts.length < 4) continue;
+        const [title, author, genreStr, reason] = parts;
+        if (!title || !author || !reason) continue;
+        const tKey = normTitle(title);
+        if (seenTitles.has(tKey)) continue;
+        seenTitles.add(tKey);
+        internetPicks.push({
+          title, author, reason,
+          genres: genreStr.split(',').map(g => g.trim()).filter(Boolean).slice(0, 3),
+        });
+      }
     } catch (_) {
-      // AI personalization failed (rate limit, bad key, offline, etc.) — fall
-      // back to the curated RAG blurbs so the box still shows real picks.
+      // AI personalization / internet lookup failed (rate limit, bad key,
+      // offline, etc.) — fall back to the curated on-file blurbs so the box
+      // still shows real picks instead of an error. This is exactly the
+      // degraded mode the setup warning above the API key fields describes.
     }
     inFlight = false;
+
+    const localCards = localPicks.map((b, i) => `
+      <div class="aria-rec-card">
+        <div class="aria-rec-head">
+          <div class="aria-rec-title">${escHtml(b.title)}</div>
+          <div class="aria-rec-author">by ${escHtml(b.author)}</div>
+        </div>
+        <p class="aria-rec-reason">${escHtml(localReasons[i] ?? b.blurb)}</p>
+        <div class="aria-rec-genres">${b.genres.slice(0, 3).map(g => `<span class="aria-rec-chip">${escHtml(lbl('genres', g))}</span>`).join('')}</div>
+      </div>`).join('');
+
+    const internetCards = internetPicks.map(b => `
+      <div class="aria-rec-card aria-rec-card--web">
+        <div class="aria-rec-head">
+          <div class="aria-rec-title">${escHtml(b.title)}
+            <span class="aria-badge aria-badge--free">${webGrounded ? '🌐 Web pick' : '✨ AI pick'}</span>
+          </div>
+          <div class="aria-rec-author">by ${escHtml(b.author)}</div>
+        </div>
+        <p class="aria-rec-reason">${escHtml(b.reason)}</p>
+        <div class="aria-rec-genres">${b.genres.map(g => `<span class="aria-rec-chip">${escHtml(g)}</span>`).join('')}</div>
+      </div>`).join('');
 
     mount.innerHTML = `
       <div class="section-label"><i class="bi bi-stars" aria-hidden="true"></i> ARIA Recommends
         <span class="aria-recs-tag">picked just for you</span>
       </div>
       <div class="aria-recs">
-        ${picks.map((b, i) => `
-          <div class="aria-rec-card">
-            <div class="aria-rec-head">
-              <div class="aria-rec-title">${escHtml(b.title)}</div>
-              <div class="aria-rec-author">by ${escHtml(b.author)}</div>
-            </div>
-            <p class="aria-rec-reason">${escHtml(reasons[i] ?? b.blurb)}</p>
-            <div class="aria-rec-genres">${b.genres.slice(0, 3).map(g => `<span class="aria-rec-chip">${escHtml(lbl('genres', g))}</span>`).join('')}</div>
-          </div>`).join('')}
+        ${localCards}
+        ${internetCards}
       </div>
+      ${!internetPicks.length ? `<p class="settings-hint" style="margin-top:6px">Add a Web Search key in Settings → ARIA AI for fresh, internet-grounded picks too.</p>` : ''}
       <button type="button" class="btn btn--ghost btn--sm aria-recs-refresh">
         <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Show different picks
       </button>`;
@@ -784,11 +861,7 @@ export function initAriaRecommends(mountId, role = 'student', getProfile = null)
 export function initARIA(toastFn) {
   const toggle      = document.getElementById('ariaEnabled');
   const panel       = document.getElementById('ariaSetupPanel');
-  const provSelect  = document.getElementById('ariaProvider');
-  const keyInput    = document.getElementById('ariaApiKey');
-  const keyLabel    = document.getElementById('ariaKeyLabel');
-  const keyHint     = document.getElementById('ariaKeyHint');
-  const saveBtn     = document.getElementById('ariaSaveKeyBtn');
+  const activeLine  = document.getElementById('ariaActiveProviderText');
   // Web search — provider-aware (ContextWire / Brave / SerpAPI)
   const searchProvSelect = document.getElementById('ariaSearchProvider');
   const searchInput      = document.getElementById('ariaSearchKey');
@@ -801,22 +874,29 @@ export function initARIA(toastFn) {
   toggle.checked = localStorage.getItem(ARIA_ENABLED_KEY) === 'true';
   panel.hidden   = !toggle.checked;
 
-  const savedProvider = localStorage.getItem(ARIA_PROVIDER_KEY) ?? 'groq';
-  if (provSelect) provSelect.value = savedProvider;
-  updateKeyUI(savedProvider);
-
   const savedSearchProvider = localStorage.getItem(ARIA_SEARCH_PROVIDER_KEY) ?? 'contextwire';
   if (searchProvSelect) searchProvSelect.value = savedSearchProvider;
   updateSearchKeyUI(savedSearchProvider);
 
-  function updateKeyUI(provider) {
-    const meta = PROVIDER_META[provider];
-    if (!meta) return;
-    if (keyLabel) keyLabel.textContent    = meta.label;
-    if (keyHint)  keyHint.textContent     = meta.hint;
-    if (keyInput) {
-      keyInput.placeholder = meta.placeholder;
-      keyInput.value = localStorage.getItem(ARIA_PROVIDER_KEYS[provider] ?? '') ?? '';
+  // Restore each provider's saved key into its own row + refresh status badges
+  ['anthropic', 'openai', 'gemini', 'groq'].forEach(provider => {
+    const input = document.getElementById(`ariaKey-${provider}`);
+    if (input) input.value = localStorage.getItem(ARIA_PROVIDER_KEYS[provider]) ?? '';
+  });
+  refreshProviderStatus();
+
+  function refreshProviderStatus() {
+    const active = getAriaProvider();
+    ['anthropic', 'openai', 'gemini', 'groq'].forEach(provider => {
+      const badge = document.querySelector(`.aria-key-row-status[data-status="${provider}"]`);
+      if (!badge) return;
+      const hasKey = !!localStorage.getItem(ARIA_PROVIDER_KEYS[provider]);
+      badge.textContent = hasKey ? (provider === active ? '✓ Active' : '✓ Saved') : '';
+    });
+    if (activeLine) {
+      activeLine.innerHTML = active
+        ? `ARIA is running on <strong>${PROVIDER_DISPLAY_NAME[active] ?? active}</strong>${active === 'anthropic' ? ' <span class="aria-badge aria-badge--best">⭐ Highest Quality</span>' : ''}.`
+        : 'No AI key saved yet — add one below to turn ARIA on.';
     }
   }
 
@@ -840,23 +920,25 @@ export function initARIA(toastFn) {
     toastFn?.(on ? `<i class='bi bi-robot'></i> ARIA enabled` : 'ARIA disabled', on ? 'success' : 'info');
   });
 
-  // Provider selector
-  provSelect?.addEventListener('change', () => {
-    const p = provSelect.value;
-    localStorage.setItem(ARIA_PROVIDER_KEY, p);
-    updateKeyUI(p);
-    refreshAriaChats();
-  });
-
-  // Save AI key
-  saveBtn?.addEventListener('click', () => {
-    const provider = provSelect?.value ?? 'groq';
-    const key = keyInput?.value.trim() ?? '';
-    if (!key) { toastFn?.('Please enter an API key.', 'danger'); return; }
-    localStorage.setItem(ARIA_PROVIDER_KEYS[provider] ?? ARIA_PROVIDER_KEYS.groq, key);
-    refreshAriaChats();
-    const name = { anthropic:'Claude', openai:'OpenAI', gemini:'Gemini', cloudflare:'Cloudflare', openrouter:'OpenRouter', groq:'Groq' }[provider] ?? provider;
-    toastFn?.(`<i class='bi bi-check2'></i> ${name} key saved — ARIA is ready!`, 'success');
+  // Save each provider's key from its own row
+  document.querySelectorAll('.aria-key-row [data-save]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const provider = btn.dataset.save;
+      const input = document.getElementById(`ariaKey-${provider}`);
+      const key = input?.value.trim() ?? '';
+      const name = PROVIDER_DISPLAY_NAME[provider] ?? provider;
+      if (!key) {
+        localStorage.removeItem(ARIA_PROVIDER_KEYS[provider]);
+        refreshProviderStatus();
+        refreshAriaChats();
+        toastFn?.(`${name} key removed.`, 'info');
+        return;
+      }
+      localStorage.setItem(ARIA_PROVIDER_KEYS[provider], key);
+      refreshProviderStatus();
+      refreshAriaChats();
+      toastFn?.(`<i class='bi bi-check2'></i> ${name} key saved!`, 'success');
+    });
   });
 
   // Web search provider selector

@@ -193,7 +193,15 @@ function shuffle(arr) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// Additional curated titles. These were accidentally spliced into the body of
+// shuffle() by a bad merge (which broke every module that imports this file);
+// recovered here and merged into BOOKLIST at the bottom of the file.
+const BOOKLIST_EXTRA = [
   // ── Additional Sci-Fi & Dystopian ─────────────────────────────────────────────
   { title: 'Mockingjay', author: 'Suzanne Collins', genres: ['scifi', 'adventure', 'dystopian'], blurb: 'Katniss becomes the reluctant face of a revolution in the final battle for Panem\'s future.' },
   { title: 'Allegiant', author: 'Veronica Roth', genres: ['scifi', 'adventure', 'romance'], blurb: 'Tris and Four discover a shocking truth about their world beyond the fence.' },
@@ -2836,6 +2844,16 @@ function shuffle(arr) {
   { title: 'Act Your Age Eve Brown', author: 'Talia Hibbert', genres: ['romance', 'contemporary'], blurb: 'A disaster woman takes a chef job at a B&B and clashes with the grumpy owner who she accidentally injured.' },
   { title: 'Take a Hint Dani Brown', author: 'Talia Hibbert', genres: ['romance', 'contemporary'], blurb: 'A student pretends to date a former rugby player after a video of him rescuing her goes viral.' },
 ];
-  }
-  return a;
+
+// Merge the recovered titles into the main list ARIA draws from, skipping any
+// that already exist. The original corruption had repeated the same block of
+// titles multiple times, so BOOKLIST_EXTRA overlaps heavily with the list
+// above and with itself — dedupe by normalized title+author so pickBooksForProfile
+// can never return the same book twice.
+const _seenKeys = new Set(BOOKLIST.map(b => `${b.title.toLowerCase()}|${b.author.toLowerCase()}`));
+for (const b of BOOKLIST_EXTRA) {
+  const key = `${b.title.toLowerCase()}|${b.author.toLowerCase()}`;
+  if (_seenKeys.has(key)) continue;
+  _seenKeys.add(key);
+  BOOKLIST.push(b);
 }

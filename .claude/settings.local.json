@@ -17,7 +17,8 @@
       "Bash(mkdir -p \"C:/Users/daepi/OneDrive/Pictures/Documents/GitHub/BookWare/.claude\")",
       "Bash(firebase use *)",
       "Bash(firebase projects:list)",
-      "Bash(firebase hosting:sites:list --project bookware-site2)"
+      "Bash(firebase hosting:sites:list --project bookware-site2)",
+      "Bash(firebase --version)"
     ]
   }
 }

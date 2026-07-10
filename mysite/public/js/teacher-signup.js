@@ -1,14 +1,12 @@
 // teacher-signup.js — Teacher invite claim page
 import { auth, db } from './firebase.js';
+import { ADMIN_EMAILS, ALLOWED_DOMAIN } from './config.js';
 import { GoogleAuthProvider, signInWithPopup } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import { doc, getDoc, setDoc, updateDoc, runTransaction, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const statusEl  = document.getElementById('statusMessage');
 const signInBtn = document.getElementById('signInBtn');
 const btnLabel  = document.getElementById('btnLabel');
-
-const ALLOWED_DOMAIN = '@masonohioschools.com';
-const ADMIN_EMAILS   = ['sarvin.sukhe@gmail.com', 'sarvinsukhe@gmail.com', 'daepickid540@gmail.com'];
 
 function setStatus(msg, type = 'info') {
   statusEl.textContent = msg;
@@ -42,6 +40,10 @@ async function validateToken(token) {
     }
     if (snap.data().used === true) {
       setStatus('This invite link has already been used.', 'error');
+      return;
+    }
+    if (snap.data().revoked === true) {
+      setStatus('This invite link has been revoked. Ask for a fresh one.', 'error');
       return;
     }
     if (snap.data().expiresAt?.toDate() < new Date()) {
@@ -93,7 +95,8 @@ async function handleSignup(token) {
       const inviteSnap = await tx.get(inviteRef);
 
       if (!inviteSnap.exists())            throw new Error('invalid');
-      if (inviteSnap.data().used === true)  throw new Error('used');
+      if (inviteSnap.data().used === true)    throw new Error('used');
+      if (inviteSnap.data().revoked === true) throw new Error('revoked');
       if (inviteSnap.data().expiresAt?.toDate() < new Date()) throw new Error('expired');
 
       const recipientEmail = inviteSnap.data().recipientEmail;
@@ -119,6 +122,7 @@ async function handleSignup(token) {
     console.error(err);
     const msg =
       err.message === 'used'          ? 'This invite link has already been used.' :
+      err.message === 'revoked'       ? 'This invite link has been revoked. Ask for a fresh one.' :
       err.message === 'expired'       ? 'This invite link has expired.' :
       err.message === 'invalid'       ? 'This invite link is invalid.' :
       err.message === 'wrong-account' ? 'This invite was sent to a different email address. Sign in with the correct account and try again.' :

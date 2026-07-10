@@ -39,6 +39,11 @@ service cloud.firestore {
       return !isBanned();
     }
 
+    // NOTE: Students are ordinary Google accounts (any gmail, etc.), so we
+    // cannot restrict reads to a school domain without locking students out.
+    // This intentionally means "any authenticated user". Do NOT store secrets
+    // in documents guarded only by allowedEmail() — teacher docs, for example,
+    // are a public directory (name/email/library visibility) by design.
     function allowedEmail() {
       return isSignedIn();
     }
@@ -80,7 +85,10 @@ service cloud.firestore {
       allow delete: if isAdmin();
 
       match /recommendations/{recId} {
-        allow read: if isSignedIn();
+        // A student's recommendations are private to them, their teachers, and
+        // admins — not readable by arbitrary signed-in peers.
+        allow read: if isSignedIn() &&
+          (uid() == studentId || isTeacher() || isAdmin());
         allow write: if isSignedIn() && uid() == studentId && notBanned();
       }
     }
@@ -243,7 +251,11 @@ service cloud.firestore {
     // Admin creates these via "Add User". On first sign-in the matching user reads
     // their own record (to learn their assigned role) and deletes it once claimed.
     match /pendingUsers/{emailKey} {
-      allow get:    if isSignedIn();          // claim lookup by deterministic id
+      // A signed-in user may only read the record that belongs to their own
+      // email — prevents enumerating who has been pre-registered and with what
+      // role. (The doc stores the email lowercased; auth.js looks up its own.)
+      allow get:    if isSignedIn() &&
+        request.auth.token.email.lower() == resource.data.email;
       allow list:   if isAdmin();
       allow create, update: if isAdmin();
       allow delete: if isAdmin() ||
@@ -251,6 +263,9 @@ service cloud.firestore {
     }
 
     // ── admin/settings ─────────────────────────────────────────────────────────
+    // Read is open to any signed-in user because the student/teacher portals read
+    // `maintenanceMode` at load to gate access. Only non-sensitive operational
+    // flags (maintenanceMode, sessionEpoch) live here — never user PII or ban lists.
     match /admin/{doc} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
