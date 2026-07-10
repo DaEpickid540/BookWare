@@ -23,8 +23,19 @@
 
   <!-- Sign-in overlay -->
   <div class="signin-overlay" id="signinOverlay" aria-live="polite" aria-label="Signing in" hidden>
-    <div class="signin-spinner" aria-hidden="true"></div>
-    <div class="signin-label">Opening Google Sign-In…</div>
+    <div class="signin-spinner" id="signinSpinner" aria-hidden="true"></div>
+    <div class="signin-label" id="signinLabel">Opening Google Sign-In…</div>
+
+    <!-- Shown if sign-in gets interrupted and never resolves (e.g. the popup
+         hangs after being closed in an unusual way, or the network drops
+         mid-redirect) — otherwise the spinner above would spin forever with
+         no way out except knowing to manually refresh. -->
+    <div class="signin-stuck" id="signinStuck" hidden>
+      <i class="bi bi-exclamation-triangle-fill signin-stuck-icon" aria-hidden="true"></i>
+      <p class="signin-stuck-text">Sign-in seems to be stuck — this can happen if it gets interrupted.</p>
+      <button type="button" class="signin-reload-btn" id="signinReloadBtn">Reload Page</button>
+      <p class="signin-stuck-hint">Reloading automatically in <span id="signinReloadCountdown">8</span>s…</p>
+    </div>
   </div>
 
   <!-- Error toast -->

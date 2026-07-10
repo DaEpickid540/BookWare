@@ -59,6 +59,42 @@ body {
   color: rgba(255,255,255,0.75);
 }
 
+.signin-stuck {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 320px;
+  text-align: center;
+  padding: 0 20px;
+}
+.signin-stuck-icon {
+  font-size: 1.6rem;
+  color: var(--accent);
+}
+.signin-stuck-text {
+  font-size: 0.85rem;
+  color: rgba(255,255,255,0.85);
+  line-height: 1.5;
+}
+.signin-reload-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--r);
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 9px 20px;
+  cursor: pointer;
+  transition: background var(--tr), transform var(--tr);
+}
+.signin-reload-btn:hover { background: #c0392b; transform: translateY(-1px); }
+.signin-stuck-hint {
+  font-size: 0.72rem;
+  color: rgba(255,255,255,0.5);
+}
+
 /* ── ERROR TOAST ─────────────────────────────────────────────── */
 .error-toast {
   position: fixed;

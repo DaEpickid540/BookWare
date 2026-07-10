@@ -31,20 +31,39 @@ const REDIRECT_FALLBACK_CODES = new Set([
 
 const PENDING_ROLE_KEY = "bw-pending-role";
 
+// How long to wait on a sign-in step before treating it as stuck/interrupted
+// rather than leaving the spinner spinning forever. Generous enough for a
+// slow network or 2FA prompt, short enough that a genuine hang isn't mistaken
+// for "still working."
+const AUTH_TIMEOUT_MS = 20000;
+const AUTO_RELOAD_SECONDS = 8;
+
 // ─── DOM refs ─────────────────────────────────────────────────────────────────
 const overlay = document.getElementById("signinOverlay");
+const spinnerEl = document.getElementById("signinSpinner");
+const labelEl = document.getElementById("signinLabel");
+const stuckEl = document.getElementById("signinStuck");
+const reloadBtn = document.getElementById("signinReloadBtn");
+const reloadCountdownEl = document.getElementById("signinReloadCountdown");
 const errorToast = document.getElementById("errorToast");
 let errorTimer = null;
+let reloadTimer = null;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const isAdmin = (email) => ADMIN_EMAILS.includes(email?.toLowerCase());
 
 function showLoading(card) {
+  stuckEl?.setAttribute("hidden", "");
+  spinnerEl?.removeAttribute("hidden");
+  labelEl?.removeAttribute("hidden");
   overlay?.classList.add("visible");
   overlay?.removeAttribute("hidden");
   card?.classList.add("loading");
 }
 function hideLoading(card) {
+  // Don't hide the overlay out from under the stuck-state recovery UI — it
+  // needs to stay up until the user reloads (manually or via the countdown).
+  if (stuckEl && !stuckEl.hidden) return;
   overlay?.classList.remove("visible");
   card?.classList.remove("loading");
 }
@@ -58,6 +77,46 @@ function showError(msg) {
   errorToast.classList.add("visible");
   errorTimer = setTimeout(() => errorToast.classList.remove("visible"), 6000);
 }
+
+// Races `promise` against a timer — if sign-in hasn't settled within `ms`, we
+// treat it as interrupted (this is a real, known failure mode: a popup that
+// gets closed in an unusual way, a dropped network mid-redirect, or a broken
+// COOP/storage handshake can leave the underlying Firebase promise neither
+// resolving nor rejecting, which otherwise spins the loading overlay forever).
+function withTimeout(promise, ms = AUTH_TIMEOUT_MS) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(Object.assign(new Error("Sign-in timed out"), { code: "bw/auth-timeout" }));
+    }, ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+// Replaces the spinner with a clear "this is stuck" message, a manual Reload
+// button, and an auto-reload countdown — so an interrupted sign-in always has
+// a visible way out instead of an indefinite spinner.
+function showStuckState() {
+  clearTimeout(reloadTimer);
+  spinnerEl?.setAttribute("hidden", "");
+  labelEl?.setAttribute("hidden", "");
+  stuckEl?.removeAttribute("hidden");
+  overlay?.classList.add("visible");
+  overlay?.removeAttribute("hidden");
+
+  let secondsLeft = AUTO_RELOAD_SECONDS;
+  if (reloadCountdownEl) reloadCountdownEl.textContent = String(secondsLeft);
+  reloadTimer = setInterval(() => {
+    secondsLeft -= 1;
+    if (reloadCountdownEl) reloadCountdownEl.textContent = String(Math.max(secondsLeft, 0));
+    if (secondsLeft <= 0) {
+      clearInterval(reloadTimer);
+      window.location.reload();
+    }
+  }, 1000);
+}
+
+reloadBtn?.addEventListener("click", () => window.location.reload());
 
 async function ensureUserDoc(user, role) {
   const ref = doc(db, "users", user.uid);
@@ -219,6 +278,11 @@ async function completeLogin(user, role) {
 
 // ─── Surfaced error handling ───────────────────────────────────────────────────
 function reportAuthError(err) {
+  if (err.code === "bw/auth-timeout") {
+    console.error("[auth] sign-in stuck/timed out:", err);
+    showStuckState();
+    return;
+  }
   if (err.code === "auth/popup-closed-by-user") return;
   if (err.code === "auth/network-request-failed") {
     showError("Network error. Check your connection and try again.");
@@ -246,13 +310,13 @@ async function login(role, cardEl) {
 
     let user;
     try {
-      ({ user } = await signInWithPopup(auth, provider));
+      ({ user } = await withTimeout(signInWithPopup(auth, provider)));
     } catch (popupErr) {
       if (REDIRECT_FALLBACK_CODES.has(popupErr.code)) {
         // Remember which portal the user wanted, then redirect-sign-in.
         // getRedirectResult() (below) finishes the flow when we come back.
         sessionStorage.setItem(PENDING_ROLE_KEY, role);
-        await signInWithRedirect(auth, provider);
+        await withTimeout(signInWithRedirect(auth, provider));
         return; // navigating away
       }
       throw popupErr;
@@ -268,17 +332,26 @@ async function login(role, cardEl) {
 
 // ─── Complete a redirect-based sign-in when we land back on the page ───────────
 (async () => {
+  // PENDING_ROLE_KEY is only set right before we call signInWithRedirect, so
+  // its presence means this page load is genuinely "returning from Google" —
+  // show the spinner (and, if this hangs, the stuck-state recovery UI) only
+  // in that case. An ordinary page visit shouldn't show either.
+  const returningFromRedirect = !!sessionStorage.getItem(PENDING_ROLE_KEY);
+  if (returningFromRedirect) showLoading(null);
+
   let result;
   try {
-    result = await getRedirectResult(auth);
+    result = await withTimeout(getRedirectResult(auth));
   } catch (err) {
-    reportAuthError(err);
+    if (returningFromRedirect) reportAuthError(err);
+    else console.warn("[auth] getRedirectResult check failed:", err);
+    hideLoading(null);
     return;
   }
-  if (!result?.user) return;
+  if (!result?.user) { hideLoading(null); return; }
+
   const role = sessionStorage.getItem(PENDING_ROLE_KEY) || "student";
   sessionStorage.removeItem(PENDING_ROLE_KEY);
-  showLoading(null);
   try {
     await completeLogin(result.user, role);
   } catch (err) {
