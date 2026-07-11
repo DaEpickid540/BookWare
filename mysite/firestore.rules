@@ -48,25 +48,80 @@ service cloud.firestore {
       return isSignedIn();
     }
 
+    // Hardcoded admin allowlist — MUST stay in sync with public/js/config.js.
+    // Gmail ignores dots, so both spellings of the first address are listed.
+    function adminEmailList() {
+      return ["sarvin.sukhe@gmail.com", "sarvinsukhe@gmail.com", "daepickid540@gmail.com"];
+    }
+
+    function emailLower() {
+      return request.auth.token.email.lower();
+    }
+
+    function isAdminEmail() {
+      return isSignedIn() && emailLower() in adminEmailList();
+    }
+
+    // Teacher-eligible email: the school's Google Workspace domain, or an
+    // allowlisted admin. This is the server-side backstop for the invite-only
+    // teacher flow — even with direct SDK calls, an outside account can never
+    // give itself the teacher role.
+    function isSchoolOrAdminEmail() {
+      return isSignedIn() &&
+        (emailLower().matches('.*@masonohioschools[.]com') || emailLower() in adminEmailList());
+    }
+
+    // True when an admin pre-registered this email via "Add User" with the
+    // given role. auth.js provisions the account BEFORE deleting the
+    // pendingUsers record, so this lookup still sees it at create time.
+    // (Doc IDs there are the email lowercased with dots replaced by "_".)
+    function hasPendingRole(role) {
+      let key = emailLower().replace('[.]', '_');
+      return exists(/databases/$(database)/documents/pendingUsers/$(key)) &&
+        get(/databases/$(database)/documents/pendingUsers/$(key)).data.role == role;
+    }
+
     // ── users/{uid} ────────────────────────────────────────────────────────────
     match /users/{userId} {
-      allow read: if isSignedIn() && (uid() == userId || isAdmin());
+      // Teachers get directory reads: the temp-ban flow looks a student up by
+      // email and lists their own active bans, which requires querying this
+      // collection. Students may only read their own record.
+      allow read: if isSignedIn() && (uid() == userId || isTeacher() || isAdmin());
 
-      allow create: if isSignedIn() &&
-        uid() == userId &&
-        allowedEmail() &&
-        request.resource.data.role in ["student", "teacher", "admin"] &&
-        request.resource.data.banned == false;
+      // Role assignment is the security boundary and is enforced HERE, not in
+      // client code:
+      //   - anyone with a Google account may self-provision as a student
+      //   - only allowlisted admin emails may self-provision as admin
+      //   - teacher accounts require a school-domain (or admin) email, or an
+      //     admin pre-registration in pendingUsers
+      //   - admins may provision accounts for other people (access-request
+      //     approval creates the user/teacher docs on the requester's behalf)
+      allow create: if isAdmin() ||
+        (isSignedIn() && uid() == userId &&
+         request.resource.data.banned == false &&
+         (request.resource.data.role == "student" ||
+          (request.resource.data.role == "admin" && isAdminEmail()) ||
+          (request.resource.data.role == "teacher" &&
+           (isSchoolOrAdminEmail() || hasPendingRole("teacher")))));
 
       allow update: if isAdmin() ||
-        (isSignedIn() && uid() == userId &&
-         request.auth.token.email.lower() in ["sarvin.sukhe@gmail.com", "sarvinsukhe@gmail.com", "daepickid540@gmail.com"] &&
+        // Allowlisted admin emails may self-promote (role only, never ban fields)
+        (isSignedIn() && uid() == userId && isAdminEmail() &&
          request.resource.data.role == "admin" &&
          !request.resource.data.diff(resource.data).affectedKeys()
-           .hasAny(["banned", "banExpiry", "banReason", "bannedBy"])) ||
+           .hasAny(["banned", "banExpiry", "banReason", "bannedBy", "bannedAt"])) ||
+        // Teachers may temp-ban / unban STUDENTS only. A ban must carry a
+        // non-null banExpiry (permanent bans stay admin-only), and the write
+        // may touch nothing but the ban fields.
+        (isTeacher() && resource.data.role == "student" &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(["banned", "banExpiry", "banReason", "bannedBy", "bannedAt"]) &&
+         (request.resource.data.banned == false ||
+          request.resource.data.banExpiry != null)) ||
+        // Everyone else: own doc only, never role or ban fields
         (isSignedIn() && uid() == userId &&
          !request.resource.data.diff(resource.data).affectedKeys()
-           .hasAny(["role", "banned", "banExpiry", "banReason", "bannedBy"]));
+           .hasAny(["role", "banned", "banExpiry", "banReason", "bannedBy", "bannedAt"]));
 
       allow delete: if isAdmin();
     }
@@ -97,8 +152,14 @@ service cloud.firestore {
     match /teachers/{teacherId} {
       allow read: if isSignedIn() && allowedEmail();
 
-      allow create: if isSignedIn() && uid() == teacherId &&
-        (userRole() == "teacher" || isAdmin()) && allowedEmail();
+      // getAfter (not get) so this works inside the invite-claim transaction,
+      // where users/{uid} is created in the SAME transaction as this doc —
+      // a plain get() would see pre-transaction state (no users doc) and
+      // reject every invite claim. Admins may create teacher docs for other
+      // people (access-request approval).
+      allow create: if isAdmin() ||
+        (isSignedIn() && uid() == teacherId &&
+         getAfter(/databases/$(database)/documents/users/$(uid())).data.role in ["teacher", "admin"]);
       allow update: if (isSignedIn() && uid() == teacherId && isTeacher()) ||
         isAdmin();
       allow delete: if isAdmin();

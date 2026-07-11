@@ -96,6 +96,12 @@ document.querySelectorAll(".nav-item[data-page]").forEach((btn) => {
   btn.addEventListener("click", () => showPage(btn.dataset.page));
 });
 
+// "Add a Code" shortcut on the recommendations placeholder card opens
+// Settings, where the class-code input lives. (Was an inline onclick, removed
+// so the CSP can drop 'unsafe-inline' for scripts.)
+document.getElementById("recPlaceholderAddCodeBtn")
+  ?.addEventListener("click", () => showPage("settings"));
+
 function showPage(name) {
   if (name === "settings") { openSettingsModal(); return; }
   document

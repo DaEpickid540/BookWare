@@ -142,16 +142,17 @@ async function ensureUserDoc(user, role) {
 // Mirrors the doc-id transform used by admin.js submitAddUser.
 const emailKeyFor = (email) => (email ?? "").toLowerCase().trim().replace(/\./g, "_");
 
-// If an admin pre-added this email via "Add User", return the assigned role and
-// remove the pending record. Returns "teacher" | "student" | null.
-async function consumePendingUser(user) {
+// If an admin pre-added this email via "Add User", return { role, ref } so the
+// caller can provision the account and THEN delete the record. The order
+// matters: firestore.rules' hasPendingRole() must still see the pendingUsers
+// doc while the users doc is being created, so deletion happens only after
+// provisioning succeeds.
+async function peekPendingUser(user) {
   try {
     const ref  = doc(db, "pendingUsers", emailKeyFor(user.email));
     const snap = await getDoc(ref);
     if (!snap.exists()) return null;
-    const role = snap.data().role === "teacher" ? "teacher" : "student";
-    await deleteDoc(ref).catch(() => {/* non-critical */});
-    return role;
+    return { ref, role: snap.data().role === "teacher" ? "teacher" : "student" };
   } catch (_) {
     return null;
   }
@@ -222,10 +223,11 @@ async function completeLogin(user, role) {
     }
 
     // No account — was this email pre-added by an admin?
-    const pending = await consumePendingUser(user);
+    const pending = await peekPendingUser(user);
     if (pending) {
-      await provisionUser(user, pending);
-      window.location.href = pending === "teacher" ? "/teacher.html" : "/student.html";
+      await provisionUser(user, pending.role);
+      await deleteDoc(pending.ref).catch(() => {/* non-critical */});
+      window.location.href = pending.role === "teacher" ? "/teacher.html" : "/student.html";
       return;
     }
 
@@ -248,13 +250,15 @@ async function completeLogin(user, role) {
 
   if (!uSnap.exists()) {
     // New account — honor an admin pre-registration if one exists
-    const pending = await consumePendingUser(user);
-    if (pending === "teacher") {
+    const pending = await peekPendingUser(user);
+    if (pending?.role === "teacher") {
       await provisionUser(user, "teacher");
+      await deleteDoc(pending.ref).catch(() => {/* non-critical */});
       window.location.href = "/teacher.html";
       return;
     }
     await provisionUser(user, "student");
+    if (pending) await deleteDoc(pending.ref).catch(() => {/* non-critical */});
     window.location.href = "/student.html";
     return;
   }

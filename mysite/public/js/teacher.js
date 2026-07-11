@@ -4,6 +4,7 @@ import { ADMIN_EMAILS, isTeacherEmail as isEmailAllowed, shouldForceLogout } fro
 import { lookupISBN, searchBooks } from './books.js';
 import { initTheme, initARIA, initAriaChat, initAriaRecommends, refreshAriaChats, initSettingsModal, openSettingsModal, initStaySignedIn } from './theme.js';
 import { runReadingQuiz } from './quiz.js';
+import { setQrImage } from './qr.js';
 import {
   signOut, onAuthStateChanged,
   setPersistence, browserLocalPersistence, browserSessionPersistence,
@@ -1074,16 +1075,23 @@ document.getElementById('issueBanBtn')?.addEventListener('click', async () => {
   const days   = parseInt(document.getElementById('banDays')?.value);
   const reason = document.getElementById('banReason')?.value.trim();
   if (!email || !days || !reason) { toast('Fill in email, days, and reason.', 'danger'); return; }
-  const snap = await getDocs(query(collection(db, 'users'), where('email', '==', email)));
-  if (snap.empty) { toast('Student not found with that email.', 'danger'); return; }
-  const studentDoc = snap.docs[0];
-  const banExpiry  = Timestamp.fromDate(new Date(Date.now() + days * 86400000));
-  await updateDoc(doc(db, 'users', studentDoc.id), { banned: true, banExpiry, banReason: reason, bannedBy: currentUser.uid, bannedAt: serverTimestamp() });
-  document.getElementById('banStudentEmail').value = '';
-  document.getElementById('banDays').value         = '';
-  document.getElementById('banReason').value       = '';
-  toast(`<i class='bi bi-exclamation-triangle-fill'></i> ${esc(email)} banned for ${days} day${days !== 1 ? 's' : ''}`, 'success');
-  loadActiveBans();
+  try {
+    const snap = await getDocs(query(collection(db, 'users'), where('email', '==', email)));
+    // Teachers may only temp-ban students — firestore.rules rejects ban writes
+    // against teacher/admin accounts, so filter here for a clear message.
+    const studentDoc = snap.docs.find(d => d.data().role === 'student');
+    if (!studentDoc) { toast('No student account found with that email.', 'danger'); return; }
+    const banExpiry  = Timestamp.fromDate(new Date(Date.now() + days * 86400000));
+    await updateDoc(doc(db, 'users', studentDoc.id), { banned: true, banExpiry, banReason: reason, bannedBy: currentUser.uid, bannedAt: serverTimestamp() });
+    document.getElementById('banStudentEmail').value = '';
+    document.getElementById('banDays').value         = '';
+    document.getElementById('banReason').value       = '';
+    toast(`<i class='bi bi-exclamation-triangle-fill'></i> ${esc(email)} banned for ${days} day${days !== 1 ? 's' : ''}`, 'success');
+    loadActiveBans();
+  } catch (err) {
+    console.error('[teacher] ban failed:', err);
+    toast(`Ban failed: ${esc(err.message ?? 'unknown error')}`, 'danger');
+  }
 });
 
 async function loadActiveBans() {
@@ -1105,9 +1113,14 @@ async function loadActiveBans() {
       <button class='btn btn--xs success' data-uid='${esc(d.id)}' data-name='${esc(u.name ?? u.email)}'>Lift Ban</button>`;
     row.querySelector('button')?.addEventListener('click', async (e) => {
       const { uid, name } = e.currentTarget.dataset;
-      await updateDoc(doc(db, 'users', uid), { banned: false, banExpiry: null, banReason: null, bannedBy: null });
-      toast(`<i class='bi bi-check2'></i> Ban lifted for ${esc(name)}`, 'success');
-      loadActiveBans();
+      try {
+        await updateDoc(doc(db, 'users', uid), { banned: false, banExpiry: null, banReason: null, bannedBy: null });
+        toast(`<i class='bi bi-check2'></i> Ban lifted for ${esc(name)}`, 'success');
+        loadActiveBans();
+      } catch (err) {
+        console.error('[teacher] lift ban failed:', err);
+        toast(`Failed to lift ban: ${esc(err.message ?? 'unknown error')}`, 'danger');
+      }
     });
     el.appendChild(row);
   });
@@ -1411,10 +1424,9 @@ document.getElementById('createInviteBtn')?.addEventListener('click', async () =
         <i class='bi bi-check2'></i> Link copied! Valid 7 days — locked to ${esc(email)}
       </p>`;
 
-    // Show QR code via Google Charts API
+    // Show QR code (generated locally — see qr.js)
     if (qrImg && qrContainer) {
-      const qrUrl = `https://chart.googleapis.com/chart?chs=240x240&cht=qr&chl=${encodeURIComponent(link)}&choe=UTF-8`;
-      qrImg.src       = qrUrl;
+      setQrImage(qrImg, link, 240);
       qrImg.alt       = 'QR code for invite link';
       qrContainer.hidden = false;
     }
@@ -1513,8 +1525,8 @@ async function loadPastInvites() {
           const qrImg  = qrDiv?.querySelector('img');
           if (!qrDiv) return;
           qrDiv.hidden = !qrDiv.hidden;
-          if (!qrDiv.hidden && qrImg && !qrImg.src) {
-            qrImg.src = `https://chart.googleapis.com/chart?chs=180x180&cht=qr&chl=${encodeURIComponent(link)}&choe=UTF-8`;
+          if (!qrDiv.hidden && qrImg && !qrImg.dataset.qrReady) {
+            setQrImage(qrImg, link, 180);
           }
         }
         if (action === 'revoke') {

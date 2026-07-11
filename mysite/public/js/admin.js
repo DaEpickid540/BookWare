@@ -2,6 +2,7 @@
 import { auth, db } from './firebase.js';
 import { ADMIN_EMAILS } from './config.js';
 import { initTheme, initAriaChat, initARIA, initSettingsModal, openSettingsModal, initStaySignedIn } from './theme.js';
+import { setQrImage } from './qr.js';
 import {
   signOut, onAuthStateChanged,
   setPersistence, browserLocalPersistence, browserSessionPersistence,
@@ -855,8 +856,8 @@ function renderAdminInvitesList(invites) {
         const qrImg = qrDiv?.querySelector('img');
         if (!qrDiv) return;
         qrDiv.hidden = !qrDiv.hidden;
-        if (!qrDiv.hidden && qrImg && !qrImg.src) {
-          qrImg.src = `https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=${encodeURIComponent(link)}&choe=UTF-8`;
+        if (!qrDiv.hidden && qrImg && !qrImg.dataset.qrReady) {
+          setQrImage(qrImg, link, 200);
         }
       }
       if (action === 'revoke') revokeAdminInvite(id);
@@ -906,7 +907,7 @@ async function createAdminInvite() {
       </p>`;
 
     if (qrImg && qrContainer) {
-      qrImg.src = `https://chart.googleapis.com/chart?chs=220x220&cht=qr&chl=${encodeURIComponent(link)}&choe=UTF-8`;
+      setQrImage(qrImg, link, 220);
       qrContainer.hidden = false;
     }
     if (emailBtn) emailBtn.hidden = !email; // only show email button if there's a recipient

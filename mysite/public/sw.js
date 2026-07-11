@@ -7,7 +7,7 @@
 //   - External CDN (Firebase, Google, jsDelivr): pass-through (no caching)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CACHE  = 'bookware-v1';
+const CACHE  = 'bookware-v2';
 const SHELL  = [
   '/',
   '/index.html',
@@ -23,16 +23,21 @@ const SHELL  = [
   '/css/admin.css',
   '/css/signup.css',
   '/js/auth.js',
+  '/js/config.js',
   '/js/firebase.js',
   '/js/student.js',
   '/js/teacher.js',
   '/js/admin.js',
   '/js/books.js',
+  '/js/booklist.js',
+  '/js/quiz.js',
+  '/js/qr.js',
   '/js/theme.js',
   '/js/teacher-access.js',
   '/js/teacher-signup.js',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
+  '/icons/icon-maskable-512.png',
   '/icons/apple-touch-icon.png',
 ];
 
