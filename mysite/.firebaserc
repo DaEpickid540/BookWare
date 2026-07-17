@@ -1,11 +1,11 @@
 {
   "projects": {
-    "default": "bookware-site2"
+    "default": "school-suite-652d8"
   },
   "targets": {
-    "bookware-site2": {
+    "school-suite-652d8": {
       "hosting": {
-        "bookware-site2": ["bookware-site2"]
+        "bookware": ["bookware"]
       }
     }
   }

@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "target": "bookware",
     "public": "public",
     "ignore": [
       "firebase.json",
@@ -52,6 +53,7 @@
     ]
   },
   "firestore": {
+    "database": "bookware",
     "rules": "firestore.rules"
   }
 }

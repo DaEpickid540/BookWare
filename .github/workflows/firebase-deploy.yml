@@ -17,7 +17,10 @@ jobs:
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BOOKWARE_SITE }}
-          projectId: bookware-site-b04b7
+          # NOTE: add a NEW service-account secret for project school-suite-652d8 in
+          # repo Settings > Secrets before this runs — the old secret won't auth here.
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SCHOOL_SUITE }}
+          projectId: school-suite-652d8
+          target: bookware
           channelId: live
           entryPoint: ./mysite
