@@ -338,6 +338,57 @@ service cloud.firestore {
       allow write: if isAdmin() || isTeacher();
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SHARED DEFAULT DB — other school-suite apps. Namespaced so they never touch
+    // BookWare's collections. This file is the authoritative ruleset for the
+    // shared default database; School-Map and opensched must NOT deploy their own.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // ── mason-navigator: shared map routes (public, append-only) ───────────────
+    match /routes/{id} {
+      allow read, create: if true;
+      allow update, delete: if false;
+    }
+
+    // ── opensched: flex-time scheduling. Its users live under os_users/ to avoid
+    //    colliding with BookWare's users/. ──────────────────────────────────────
+    match /os_users/{osUid} {
+      allow read, write: if isSignedIn() && uid() == osUid;
+      match /mySignups/{occId} {
+        allow read, write: if isSignedIn() && uid() == osUid;
+      }
+    }
+
+    match /sessionTemplates/{templateId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.teacherId == uid()
+                    && get(/databases/$(database)/documents/os_users/$(uid())).data.role == 'teacher';
+      allow update, delete: if isSignedIn() && resource.data.teacherId == uid();
+    }
+
+    match /occurrences/{occId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.signupCount == 0
+                    && request.resource.data.teacherId ==
+                       get(/databases/$(database)/documents/sessionTemplates/$(request.resource.data.templateId)).data.teacherId;
+      allow update: if isSignedIn()
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['signupCount'])
+                    && (
+                      request.resource.data.signupCount == resource.data.signupCount + 1 ||
+                      request.resource.data.signupCount == resource.data.signupCount - 1
+                    )
+                    && request.resource.data.signupCount <= resource.data.capacity
+                    && request.resource.data.signupCount >= 0;
+      allow delete: if false;
+      match /signups/{sUid} {
+        allow read: if isSignedIn();
+        allow create, delete: if isSignedIn() && uid() == sUid;
+        allow update: if false;
+      }
+    }
+
     // ── Deny everything else ───────────────────────────────────────────────────
     match /{document=**} {
       allow read, write: if false;

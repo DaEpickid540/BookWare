@@ -8,13 +8,13 @@ import {
 import { getFirestore } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const firebaseConfig = {
-  apiKey:            'AIzaSyAHYS-XvdJ5O0uEU-e8-aSDwRDm6_nWOSs',
-  authDomain:        'bookware-site2.firebaseapp.com',
-  projectId:         'bookware-site2',
-  storageBucket:     'bookware-site2.firebasestorage.app',
-  messagingSenderId: '262580903929',
-  appId:             '1:262580903929:web:97dd44ad3f2184b799a728',
-  measurementId:     'G-DFX36Z7JLY',
+  apiKey:            'AIzaSyBXu-MgR2uIXIeUkvV8jF9AZ_a1mR8mw8s',
+  authDomain:        'school-suite-652d8.firebaseapp.com',
+  projectId:         'school-suite-652d8',
+  storageBucket:     'school-suite-652d8.firebasestorage.app',
+  messagingSenderId: '564790135010',
+  appId:             '1:564790135010:web:9a57f98bd0e412644436bb',
+  measurementId:     'G-WCMJMPWD3S',
 };
 
 export const app  = initializeApp(firebaseConfig);

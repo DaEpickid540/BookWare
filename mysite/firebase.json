@@ -53,7 +53,6 @@
     ]
   },
   "firestore": {
-    "database": "bookware",
     "rules": "firestore.rules"
   }
 }
