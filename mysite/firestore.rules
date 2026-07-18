@@ -373,11 +373,24 @@ service cloud.firestore {
         (request.resource.data.role == null || request.resource.data.role == 'student');
 
       allow update: if isOsAdmin() ||
-        (isSignedIn() && uid() == osUid && isAdminEmail() &&
-         request.resource.data.role == 'admin') ||
+        // Allowlisted admin emails may freely rewrite their OWN doc (including
+        // role) regardless of what role is currently stored — this is what lets
+        // e.g. sarvin.sukhe@gmail.com move between Student/Teacher/Admin without
+        // ever getting stuck, since isOsAdmin() alone only fires once role is
+        // already 'admin'.
+        (isSignedIn() && uid() == osUid && isAdminEmail()) ||
         (isSignedIn() && uid() == osUid && resource.data.role == null &&
          request.resource.data.role == 'student' &&
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role'])) ||
+        // Teacher invite claim: self-serve "teacher" is allowed ONLY alongside a
+        // same-transaction os_invites write that marks that exact token used by
+        // this uid — see os_invites/{token} below and lib/invites.ts.
+        (isSignedIn() && uid() == osUid &&
+         request.resource.data.role == 'teacher' &&
+         request.resource.data.get('lastInviteToken', '') is string &&
+         request.resource.data.lastInviteToken != '' &&
+         getAfter(/databases/$(database)/documents/os_invites/$(request.resource.data.lastInviteToken)).data.claimedBy == uid() &&
+         getAfter(/databases/$(database)/documents/os_invites/$(request.resource.data.lastInviteToken)).data.used == true) ||
         (isSignedIn() && uid() == osUid &&
          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']));
 
@@ -386,6 +399,20 @@ service cloud.firestore {
       match /mySignups/{occId} {
         allow read, write: if isSignedIn() && uid() == osUid;
       }
+    }
+
+    // ── opensched: admin-generated teacher invite links / QR codes ─────────────
+    match /os_invites/{token} {
+      allow get: if isSignedIn();
+      allow list: if isOsAdmin();
+      allow create: if isOsAdmin();
+      // Claim: any signed-in user may mark an unused, unexpired invite as used by
+      // themselves — paired in the same transaction with the os_users role grant above.
+      allow update: if isSignedIn() && resource.data.used == false &&
+        request.resource.data.used == true &&
+        request.resource.data.claimedBy == uid() &&
+        (resource.data.expiresAt == null || resource.data.expiresAt > request.time.toMillis());
+      allow delete: if isOsAdmin();
     }
 
     // ── opensched: teacher-portal sign-ins awaiting admin approval ─────────────
@@ -424,10 +451,15 @@ service cloud.firestore {
 
     match /occurrences/{occId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn()
-                    && request.resource.data.signupCount == 0
-                    && request.resource.data.teacherId ==
-                       get(/databases/$(database)/documents/sessionTemplates/$(request.resource.data.templateId)).data.teacherId;
+      // Two ways to create: the normal template-derived occurrence, or an
+      // admin-authored one-off "custom event" (opensched Custom Events, no
+      // backing sessionTemplate) — see lib/customEvents.ts.
+      allow create: if isSignedIn() && request.resource.data.signupCount == 0 &&
+                    (
+                      (isOsAdmin() && request.resource.data.isCustomEvent == true) ||
+                      request.resource.data.teacherId ==
+                        get(/databases/$(database)/documents/sessionTemplates/$(request.resource.data.templateId)).data.teacherId
+                    );
       allow update: if isSignedIn()
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['signupCount'])
                     && (
@@ -436,7 +468,7 @@ service cloud.firestore {
                     )
                     && request.resource.data.signupCount <= resource.data.capacity
                     && request.resource.data.signupCount >= 0;
-      allow delete: if false;
+      allow delete: if isOsAdmin() && resource.data.isCustomEvent == true;
       match /signups/{sUid} {
         allow read: if isSignedIn();
         allow create, delete: if isSignedIn() && uid() == sUid;
