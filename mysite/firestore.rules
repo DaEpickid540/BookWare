@@ -352,11 +352,66 @@ service cloud.firestore {
 
     // ── opensched: flex-time scheduling. Its users live under os_users/ to avoid
     //    colliding with BookWare's users/. ──────────────────────────────────────
+    function osUserRole() {
+      return get(/databases/$(database)/documents/os_users/$(uid())).data.role;
+    }
+    function isOsAdmin() {
+      return isSignedIn() && osUserRole() == 'admin';
+    }
+    function isOsTeacher() {
+      return isSignedIn() && osUserRole() == 'teacher';
+    }
+
+    // Role is the security boundary here, same principle as BookWare's own
+    // users/{uid} above: self-serve student is open, self-serve admin requires
+    // an allowlisted email, and "teacher" can ONLY be granted by an existing
+    // os admin (approving an os_teacherRequests doc) — never by the account itself.
     match /os_users/{osUid} {
-      allow read, write: if isSignedIn() && uid() == osUid;
+      allow read: if isSignedIn() && (uid() == osUid || isOsAdmin() || isOsTeacher());
+
+      allow create: if isSignedIn() && uid() == osUid &&
+        (request.resource.data.role == null || request.resource.data.role == 'student');
+
+      allow update: if isOsAdmin() ||
+        (isSignedIn() && uid() == osUid && isAdminEmail() &&
+         request.resource.data.role == 'admin') ||
+        (isSignedIn() && uid() == osUid && resource.data.role == null &&
+         request.resource.data.role == 'student' &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role'])) ||
+        (isSignedIn() && uid() == osUid &&
+         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']));
+
+      allow delete: if isOsAdmin();
+
       match /mySignups/{occId} {
         allow read, write: if isSignedIn() && uid() == osUid;
       }
+    }
+
+    // ── opensched: teacher-portal sign-ins awaiting admin approval ─────────────
+    match /os_teacherRequests/{reqUid} {
+      allow read: if isSignedIn() && (uid() == reqUid || isOsAdmin());
+      allow create: if isSignedIn() && uid() == reqUid &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.keys().hasAll(['uid', 'name', 'email', 'requestedAt', 'status']);
+      allow update: if isOsAdmin() ||
+        (isSignedIn() && uid() == reqUid &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['requestedAt', 'status']) &&
+         request.resource.data.status == 'pending');
+      allow delete: if isOsAdmin() || (isSignedIn() && uid() == reqUid);
+    }
+
+    // ── opensched: admin-configurable scheduling policy (singleton doc) ────────
+    match /os_settings/{doc} {
+      allow read: if isSignedIn();
+      allow write: if isOsAdmin();
+    }
+
+    // ── opensched: per-teacher-per-date hosting opt-out ─────────────────────────
+    match /os_hostingStatus/{id} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && request.resource.data.teacherId == uid();
+      allow delete: if isOsAdmin();
     }
 
     match /sessionTemplates/{templateId} {
