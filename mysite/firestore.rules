@@ -389,6 +389,7 @@ service cloud.firestore {
          request.resource.data.role == 'teacher' &&
          request.resource.data.get('lastInviteToken', '') is string &&
          request.resource.data.lastInviteToken != '' &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'lastInviteToken']) &&
          getAfter(/databases/$(database)/documents/os_invites/$(request.resource.data.lastInviteToken)).data.claimedBy == uid() &&
          getAfter(/databases/$(database)/documents/os_invites/$(request.resource.data.lastInviteToken)).data.used == true) ||
         (isSignedIn() && uid() == osUid &&
@@ -409,6 +410,7 @@ service cloud.firestore {
       // Claim: any signed-in user may mark an unused, unexpired invite as used by
       // themselves — paired in the same transaction with the os_users role grant above.
       allow update: if isSignedIn() && resource.data.used == false &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['used', 'claimedBy', 'claimedAt']) &&
         request.resource.data.used == true &&
         request.resource.data.claimedBy == uid() &&
         (resource.data.expiresAt == null || resource.data.expiresAt > request.time.toMillis());
@@ -451,27 +453,51 @@ service cloud.firestore {
 
     match /occurrences/{occId} {
       allow read: if isSignedIn();
-      // Two ways to create: the normal template-derived occurrence, or an
+      // Two ways to create: the normal template-derived occurrence (only the
+      // owning teacher, and never flagged as a custom event), or an
       // admin-authored one-off "custom event" (opensched Custom Events, no
-      // backing sessionTemplate) — see lib/customEvents.ts.
+      // backing sessionTemplate) — see lib/customEvents.ts. The ordinary
+      // branch pins BOTH that the caller IS the template's teacher (not just
+      // that the claimed teacherId matches some template) and that
+      // isCustomEvent isn't smuggled in on a non-admin write.
       allow create: if isSignedIn() && request.resource.data.signupCount == 0 &&
                     (
                       (isOsAdmin() && request.resource.data.isCustomEvent == true) ||
-                      request.resource.data.teacherId ==
-                        get(/databases/$(database)/documents/sessionTemplates/$(request.resource.data.templateId)).data.teacherId
+                      (request.resource.data.get('isCustomEvent', false) == false &&
+                       uid() == request.resource.data.teacherId &&
+                       request.resource.data.teacherId ==
+                         get(/databases/$(database)/documents/sessionTemplates/$(request.resource.data.templateId)).data.teacherId)
                     );
+      // signupCount may only move in lockstep with the CALLER's own roster
+      // entry appearing/disappearing in the same transaction (see
+      // signups/{sUid} below) — this is what actually enforces capacity and
+      // stops anyone from inflating/deflating another occurrence's count.
       allow update: if isSignedIn()
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['signupCount'])
-                    && (
-                      request.resource.data.signupCount == resource.data.signupCount + 1 ||
-                      request.resource.data.signupCount == resource.data.signupCount - 1
-                    )
                     && request.resource.data.signupCount <= resource.data.capacity
-                    && request.resource.data.signupCount >= 0;
+                    && request.resource.data.signupCount >= 0
+                    && (
+                      (request.resource.data.signupCount == resource.data.signupCount + 1 &&
+                       !exists(/databases/$(database)/documents/occurrences/$(occId)/signups/$(uid())) &&
+                       existsAfter(/databases/$(database)/documents/occurrences/$(occId)/signups/$(uid()))) ||
+                      (request.resource.data.signupCount == resource.data.signupCount - 1 &&
+                       exists(/databases/$(database)/documents/occurrences/$(occId)/signups/$(uid())) &&
+                       !existsAfter(/databases/$(database)/documents/occurrences/$(occId)/signups/$(uid())))
+                    );
       allow delete: if isOsAdmin() && resource.data.isCustomEvent == true;
       match /signups/{sUid} {
         allow read: if isSignedIn();
-        allow create, delete: if isSignedIn() && uid() == sUid;
+        // Mirror image of the occurrences update rule above: a roster entry
+        // may only be created/deleted alongside the matching signupCount
+        // move on its parent, so the two can never drift apart.
+        allow create: if isSignedIn() && uid() == sUid &&
+          getAfter(/databases/$(database)/documents/occurrences/$(occId)).data.signupCount ==
+            get(/databases/$(database)/documents/occurrences/$(occId)).data.signupCount + 1 &&
+          getAfter(/databases/$(database)/documents/occurrences/$(occId)).data.signupCount <=
+            get(/databases/$(database)/documents/occurrences/$(occId)).data.capacity;
+        allow delete: if isSignedIn() && uid() == sUid &&
+          getAfter(/databases/$(database)/documents/occurrences/$(occId)).data.signupCount ==
+            get(/databases/$(database)/documents/occurrences/$(occId)).data.signupCount - 1;
         allow update: if false;
       }
     }
