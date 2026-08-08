@@ -85,6 +85,21 @@ function appConfirm(msg, okLabel = 'Confirm', danger = true) {
   });
 }
 
+// Escape closes whichever modal overlay is open. The ban modal had no key
+// handler at all, and the confirm modal could only be dismissed by its own
+// buttons — easy to feel stuck in if a click missed the backdrop.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const open = [...document.querySelectorAll('.modal-overlay')].filter(o => !o.hidden);
+  if (!open.length) return;
+  const top = open[open.length - 1];
+  // Route through the modal's own cancel button so any pending promise
+  // (appConfirm) still resolves instead of being left hanging.
+  const cancel = top.querySelector('[id$="CancelBtn"]');
+  if (cancel) cancel.click();
+  else top.hidden = true;
+});
+
 // ── Page routing ──────────────────────────────────────────────────────────────
 document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
   btn.addEventListener('click', () => showPage(btn.dataset.page));
@@ -100,6 +115,10 @@ function showPage(pageName) {
     btn.classList.add('active');
     btn.setAttribute('aria-current', 'page');
   });
+  // The mobile bar scrolls horizontally (eight tabs), so keep the active one
+  // on screen — otherwise you can land on a page whose tab is off to the side.
+  document.querySelector(`.admin-bnav-btn[data-page="${pageName}"]`)
+    ?.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
   if (pageName === 'users')     loadAllUsers();
   if (pageName === 'bans')      loadBans();
   if (pageName === 'libraries') loadAllLibraries();

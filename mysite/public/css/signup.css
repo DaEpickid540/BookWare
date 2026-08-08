@@ -307,3 +307,18 @@ body {
   .access-code-row { flex-direction: column; }
   .btn-join { width: 100%; justify-content: center; }
 }
+
+/* ── MOBILE LAYER ────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  /* Under 16px iOS force-zooms the page on focus and never zooms back —
+     which on this page happens the moment you tap the invite-code box. */
+  .access-input,
+  input[type="text"], input[type="email"], select, textarea {
+    font-size: 16px;
+    min-height: 44px;
+  }
+  .btn-join, .btn, button { min-height: 44px; }
+}
+
+button, a, input, select, textarea { touch-action: manipulation; }
+@media (pointer: coarse) { * { -webkit-tap-highlight-color: transparent; } }

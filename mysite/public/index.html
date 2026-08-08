@@ -41,6 +41,26 @@
   <!-- Error toast -->
   <div class="error-toast" id="errorToast" role="alert" aria-live="assertive"></div>
 
+  <!-- Wrong-portal dialog. A toast that fades after six seconds was too easy to
+       miss, so a sign-in refused for using the wrong portal now explains itself
+       and points at the right one. -->
+  <div class="role-dialog-overlay" id="roleDialog" hidden role="alertdialog" aria-modal="true"
+       aria-labelledby="roleDialogTitle" aria-describedby="roleDialogMsg">
+    <div class="role-dialog">
+      <button class="role-dialog-close" id="roleDialogClose" type="button" aria-label="Close">
+        <i class="bi bi-x-lg" aria-hidden="true"></i>
+      </button>
+      <div class="role-dialog-icon" aria-hidden="true"><i class="bi bi-shield-exclamation"></i></div>
+      <h2 class="role-dialog-title" id="roleDialogTitle">Wrong account type</h2>
+      <p class="role-dialog-msg" id="roleDialogMsg"></p>
+      <p class="role-dialog-account" id="roleDialogAccount" hidden></p>
+      <div class="role-dialog-actions">
+        <button class="role-dialog-btn role-dialog-btn--alt" id="roleDialogAlt" type="button" hidden></button>
+        <button class="role-dialog-btn role-dialog-btn--primary" id="roleDialogOk" type="button">Got it</button>
+      </div>
+    </div>
+  </div>
+
   <div class="portal-page">
     <header class="portal-header">
       <div class="portal-logo">
@@ -126,33 +146,9 @@
     </footer>
   </div>
 
-  <script>
-    // Show ban message if redirected after ban
-    (function () {
-      const p = new URLSearchParams(window.location.search);
-      const el = document.getElementById('loginError');
-      if (!el) return;
-      if (p.get('banned') === 'admin') {
-        el.textContent = 'Your account has been suspended for 24 hours due to repeated unauthorized access attempts.';
-        el.hidden = false;
-      } else if (p.get('banned') === '1') {
-        const reason = p.get('reason') || 'Policy violation';
-        const days = p.get('days') || 'some time';
-        el.textContent = 'Account suspended for ' + days + ' day(s): ' + reason + '. Contact your teacher or administrator.';
-        el.hidden = false;
-      }
-      if (p.get('banned')) history.replaceState(null, '', '/');
-    })();
-  </script>
+  <script defer src="/js/login-notice.js"></script>
 
   <script type="module" src="/js/auth.js"></script>
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js')
-          .catch(err => console.warn('[SW] registration failed:', err));
-      });
-    }
-  </script>
+  <script defer src="/js/sw-register.js"></script>
 </body>
 </html>

@@ -78,6 +78,74 @@ function showError(msg) {
   errorTimer = setTimeout(() => errorToast.classList.remove("visible"), 6000);
 }
 
+// ─── Wrong-portal dialog ──────────────────────────────────────────────────────
+// Signing in through the wrong portal used to fail with only a toast that faded
+// after six seconds, which read as being rejected for no reason. This explains
+// what happened, which account was used, and where to go instead.
+const roleDialog = document.getElementById("roleDialog");
+
+const PORTAL_LABEL = { student: "Student", teacher: "Teacher", admin: "Admin" };
+
+/**
+ * @param {object}   opts
+ * @param {string}   opts.message   what went wrong and what to do about it
+ * @param {string}  [opts.account]  the email they signed in with
+ * @param {string}  [opts.altLabel] label for an optional secondary action
+ * @param {Function}[opts.onAlt]    handler for that action
+ * @returns {Promise<void>} resolves once the dialog is dismissed
+ */
+function showRoleDialog({ message, account, altLabel, onAlt }) {
+  if (!roleDialog) { alert(message); return Promise.resolve(); }
+
+  const msgEl = document.getElementById("roleDialogMsg");
+  const acctEl = document.getElementById("roleDialogAccount");
+  const okBtn = document.getElementById("roleDialogOk");
+  const altBtn = document.getElementById("roleDialogAlt");
+  const closeBtn = document.getElementById("roleDialogClose");
+
+  msgEl.textContent = message;
+  if (account) {
+    acctEl.textContent = `Signed in as ${account}`;
+    acctEl.hidden = false;
+  } else {
+    acctEl.hidden = true;
+  }
+
+  const lastFocused = document.activeElement;
+
+  return new Promise((resolve) => {
+    const close = () => {
+      roleDialog.hidden = true;
+      okBtn.removeEventListener("click", onOk);
+      closeBtn.removeEventListener("click", onOk);
+      altBtn.removeEventListener("click", onAltClick);
+      roleDialog.removeEventListener("click", onBackdrop);
+      document.removeEventListener("keydown", onKey);
+      if (lastFocused instanceof HTMLElement) lastFocused.focus();
+      resolve();
+    };
+    const onOk = () => close();
+    const onAltClick = () => { close(); onAlt?.(); };
+    const onBackdrop = (e) => { if (e.target === roleDialog) close(); };
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+
+    if (altLabel && onAlt) {
+      altBtn.textContent = altLabel;
+      altBtn.hidden = false;
+      altBtn.addEventListener("click", onAltClick);
+    } else {
+      altBtn.hidden = true;
+    }
+    okBtn.addEventListener("click", onOk);
+    closeBtn.addEventListener("click", onOk);
+    roleDialog.addEventListener("click", onBackdrop);
+    document.addEventListener("keydown", onKey);
+
+    roleDialog.hidden = false;
+    okBtn.focus();
+  });
+}
+
 // Races `promise` against a timer — if sign-in hasn't settled within `ms`, we
 // treat it as interrupted (this is a real, known failure mode: a popup that
 // gets closed in an unusual way, a dropped network mid-redirect, or a broken
@@ -193,8 +261,17 @@ async function completeLogin(user, role) {
   // ── Admin ─────────────────────────────────────────────────────────────────
   if (role === "admin") {
     if (!isAdmin(user.email)) {
+      const email = user.email ?? "";
       await signOut(auth);
-      showError("Admin access is restricted to authorized accounts.");
+      await showRoleDialog({
+        message:
+          "You tried to sign in to the Admin portal, but this account isn't authorized " +
+          "for admin access. Please sign in using the correct account type, or contact " +
+          "an administrator if you think this is a mistake.",
+        account: email,
+        altLabel: "Sign in as Student",
+        onAlt: () => document.getElementById("studentLogin")?.click(),
+      });
       return;
     }
     await ensureUserDoc(user, "admin");
@@ -217,8 +294,17 @@ async function completeLogin(user, role) {
         return;
       }
       // Has a student account — wrong portal
+      const email = user.email ?? "";
       await signOut(auth);
-      showError("Your account is registered as a student. Please use the Student sign-in.");
+      await showRoleDialog({
+        message:
+          "You tried to sign in to the Teacher portal, but this account is registered " +
+          "as a Student. Please use the Student sign-in, or contact an administrator " +
+          "or your teacher if your account should have teacher access.",
+        account: email,
+        altLabel: "Sign in as Student",
+        onAlt: () => document.getElementById("studentLogin")?.click(),
+      });
       return;
     }
 
@@ -241,10 +327,20 @@ async function completeLogin(user, role) {
   const uRef = doc(db, "users", user.uid);
   const uSnap = await getDoc(uRef);
 
-  // Already has a non-student account — redirect to correct portal
+  // Already has a non-student account. This isn't a rejection — we can send
+  // them somewhere useful — but landing on a portal you didn't pick is
+  // disorienting, so say so first.
   if (uSnap.exists() && uSnap.data().role !== "student") {
     const r = uSnap.data().role;
-    window.location.href = r === "teacher" ? "/teacher.html" : "/admin.html";
+    const dest = r === "teacher" ? "/teacher.html" : "/admin.html";
+    await showRoleDialog({
+      message:
+        `You tried to sign in to the Student portal, but this account is registered ` +
+        `as ${r === "teacher" ? "a Teacher" : "an Admin"}. Taking you to the ` +
+        `${PORTAL_LABEL[r] ?? r} portal instead.`,
+      account: user.email ?? "",
+    });
+    window.location.href = dest;
     return;
   }
 

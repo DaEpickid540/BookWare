@@ -890,6 +890,14 @@ html[data-theme="light"] .book-row:hover { background: rgba(0,0,0,0.015); }
   margin-top: 6px;
 }
 
+/* Status / recommended badges under a book title. */
+.book-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 6px;
+}
+
 /* ── BOOK CARDS (locker) ─────────────────────────────────────── */
 .book-card-grid {
   display: grid;
@@ -1756,14 +1764,8 @@ html[data-theme="light"] .book-row:hover { background: rgba(0,0,0,0.015); }
   .topbar { min-height: var(--topbar-h); }
   .user-name { display: none; }       /* hide name, keep avatar */
 
-  /* Settings modal: full-screen on small phones */
-  .settings-modal { padding: 0; align-items: flex-end; }
-  .settings-modal-box {
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
-    max-height: 90dvh;
-    overflow-y: auto;
-  }
+  /* Settings modal sizing lives in the MOBILE LAYER at the end of this file,
+     alongside its sticky header. */
 
   /* Filter bars: stack vertically */
   .filter-bar { flex-direction: column; }
@@ -2048,3 +2050,410 @@ html[data-theme="light"] .book-row:hover { background: rgba(0,0,0,0.015); }
 }
 .aria-chip:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 .aria-chip i { font-size: 0.68rem; }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MOBILE LAYER
+   ───────────────────────────────────────────────────────────────────────────
+   Everything below tunes the phone experience. It lives at the end of the
+   file on purpose: these rules need to win specificity ties against the
+   desktop rules above, so source order does the work instead of !important.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── TOUCH INPUT HYGIENE ─────────────────────────────────────────────────── */
+
+/* iOS Safari zooms the whole page in when you focus a field smaller than 16px
+   and gives you no way back out. Every field in the app was 0.8rem (12.8px),
+   so tapping the book search zoomed the page and left it there. */
+@media (max-width: 640px) {
+  .text-input,
+  .search-box-input,
+  .select-input,
+  .aria-chat-input,
+  .quiz-text-input,
+  input[type="text"],
+  input[type="search"],
+  input[type="password"],
+  input[type="email"],
+  input[type="number"],
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Removes the ~300ms tap delay and the grey flash overlay on every control. */
+button, .btn, .nav-item, a, label, summary, input, select, textarea {
+  touch-action: manipulation;
+}
+@media (pointer: coarse) {
+  * { -webkit-tap-highlight-color: transparent; }
+}
+
+/* Momentum scrolling, and stop the scroll chaining into the page behind. */
+.content-area,
+.settings-modal,
+.quiz-card,
+.aria-chat-messages {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* On a touch screen :hover latches after a tap and stays until you tap
+   something else — a tapped "Delete" would sit there solid red as if armed.
+   Restate the resting appearance wherever hover changes more than a border. */
+@media (hover: none) {
+  .btn--primary:hover,
+  .book-card:hover,
+  .theme-preset:hover,
+  .color-swatch:hover,
+  .quiz-chip:hover,
+  .aria-chip:hover { transform: none; }
+
+  .btn--ghost:hover   { border-color: var(--border);   color: var(--text-3); }
+  .btn--danger:hover  { background: var(--danger-bg);  color: var(--danger); }
+  .btn--success:hover { background: var(--success-bg); color: var(--success); }
+  .btn--xs:hover      { border-color: var(--border);   color: var(--text-3); }
+  .btn--xs.danger:hover {
+    background: var(--danger-bg);
+    border-color: var(--danger-border);
+    color: var(--danger);
+  }
+  .aria-chip:hover {
+    background: var(--accent-bg);
+    border-color: var(--accent-border);
+    color: var(--accent);
+  }
+  .nav-item:hover,
+  .book-row:hover { background: none; }
+  .library-chip:hover { border-color: var(--border); color: var(--text-3); }
+  .signout-bar:hover  { border-color: var(--border); background: var(--bg-card); }
+  .book-card:hover,
+  .all-lib-card:hover,
+  .reader-card:hover,
+  .book-search-card:hover,
+  .aria-rec-card:hover { border-color: var(--border); }
+
+  /* Selected/active states must still read as selected while "hovered". */
+  .btn--xs.starred:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-bg);
+  }
+  .library-chip.selected:hover { border-color: var(--accent); color: var(--accent); }
+  .nav-item.active:hover { background: var(--accent-bg); color: var(--accent); }
+}
+
+/* ── TOUCH TARGET SIZING ─────────────────────────────────────────────────── */
+
+/* 44px is the smallest target most people can hit reliably. The compact
+   desktop sizes (24px / 26px / 28px) are well under that. */
+@media (max-width: 640px) {
+  .btn,
+  .btn--sm,
+  .btn--xs { min-height: 44px; }
+  .btn--sm { font-size: 0.78rem; padding: 0 14px; }
+  .btn--xs { font-size: 0.72rem; padding: 0 12px; }
+
+  .settings-modal-close { width: 44px; height: 44px; }
+
+  .text-input,
+  .select-input,
+  .search-box { min-height: 44px; }
+
+  /* Stretch the field to fill its box so tapping anywhere in the search bar
+     focuses it, rather than only the 21px-tall input itself. */
+  .search-box { padding: 0 12px; }
+  .search-box-input { align-self: stretch; }
+
+  .color-swatch { width: 44px; height: 44px; }
+  .color-swatch-row { gap: 8px; }
+
+  .btnsize-opt {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 18px;
+    font-size: 0.8rem;
+  }
+
+  .toggle-track { width: 50px; height: 30px; border-radius: 15px; }
+  .toggle-thumb { width: 24px; height: 24px; }
+  .toggle input:checked + .toggle-track .toggle-thumb { left: 22px; }
+
+  /* The slider bar stays visually thin but gets a full-height grab area. */
+  .brightness-slider {
+    height: 44px;
+    border: none;
+    border-radius: 0;
+    background: linear-gradient(to right, #000, #fff) center / 100% 6px no-repeat;
+  }
+
+  .quiz-chip { min-height: 44px; }
+  .quiz-skip { min-height: 44px; display: inline-flex; align-items: center; }
+}
+
+/* ── BOOK ROWS ───────────────────────────────────────────────────────────── */
+
+/* A row was 149px tall: a title truncated mid-word, and four labelled buttons
+   wrapped onto two lines at 24-28px each. Roughly three books fit a screen.
+   Now: the title wraps so it can be read, and the secondary actions collapse
+   to icon-only 44px targets on a single line beside the primary action. */
+@media (max-width: 640px) {
+  .book-title {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 0.86rem;
+    line-height: 1.35;
+  }
+  /* Author and status badge share a line instead of taking one each — worth
+     about 28px on every row, which is most of a fifth book per screen. */
+  .book-author { display: inline; font-size: 0.72rem; }
+  .book-meta {
+    display: inline-flex;
+    margin: 0 0 0 7px;
+    vertical-align: middle;
+  }
+
+  /* The cover is what you actually scan by, so give it a little more room. */
+  .book-cover,
+  .book-cover-ph { width: 46px; height: 66px; }
+
+  /* Cards give back some padding so a row of actions has room to stay on
+     one line — at 16px the last icon wrapped by a single pixel. */
+  .panel-card { padding: 12px; }
+
+  .book-actions {
+    gap: 6px;
+    align-items: center;
+    margin-top: 8px;
+  }
+
+  /* Label text stays in the DOM for screen readers; it just isn't drawn. */
+  .book-actions .btn--xs {
+    width: 44px;
+    min-width: 44px;
+    padding: 0;
+    gap: 0;
+    font-size: 0;
+    justify-content: center;
+  }
+  .book-actions .btn--xs i { font-size: 1.05rem; }
+
+  /* The one primary action keeps its label and takes the remaining width. */
+  .book-actions .btn--sm {
+    flex: 1;
+    min-width: 84px;
+    padding: 0 10px;
+    justify-content: center;
+  }
+}
+
+/* ── CHROME ──────────────────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  /* The bottom nav already labels the current tab, so the top bar can be
+     slimmer — that is ~10px of vertical space back on every screen. */
+  :root { --topbar-h: 50px; }
+  .page-title { font-size: 1.1rem; }
+  .content-area { padding-top: 12px; }
+
+  /* Stop the fixed shell from rubber-banding on iOS. */
+  body { overscroll-behavior-y: none; }
+
+  /* The teacher portal carries six tabs, so labels must not force the bar
+     wider than the screen. */
+  .bottom-nav-btn { min-width: 0; }
+  .bottom-nav-btn span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 380px) {
+  .bottom-nav-btn { font-size: 0.54rem; }
+  .bottom-nav-btn i { font-size: 1.15rem; }
+}
+
+/* ── SETTINGS MODAL SHELL ────────────────────────────────────────────────── */
+
+/* The close button was position:absolute inside the box that scrolls, so it
+   clipped out of view as soon as you scrolled down — and on a phone there is
+   no Escape key to fall back on, which left no way out of Settings at all.
+   It now sits in a sticky header that is always on screen. */
+/* Block layout, not flex: as a flex column the children shrink to fit instead
+   of overflowing, and .settings-wrap clips its own overflow — so the box never
+   scrolled and everything past the fold was simply cut off. */
+.settings-modal-box {
+  max-height: calc(100dvh - 88px);
+  overflow-y: auto;
+  padding: 0 24px 24px;
+}
+
+.settings-modal-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 -24px 18px;
+  padding: 15px 20px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-modal-title {
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  font-weight: 400;
+  color: var(--text);
+}
+
+/* No longer absolutely positioned — it is a flex child of the header now. */
+.settings-modal-close { position: static; }
+
+@media (max-width: 640px) {
+  /* A near-full-height sheet pinned to the bottom left a 71px dead strip of
+     backdrop above it. Full screen is both cleaner and less fiddly to use. */
+  .settings-modal { align-items: stretch; padding: 0; }
+  .settings-modal-box {
+    height: 100dvh;
+    max-height: none;
+    border: none;
+    border-radius: 0;
+    padding: 0 14px calc(18px + env(safe-area-inset-bottom, 0px));
+  }
+  .settings-modal-header {
+    margin: 0 -14px 14px;
+    padding: 13px 14px;
+    padding-top: calc(13px + env(safe-area-inset-top, 0px));
+  }
+  .settings-modal-title { font-size: 1.05rem; }
+
+  /* settingsPop slides down from -10px, which on a full-screen sheet just
+     exposes a strip of backdrop along the bottom edge. Fade instead. */
+  .settings-modal-box { animation: settingsFade 0.16s ease; }
+}
+
+@keyframes settingsFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── SETTINGS SECTIONS ───────────────────────────────────────────────────── */
+
+/* Settings was one 2300px scroll of eight always-open sections. They are
+   <details> now; this styles the summary row and its disclosure caret. */
+.settings-section > summary {
+  cursor: pointer;
+  list-style: none;
+  align-items: center;
+  gap: 12px;
+}
+.settings-section > summary::-webkit-details-marker { display: none; }
+
+.settings-caret {
+  flex-shrink: 0;
+  color: var(--text-3);
+  font-size: 0.9rem;
+  transition: transform var(--tr);
+}
+.settings-section[open] > summary .settings-caret { transform: rotate(90deg); }
+
+.settings-section > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Nested disclosure for the ARIA provider keys. */
+.aria-setup-details {
+  border-top: 1px solid var(--border);
+  margin-top: 10px;
+}
+.aria-setup-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 0;
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-2);
+}
+.aria-setup-summary::-webkit-details-marker { display: none; }
+.aria-setup-summary i:first-child { color: var(--accent); margin-right: 4px; }
+.aria-setup-details[open] > .aria-setup-summary .settings-caret { transform: rotate(90deg); }
+.aria-setup-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (max-width: 640px) {
+  .aria-setup-summary { min-height: 48px; }
+}
+
+@media (max-width: 640px) {
+  .settings-section > summary { min-height: 52px; }
+  .settings-row { padding: 12px 0; }
+
+  /* Label above control instead of squeezed side by side. */
+  .settings-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .settings-row .toggle,
+  .settings-row .btnsize-row,
+  .settings-row .color-swatch-row { align-self: flex-start; }
+
+  .code-input-row { flex-direction: column; }
+  .code-input-row .btn { width: 100%; justify-content: center; }
+  .aria-key-row-input { flex-direction: column; }
+  .aria-key-row-input .btn { width: 100%; justify-content: center; }
+}
+
+/* ── MOTION ──────────────────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  /* backdrop-filter over a full-screen overlay is one of the most expensive
+     things a phone GPU can be asked to do, and it stutters the open
+     animation. A more opaque scrim reads the same and costs nothing. */
+  .settings-modal,
+  .quiz-overlay {
+    backdrop-filter: none;
+    background: rgba(0, 0, 0, 0.72);
+  }
+
+  /* Fade only — the translate forced a full-page repaint on every tab tap. */
+  .page.active { animation: pageFadeInFlat 0.14s ease; }
+}
+
+@keyframes pageFadeInFlat {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* `transition: all` makes the browser watch every animatable property on
+   these chips, including layout ones. Name what actually changes. */
+.library-chip,
+.quiz-chip,
+.aria-chip {
+  transition: color var(--tr), background var(--tr), border-color var(--tr);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

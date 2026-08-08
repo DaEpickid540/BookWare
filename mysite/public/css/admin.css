@@ -700,10 +700,8 @@ input, select { font-family: inherit; font-size: inherit; }
   .debug-grid .panel-card:last-child { grid-column: span 1; }
 }
 
-@media (max-width: 600px) {
-  .sidebar { display: none; }
-  .main-area { padding: 16px 14px calc(72px + env(safe-area-inset-bottom, 0px)); }
-}
+/* Mobile rules live in the MOBILE LAYER at the end of this file, on a 640px
+   breakpoint shared with app.css. */
 
 /* ── ADMIN BOTTOM NAV (mobile ≤ 600px) ──────────────────────── */
 .admin-bottom-nav {
@@ -741,19 +739,192 @@ input, select { font-family: inherit; font-size: inherit; }
 .admin-bnav-btn i { font-size: 1.2rem; line-height: 1; }
 .admin-bnav-btn.active { color: var(--accent); }
 
-@media (max-width: 600px) {
+/* (see MOBILE LAYER below) */
+
+@supports (-webkit-touch-callout: none) {
+  body { min-height: -webkit-fill-available; }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MOBILE LAYER (admin)
+   ───────────────────────────────────────────────────────────────────────────
+   admin.html loads only this stylesheet — it never pulls in app.css — so the
+   phone fixes made there do not reach the admin portal and are repeated here.
+   Admin's own breakpoint was 600px while app.css uses 640px; both are 640 now
+   so the two portals switch to mobile at the same width.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── MODALS ──────────────────────────────────────────────────────────────── */
+
+/* .modal had no height cap and neither it nor its overlay could scroll, so a
+   modal taller than the viewport pushed its own footer — including Cancel —
+   off screen with no way to reach it. */
+.modal {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 40px);
+}
+.modal-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  /* Without this a flex item refuses to shrink below its content height, so
+     the body would push the footer out of the modal instead of scrolling. */
+  min-height: 0;
+}
+.modal-header,
+.modal-footer { flex-shrink: 0; }
+
+/* ── SETTINGS MODAL SHELL ────────────────────────────────────────────────── */
+
+/* Same fix as the student/teacher portals: the close button was absolutely
+   positioned inside the scrolling box and scrolled out of reach. */
+.settings-modal-box {
+  max-height: calc(100dvh - 88px);
+  overflow-y: auto;
+  padding: 0 24px 24px;
+}
+.settings-modal-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 -24px 18px;
+  padding: 15px 20px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.settings-modal-title {
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  font-weight: 400;
+  color: var(--text);
+}
+.settings-modal-close { position: static; }
+
+/* ── TOUCH INPUT HYGIENE ─────────────────────────────────────────────────── */
+
+button, .btn, .nav-item, a, label, summary, input, select, textarea {
+  touch-action: manipulation;
+}
+@media (pointer: coarse) {
+  * { -webkit-tap-highlight-color: transparent; }
+}
+
+@media (hover: none) {
+  .btn--primary:hover, .theme-preset:hover, .color-swatch:hover { transform: none; }
+  .btn--ghost:hover  { border-color: var(--border);  color: var(--text-3); }
+  .btn--danger:hover { background: var(--danger-bg); color: var(--danger); }
+  .modal-close:hover { background: none; color: var(--text-3); }
+  .nav-item:hover    { background: none; }
+  .nav-item.active:hover { background: var(--accent-bg); color: var(--accent); }
+}
+
+@media (max-width: 640px) {
+  /* Under 16px iOS force-zooms the page on focus and never zooms back. */
+  .text-input,
+  .select-input,
+  input[type="text"], input[type="search"], input[type="password"],
+  input[type="email"], input[type="number"], select, textarea {
+    font-size: 16px;
+    min-height: 44px;
+  }
+
+  /* 44px minimum touch targets. */
+  .btn { min-height: 44px; }
+  .btn--sm, .btn--xs { min-height: 44px; }
+  .modal-close { width: 44px; height: 44px; }
+  .settings-modal-close { width: 44px; height: 44px; }
+  .color-swatch { width: 44px; height: 44px; }
+  .toggle-track { width: 50px; height: 30px; border-radius: 15px; }
+  .toggle-thumb { width: 24px; height: 24px; }
+  .toggle input:checked + .toggle-track .toggle-thumb { left: 22px; }
+  .brightness-slider {
+    height: 44px;
+    border: none;
+    border-radius: 0;
+    background: linear-gradient(to right, #000, #fff) center / 100% 6px no-repeat;
+  }
+
+  /* Full-screen settings sheet, matching the other two portals. */
+  .settings-modal { align-items: stretch; padding: 0; }
+  .settings-modal-box {
+    height: 100dvh;
+    max-height: none;
+    border: none;
+    border-radius: 0;
+    padding: 0 14px calc(18px + env(safe-area-inset-bottom, 0px));
+  }
+  .settings-modal-header {
+    margin: 0 -14px 14px;
+    padding: 13px 14px;
+    padding-top: calc(13px + env(safe-area-inset-top, 0px));
+  }
+
+  /* backdrop-filter over a full-screen overlay is expensive on phone GPUs. */
+  .modal-overlay, .settings-modal {
+    backdrop-filter: none;
+    background: rgba(0, 0, 0, 0.72);
+  }
+
+  .modal-overlay { padding: 12px; }
+  .modal { max-width: 100%; margin: 0; }
+
+  /* Was 600px; aligned with app.css so both portals switch at the same width. */
+  .sidebar { display: none; }
   .admin-bottom-nav { display: block; }
+  .main-area { padding: 16px 14px calc(72px + env(safe-area-inset-bottom, 0px)); }
   .stats-row { grid-template-columns: 1fr 1fr; }
   .filter-bar { flex-direction: column; }
-  .modal { max-width: 100%; margin: 0 8px; }
-  /* Toast clears the bottom nav */
+
+  /* Page headers put a title and an action cluster on one row, which does not
+     fit on a phone — the Rentals filter + Export + Refresh ran off the edge. */
+  .page-header {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .page-header > div {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  .page-header .btn,
+  .page-header .select-input { flex: 1 1 auto; justify-content: center; }
+
   .toast-container {
     bottom: calc(66px + env(safe-area-inset-bottom, 0px));
     right: 12px;
     max-width: calc(100vw - 24px);
   }
+
+  /* Eight tabs will not fit across a phone, so the bar scrolls sideways.
+     admin.js scrolls the active tab into view on every page change. */
+  .admin-bottom-nav-items {
+    overflow-x: auto;
+    scrollbar-width: none;
+    scroll-behavior: smooth;
+  }
+  .admin-bottom-nav-items::-webkit-scrollbar { display: none; }
+  .admin-bnav-btn {
+    flex: 0 0 auto;
+    /* .nav-item sets width:100%, which would otherwise become the flex-basis
+       and make every tab a full screen wide. */
+    width: auto;
+    height: 100%;
+    min-width: 68px;
+    padding: 0 6px;
+  }
 }
 
-@supports (-webkit-touch-callout: none) {
-  body { min-height: -webkit-fill-available; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

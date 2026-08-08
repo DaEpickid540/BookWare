@@ -691,7 +691,7 @@ function renderLibraryList(books) {
       <div class='book-info'>
         <div class='book-title'>${esc(book.title)}</div>
         <div class='book-author'>${esc(book.author ?? '')}</div>
-        <div style='display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px'>
+        <div class='book-meta'>
           <span class='${badgeClass}'>${badgeTxt}</span>
           ${isRec ? `<span class='t-badge t-badge--recommended'><i class='bi bi-star-fill'></i> Recommended</span>` : ''}
         </div>

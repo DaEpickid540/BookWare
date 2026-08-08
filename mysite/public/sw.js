@@ -7,7 +7,10 @@
 //   - External CDN (Firebase, Google, jsDelivr): pass-through (no caching)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CACHE  = 'bookware-v2';
+// Bump this on every release that changes CSS/JS. HTML is network-first but
+// static assets are cache-first, so without a bump a returning user gets new
+// markup against a stale stylesheet.
+const CACHE  = 'bookware-v4';
 const SHELL  = [
   '/',
   '/index.html',
@@ -25,6 +28,9 @@ const SHELL  = [
   '/js/auth.js',
   '/js/config.js',
   '/js/firebase.js',
+  '/js/theme-preload.js',
+  '/js/sw-register.js',
+  '/js/login-notice.js',
   '/js/student.js',
   '/js/teacher.js',
   '/js/admin.js',

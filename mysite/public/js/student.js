@@ -1053,7 +1053,7 @@ function renderBooks(books) {
       <div class='book-info'>
         <div class='book-title'>${esc(book.title)}</div>
         <div class='book-author'>${esc(book.author ?? "")}</div>
-        <div style='display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px'>${statusBadge}</div>
+        <div class='book-meta'>${statusBadge}</div>
         ${
           book.description
             ? `<p style='font-size:0.66rem;color:var(--text-3);margin-bottom:6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden'>${esc(
@@ -1061,8 +1061,7 @@ function renderBooks(books) {
               )}</p>`
             : ""
         }
-        <div class='book-actions'>${checkoutBtn}${wishBtn}</div>
-        <div class='book-actions' style='margin-top:4px'>${recBtn}${readingBtn}</div>
+        <div class='book-actions'>${checkoutBtn}${wishBtn}${recBtn}${readingBtn}</div>
       </div>`;
 
     row
