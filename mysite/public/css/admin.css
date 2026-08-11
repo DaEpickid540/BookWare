@@ -928,3 +928,14 @@ button, .btn, .nav-item, a, label, summary, input, select, textarea {
     scroll-behavior: auto !important;
   }
 }
+
+/* ── PORTAL FOOTER ───────────────────────────────────────────── */
+.portal-footer { margin-top: 28px; padding-top: 4px; }
+.portal-footer-disclaimer {
+  font-size: 0.63rem;
+  color: var(--text-3);
+  opacity: 0.7;
+  text-align: center;
+}
+.portal-footer-disclaimer a { color: inherit; text-decoration: underline; }
+.portal-footer-disclaimer a:hover { color: var(--accent); }

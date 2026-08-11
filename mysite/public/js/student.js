@@ -1,6 +1,6 @@
 // student.js — BookWare Student Portal
 import { auth, db } from "./firebase.js";
-import { shouldForceLogout } from "./config.js";
+import { shouldForceLogout, isAdminEmail } from "./config.js";
 import { searchBooks } from "./books.js";
 import { initTheme, initARIA, applyPreset, initAriaChat, initAriaRecommends, refreshAriaChats, initSettingsModal, openSettingsModal, initStaySignedIn } from "./theme.js";
 import { runReadingQuiz } from "./quiz.js";
@@ -123,6 +123,14 @@ function showPage(name) {
   if (name === "profile") renderProfilePage();
 }
 
+// Settings can be opened from the nav above, which is wired before auth — so
+// its close button, backdrop, Escape key and Sign Out must be wired here too.
+// Wiring them inside the auth block below meant any failure in that block (a
+// Firestore hiccup, an early return) left the modal openable but impossible to
+// close and the user unable to sign out.
+initSettingsModal();
+setupSignout();
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 const _safeReveal = setTimeout(() => {
   document.documentElement.style.visibility = "visible";
@@ -136,24 +144,31 @@ onAuthStateChanged(auth, async (user) => {
     return;
   }
 
+  // Admins may use every portal, so they are exempt from the maintenance and
+  // force-logout gates here — otherwise enabling maintenance mode would lock
+  // the admin out of the very portal they need to inspect.
+  const isAdminAccount = isAdminEmail(user.email);
+
   try {
     // Maintenance + admin force-logout check
-    try {
-      const settingsSnap = await getDoc(doc(db, "admin", "settings"));
-      if (
-        settingsSnap.exists() &&
-        settingsSnap.data().maintenanceMode === true
-      ) {
-        await signOut(auth);
-        window.location.href = "/?maintenance=1";
-        return;
-      }
-      if (shouldForceLogout(settingsSnap, user)) {
-        await signOut(auth);
-        window.location.href = "/";
-        return;
-      }
-    } catch (_) {}
+    if (!isAdminAccount) {
+      try {
+        const settingsSnap = await getDoc(doc(db, "admin", "settings"));
+        if (
+          settingsSnap.exists() &&
+          settingsSnap.data().maintenanceMode === true
+        ) {
+          await signOut(auth);
+          window.location.href = "/?maintenance=1";
+          return;
+        }
+        if (shouldForceLogout(settingsSnap, user)) {
+          await signOut(auth);
+          window.location.href = "/";
+          return;
+        }
+      } catch (_) {}
+    }
 
     const userRef = doc(db, "users", user.uid);
     let userSnap = await getDoc(userRef);
@@ -170,12 +185,17 @@ onAuthStateChanged(auth, async (user) => {
       userSnap = await getDoc(userRef);
     }
 
+    // Admins can open any portal directly — only bounce non-admins who landed
+    // on the wrong one. (Login still routes admins to /admin.html by default;
+    // this is for when they deliberately navigate here to see what a student
+    // sees.) The Firestore rules already grant admins access to everything the
+    // student portal reads and writes.
     const role = userSnap.data().role;
     if (role === "teacher") {
       window.location.href = "/teacher.html";
       return;
     }
-    if (role === "admin") {
+    if (role === "admin" && !isAdminAccount) {
       window.location.href = "/admin.html";
       return;
     }
@@ -223,7 +243,11 @@ onAuthStateChanged(auth, async (user) => {
     studentData = sSnap.data();
     addedTeacherIds = studentData.addedTeachers ?? [];
 
-    await loadMyRecIds();
+    // Non-critical: a failure here must not abort the rest of init.
+    try { await loadMyRecIds(); } catch (err) {
+      console.error("[student] Could not load recommendations:", err);
+      studentData.myRecIds = new Set();
+    }
 
     // Init UI
     populateTopBar();
@@ -231,10 +255,9 @@ onAuthStateChanged(auth, async (user) => {
     initARIA(toast);
     initAriaChat('ariaChatMount', 'student', () => studentData?.readingProfile);
     initAriaRecommends('ariaRecommendsMount', 'student', () => studentData?.readingProfile);
-    initSettingsModal();
     initStaySignedIn((stay) => setPersistence(auth, stay ? browserLocalPersistence : browserSessionPersistence));
     setupRetakeQuiz();
-    setupSignout();
+    fillSignoutEmail();
     populateSettingsInfo();
     renderWishlist();
     await loadTeachers();
@@ -334,30 +357,37 @@ function setupRetakeQuiz() {
 }
 
 // ── Sign out ──────────────────────────────────────────────────────────────────
+// Signing out must work no matter what state the portal loaded in, so this is
+// called at module top level (see above) — currentUser isn't available yet
+// there, hence the email hint is filled separately by fillSignoutEmail().
 function setupSignout() {
-  document
-    .getElementById("signoutBar")
-    ?.addEventListener("click", () => signOut(auth));
-  document
-    .getElementById("sidebarSignoutBtn")
-    ?.addEventListener("click", () => signOut(auth));
+  const out = () => {
+    signOut(auth).catch((err) => {
+      console.error("[student] Sign out failed:", err);
+      toast("Sign out failed — try again.", "danger");
+    });
+  };
+  document.getElementById("signoutBar")?.addEventListener("click", out);
+  document.getElementById("sidebarSignoutBtn")?.addEventListener("click", out);
+}
+
+function fillSignoutEmail() {
   const hint = document.getElementById("signoutEmail");
   if (hint && currentUser) hint.textContent = currentUser.email;
 }
 
 // ── Settings: my info ─────────────────────────────────────────────────────────
-async function populateSettingsInfo() {
+// Renders synchronously and wires the Settings controls FIRST, then fills in the
+// class name once the teacher lookup resolves. It used to await that lookup up
+// front, so a single failing read left "My Information" stuck on "Loading…"
+// forever and — because the control wiring sat below the await — silently killed
+// the Add Library button and the notification toggle along with it.
+function populateSettingsInfo() {
   const emailEl = document.getElementById("settingsEmail");
   if (emailEl) emailEl.textContent = currentUser.email;
 
   const sec = document.getElementById("myInfoSection");
   if (!sec) return;
-
-  let classText = "Not assigned";
-  if (classTeacherId) {
-    const tSnap = await getDoc(doc(db, "teachers", classTeacherId));
-    if (tSnap.exists()) classText = tSnap.data().name;
-  }
 
   sec.innerHTML = `
     <div class='settings-row' style='border-top:none'>
@@ -370,14 +400,31 @@ async function populateSettingsInfo() {
     </div>
     <div class='settings-row'>
       <div class='settings-label'>Class</div>
-      <span class='muted-text small-text'>${esc(classText)}</span>
+      <span class='muted-text small-text' id='settingsClassName'>${
+        classTeacherId ? "Loading…" : "Not assigned"
+      }</span>
     </div>
     <div class='settings-row'>
       <div class='settings-label'>Account Status</div>
       <span style='color:var(--success);font-size:0.72rem;font-weight:600'>Active</span>
     </div>`;
 
-  renderAddedTeachersList();
+  if (classTeacherId) {
+    getDoc(doc(db, "teachers", classTeacherId))
+      .then((tSnap) => {
+        const el = document.getElementById("settingsClassName");
+        if (el) el.textContent = tSnap.exists() ? tSnap.data().name : "Not assigned";
+      })
+      .catch((err) => {
+        console.error("[student] Could not load class teacher:", err);
+        const el = document.getElementById("settingsClassName");
+        if (el) el.textContent = "Unavailable";
+      });
+  }
+
+  renderAddedTeachersList().catch((err) =>
+    console.error("[student] Could not render library list:", err),
+  );
 
   document
     .getElementById("addTeacherCodeBtn")
@@ -500,7 +547,10 @@ async function renderAddedTeachersList() {
   if (!container || addedTeacherIds.length === 0) return;
   container.innerHTML = "";
   for (const tid of addedTeacherIds) {
-    const snap = await getDoc(doc(db, "teachers", tid));
+    // One unreadable teacher doc shouldn't blank the whole list.
+    let snap;
+    try { snap = await getDoc(doc(db, "teachers", tid)); }
+    catch (err) { console.error("[student] Could not load library:", tid, err); continue; }
     if (!snap.exists()) continue;
     const t = snap.data();
     const row = document.createElement("div");

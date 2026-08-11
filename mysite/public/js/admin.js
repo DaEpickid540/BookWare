@@ -127,6 +127,11 @@ function showPage(pageName) {
   if (pageName === 'debug')     loadDebugInfo();
 }
 
+// Settings opens from the nav above, which is wired before auth — so its close
+// button, backdrop and Escape key are wired here too, not inside the auth block
+// where a failure would leave the modal openable but impossible to close.
+initSettingsModal();
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 document.getElementById('logoutAdminBtn')?.addEventListener('click',    () => signOut(auth));
 document.getElementById('logoutSettingsBtn')?.addEventListener('click', () => signOut(auth));
@@ -166,7 +171,6 @@ onAuthStateChanged(auth, async (user) => {
     initTheme();
     initARIA(toast);
     initAriaChat('ariaChatMount', 'admin');
-    initSettingsModal();
     initStaySignedIn((stay) => setPersistence(auth, stay ? browserLocalPersistence : browserSessionPersistence));
     await loadSystemSettings();
     await loadDashboard();
@@ -219,10 +223,17 @@ async function loadRecentActivity() {
   const feed = document.getElementById('activityFeed');
   if (!feed) return;
   try {
-    const snap = await getDocs(query(collection(db, 'users'), where('banned', '==', true), orderBy('bannedAt', 'desc'), limit(5)));
+    // where(...) + orderBy(...) on different fields needs a composite index that
+    // this project never declared, so the query failed with failed-precondition
+    // and the feed stayed empty. The banned set is small — sort client-side.
+    const snap = await getDocs(query(collection(db, 'users'), where('banned', '==', true)));
     if (snap.empty) { feed.innerHTML = `<p class='empty-state'>No recent activity.</p>`; return; }
     feed.innerHTML = '';
-    snap.forEach(d => {
+    const recent = snap.docs
+      .slice()
+      .sort((a, b) => (b.data().bannedAt?.toMillis?.() ?? 0) - (a.data().bannedAt?.toMillis?.() ?? 0))
+      .slice(0, 5);
+    recent.forEach(d => {
       const u    = d.data();
       const item = document.createElement('div');
       item.className = 'activity-item';
@@ -659,17 +670,22 @@ function watchPendingRequests() {
   );
 }
 
+// Oldest request first, tolerant of a not-yet-materialized serverTimestamp().
+const byRequestedAt = (a, b) =>
+  (a.requestedAt?.toMillis?.() ?? Infinity) - (b.requestedAt?.toMillis?.() ?? Infinity);
+
 async function loadAccessRequests() {
   const el = document.getElementById('adminRequestsList');
   if (!el) return;
   el.innerHTML = '<p class="empty-state">Loading…</p>';
   try {
+    // No orderBy in the query — pairing it with where() needs a composite index
+    // that was never declared, which made this fail outright. Sort client-side.
     const snap = await getDocs(query(
       collection(db, 'accessRequests'),
-      where('status', '==', 'pending'),
-      orderBy('requestedAt', 'asc')
+      where('status', '==', 'pending')
     ));
-    allAccessRequests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    allAccessRequests = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byRequestedAt);
     renderAccessRequests(allAccessRequests);
   } catch (err) {
     console.error('[admin] loadAccessRequests failed:', err);
@@ -1079,12 +1095,12 @@ async function loadSettingsRequests() {
   if (!el) return;
   el.innerHTML = '<p class="empty-state">Loading…</p>';
   try {
+    // Sorted client-side — see byRequestedAt / loadAccessRequests above.
     const snap = await getDocs(query(
       collection(db, 'accessRequests'),
-      where('status', '==', 'pending'),
-      orderBy('requestedAt', 'asc')
+      where('status', '==', 'pending')
     ));
-    const requests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const requests = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byRequestedAt);
     if (!requests.length) { el.innerHTML = '<p class="empty-state">No pending access requests.</p>'; return; }
     el.innerHTML = requests.map(r => {
       const time = r.requestedAt?.toDate?.()

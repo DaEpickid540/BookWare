@@ -12,6 +12,7 @@ import {
 import {
   doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc,
   collection, query, where, onSnapshot, serverTimestamp, Timestamp, arrayRemove,
+  runTransaction,
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -88,6 +89,14 @@ function showPage(name) {
   if (name === 'reading')         { renderReadingPicker(); renderReadingDisplay(); renderReadingPreview(); }
 }
 
+// Settings opens from the nav above, which is wired before auth — so its close
+// button, backdrop, Escape key and Sign Out are wired here too. Previously they
+// were only wired at the end of the auth block, so a teacher with no teachers/
+// record (the early return below) could open Settings and never close it, and
+// had no way to sign out of the account that got them stuck.
+initSettingsModal();
+setupSignout();
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 onAuthStateChanged(auth, async (user) => {
   if (!user) { window.location.href = '/'; return; }
@@ -118,8 +127,33 @@ onAuthStateChanged(auth, async (user) => {
     if (!userSnap.exists() || (userRole !== 'teacher' && userRole !== 'admin')) { await signOut(auth); window.location.href = '/'; return; }
 
     currentUser   = user;
-    const tSnap   = await getDoc(doc(db, 'teachers', user.uid));
-    if (!tSnap.exists()) { toast('Teacher record not found. Ask an admin or another teacher for an invite link.', 'danger'); return; }
+    let tSnap     = await getDoc(doc(db, 'teachers', user.uid));
+
+    // Admins may use every portal. They normally have no teachers/ record, so
+    // create one on first visit instead of dead-ending them — the rules already
+    // permit a user whose role is "teacher" or "admin" to create their own.
+    if (!tSnap.exists() && ADMIN_EMAILS.includes(user.email?.toLowerCase())) {
+      try {
+        await setDoc(doc(db, 'teachers', user.uid), {
+          name: user.displayName ?? user.email ?? 'Admin',
+          email: user.email ?? '',
+          inviteCode: genCode(),
+          libraryPublic: false,
+          createdAt: serverTimestamp(),
+        });
+        tSnap = await getDoc(doc(db, 'teachers', user.uid));
+      } catch (err) {
+        console.error('[teacher] Could not create admin teacher record:', err);
+      }
+    }
+
+    if (!tSnap.exists()) {
+      // Dead end for this account — make sure they can at least see which one
+      // they're signed in as and sign out of it from Settings.
+      fillSignoutEmail();
+      toast('Teacher record not found. Ask an admin or another teacher for an invite link.', 'danger');
+      return;
+    }
     teacherData   = tSnap.data();
 
     populateTopBar();
@@ -134,9 +168,8 @@ onAuthStateChanged(auth, async (user) => {
     initAriaChat('ariaChatMount', 'teacher', () => teacherData?.readingProfile);
     initAriaRecommends('ariaRecommendsMount', 'teacher', () => teacherData?.readingProfile);
     initStaySignedIn((stay) => setPersistence(auth, stay ? browserLocalPersistence : browserSessionPersistence));
-    initSettingsModal();
     setupRetakeQuiz();
-    setupSignout();
+    fillSignoutEmail();
 
     // First-time reading-preferences quiz (fire-and-forget — pops up over the
     // already-loaded portal so it never blocks the rest of the page).
@@ -156,8 +189,18 @@ onAuthStateChanged(auth, async (user) => {
   }
 });
 
+// Wired at module top level (see above), before currentUser exists — the email
+// hint is filled separately once auth resolves.
 function setupSignout() {
-  document.getElementById('signoutBar')?.addEventListener('click', () => signOut(auth));
+  document.getElementById('signoutBar')?.addEventListener('click', () => {
+    signOut(auth).catch(err => {
+      console.error('[teacher] Sign out failed:', err);
+      toast('Sign out failed — try again.', 'danger');
+    });
+  });
+}
+
+function fillSignoutEmail() {
   const hint = document.getElementById('signoutEmail');
   if (hint && currentUser) hint.textContent = currentUser.email;
 }
@@ -460,34 +503,54 @@ async function approveRequest(reqId, bookId, studentId, bookTitle) {
   const studentRef = doc(db, 'students', studentId);
   const reqRef     = doc(db, 'teachers', currentUser.uid, 'requests', reqId);
 
+  // Was a plain read-then-write (Promise.all of getDoc, then Promise.all of
+  // updateDoc) — two requests for the same last copy approved close together
+  // could both pass the "copies available" check before either write landed,
+  // overselling the book. student.js's own checkout already used a
+  // transaction for exactly this reason; this mirrors it, and also re-checks
+  // the request is still pending so the same request can't be approved twice.
+  let bookAuthor = '', studentName = '';
   try {
-    const [bSnap, sSnap] = await Promise.all([getDoc(bookRef), getDoc(studentRef)]);
-    if (!bSnap.exists())  { toast('Book not found.', 'danger'); return; }
-    if (!sSnap.exists())  { toast('Student not found.', 'danger'); return; }
-    if (sSnap.data().currentBook) { toast('Student already has a book checked out.', 'danger'); return; }
+    await runTransaction(db, async (tx) => {
+      const [bSnap, sSnap, reqSnap] = await Promise.all([
+        tx.get(bookRef), tx.get(studentRef), tx.get(reqRef),
+      ]);
+      if (!bSnap.exists()) throw new Error('book-not-found');
+      if (!sSnap.exists()) throw new Error('student-not-found');
+      if (!reqSnap.exists() || reqSnap.data().status !== 'pending') throw new Error('already-handled');
+      if (sSnap.data().currentBook) throw new Error('student-has-book');
 
-    const bData  = bSnap.data();
-    const copies = bData.copies ?? 1;
-    const out    = bData.checkedOutCount ?? (bData.status === 'checked_out' ? 1 : 0);
-    if (out >= copies) { toast('All copies are checked out.', 'danger'); return; }
+      const bData  = bSnap.data();
+      bookAuthor   = bData.author ?? '';
+      studentName  = sSnap.data().name ?? '';
+      const copies = bData.copies ?? 1;
+      const out    = bData.checkedOutCount ?? (bData.status === 'checked_out' ? 1 : 0);
+      if (out >= copies) throw new Error('unavailable');
 
-    const dueDate  = new Date();
-    dueDate.setDate(dueDate.getDate() + 14);
-    const newCount = out + 1;
+      const dueDate  = new Date();
+      dueDate.setDate(dueDate.getDate() + 14);
+      const newCount = out + 1;
 
-    await Promise.all([
-      updateDoc(bookRef, { checkedOutCount: newCount, status: newCount >= copies ? 'checked_out' : 'available', checkedOutBy: studentId, checkedOutAt: serverTimestamp(), dueDate: Timestamp.fromDate(dueDate) }),
-      updateDoc(studentRef, { currentBook: bookId, currentBookTeacherId: currentUser.uid }),
-      updateDoc(reqRef, { status: 'approved', respondedAt: serverTimestamp() }),
-    ]);
+      tx.update(bookRef, { checkedOutCount: newCount, status: newCount >= copies ? 'checked_out' : 'available', checkedOutBy: studentId, checkedOutAt: serverTimestamp(), dueDate: Timestamp.fromDate(dueDate) });
+      tx.update(studentRef, { currentBook: bookId, currentBookTeacherId: currentUser.uid });
+      tx.update(reqRef, { status: 'approved', respondedAt: serverTimestamp() });
+    });
     await addDoc(collection(db, 'teachers', currentUser.uid, 'history'), {
-      bookId, bookTitle, author: bData.author ?? '',
-      studentId, studentName: sSnap.data().name ?? '',
+      bookId, bookTitle, author: bookAuthor,
+      studentId, studentName,
       dateOut: serverTimestamp(), dateReturned: null,
     });
     toast(`<i class='bi bi-check2'></i> Approved — "${esc(bookTitle)}" checked out`, 'success');
   } catch (err) {
-    toast(`Approval failed: ${esc(err.message ?? 'unknown')}`, 'danger');
+    const msg = err.message === 'unavailable' ? 'All copies are checked out.'
+      : err.message === 'student-has-book' ? 'Student already has a book checked out.'
+      : err.message === 'book-not-found' ? 'Book not found.'
+      : err.message === 'student-not-found' ? 'Student not found.'
+      : err.message === 'already-handled' ? 'This request was already handled.'
+      : `Approval failed: ${esc(err.message ?? 'unknown')}`;
+    toast(msg, 'danger');
+    await loadLibrary();
+    loadPendingRequests();
     return;
   }
   await loadLibrary();

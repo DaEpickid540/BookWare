@@ -130,6 +130,78 @@
           </div>
         </div>
 
+        <!-- App settings live here now — Settings (the modal) is reserved for
+             per-admin preferences (API key, color theme) and the teacher
+             request queue, not system-wide switches that affect every user. -->
+        <div class="content-grid" style="margin-top:20px">
+          <div class="panel-card">
+            <div class="panel-title"><i class="bi bi-server" aria-hidden="true"></i> System</div>
+            <div class="settings-panel-body">
+              <div class="settings-row">
+                <div>
+                  <div class="settings-label">Maintenance Mode</div>
+                  <div class="settings-hint">Disables all user access except admin.</div>
+                </div>
+                <label class="toggle" aria-label="Maintenance mode">
+                  <input type="checkbox" id="maintenanceModeToggle" />
+                  <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+                </label>
+              </div>
+              <div class="settings-row" style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px">
+                <div>
+                  <div class="settings-label">Stay Signed In</div>
+                  <div class="settings-hint">If off, you'll be signed out when the browser is closed</div>
+                </div>
+                <label class="toggle" aria-label="Stay signed in">
+                  <input type="checkbox" id="staySignedInToggle" />
+                  <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+                </label>
+              </div>
+              <div class="settings-row" style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px">
+                <div>
+                  <div class="settings-label">Signed in as</div>
+                  <div class="settings-hint" id="adminEmail">—</div>
+                </div>
+                <button class="btn btn--ghost btn--sm" id="logoutSettingsBtn">
+                  <i class="bi bi-box-arrow-right" aria-hidden="true"></i> Log Out
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-card">
+            <div class="panel-title"><i class="bi bi-database-fill" aria-hidden="true"></i> Data</div>
+            <div class="settings-panel-body">
+              <div class="settings-row">
+                <div>
+                  <div class="settings-label">Export All User Data</div>
+                  <div class="settings-hint">Download a full JSON export of all users.</div>
+                </div>
+                <button class="btn btn--ghost btn--sm" id="exportDataBtnSettings">
+                  <i class="bi bi-download" aria-hidden="true"></i> Export
+                </button>
+              </div>
+              <div class="settings-row" style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px">
+                <div>
+                  <div class="settings-label">View Global Ban List</div>
+                  <div class="settings-hint">Navigate to Bans page to see all active bans.</div>
+                </div>
+                <button class="btn btn--ghost btn--sm" id="viewGlobalBansBtn">View</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-card panel-card--danger" style="margin-top:20px">
+          <div class="panel-title" style="color:var(--danger)"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> Danger Zone</div>
+          <div class="settings-panel-body">
+            <p class="settings-hint" style="margin-bottom:14px">These actions affect all users and cannot be undone.</p>
+            <button class="btn btn--danger" id="logoutAllBtn" style="width:100%">
+              <i class="bi bi-box-arrow-right" aria-hidden="true"></i> Force Logout All Users
+            </button>
+          </div>
+        </div>
+
         <!-- ARIA AI chat (appears when enabled in Settings) — dashboard only -->
         <div id="ariaChatMount" hidden style="margin-top:18px"></div>
 
@@ -347,50 +419,14 @@
 
 
       <!-- ════════════ SETTINGS ═════════════════════════════════════════ -->
-      <div id="settingsPage" class="settings-modal" hidden role="dialog" aria-modal="true" aria-label="System Settings">
+      <div id="settingsPage" class="settings-modal" hidden role="dialog" aria-modal="true" aria-label="Settings">
        <div class="settings-modal-box">
         <div class="settings-modal-header">
-          <h2 class="settings-modal-title">System Settings</h2>
+          <h2 class="settings-modal-title">Settings</h2>
           <button class="settings-modal-close" type="button" aria-label="Close settings"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
         </div>
 
         <div class="settings-stack">
-
-          <!-- System panel -->
-          <div class="panel-card">
-            <div class="panel-title"><i class="bi bi-server" aria-hidden="true"></i> System</div>
-            <div class="settings-panel-body">
-              <div class="settings-row">
-                <div>
-                  <div class="settings-label">Maintenance Mode</div>
-                  <div class="settings-hint">Disables all user access except admin.</div>
-                </div>
-                <label class="toggle" aria-label="Maintenance mode">
-                  <input type="checkbox" id="maintenanceModeToggle" />
-                  <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
-                </label>
-              </div>
-              <div class="settings-row" style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px">
-                <div>
-                  <div class="settings-label">Stay Signed In</div>
-                  <div class="settings-hint">If off, you'll be signed out when the browser is closed</div>
-                </div>
-                <label class="toggle" aria-label="Stay signed in">
-                  <input type="checkbox" id="staySignedInToggle" />
-                  <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
-                </label>
-              </div>
-              <div class="settings-row" style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px">
-                <div>
-                  <div class="settings-label">Signed in as</div>
-                  <div class="settings-hint" id="adminEmail">—</div>
-                </div>
-                <button class="btn btn--ghost btn--sm" id="logoutSettingsBtn">
-                  <i class="bi bi-box-arrow-right" aria-hidden="true"></i> Log Out
-                </button>
-              </div>
-            </div>
-          </div>
 
           <!-- Appearance panel -->
           <div class="panel-card">
@@ -443,40 +479,6 @@
                   <button class="btnsize-opt" data-size="large" aria-pressed="false">Large</button>
                 </div>
               </div>
-            </div>
-          </div>
-
-          <!-- Data panel -->
-          <div class="panel-card">
-            <div class="panel-title"><i class="bi bi-database-fill" aria-hidden="true"></i> Data</div>
-            <div class="settings-panel-body">
-              <div class="settings-row">
-                <div>
-                  <div class="settings-label">Export All User Data</div>
-                  <div class="settings-hint">Download a full JSON export of all users.</div>
-                </div>
-                <button class="btn btn--ghost btn--sm" id="exportDataBtnSettings">
-                  <i class="bi bi-download" aria-hidden="true"></i> Export
-                </button>
-              </div>
-              <div class="settings-row" style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px">
-                <div>
-                  <div class="settings-label">View Global Ban List</div>
-                  <div class="settings-hint">Navigate to Bans page to see all active bans.</div>
-                </div>
-                <button class="btn btn--ghost btn--sm" id="viewGlobalBansBtn">View</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Danger zone panel -->
-          <div class="panel-card panel-card--danger">
-            <div class="panel-title" style="color:var(--danger)"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> Danger Zone</div>
-            <div class="settings-panel-body">
-              <p class="settings-hint" style="margin-bottom:14px">These actions affect all users and cannot be undone.</p>
-              <button class="btn btn--danger" id="logoutAllBtn" style="width:100%">
-                <i class="bi bi-box-arrow-right" aria-hidden="true"></i> Force Logout All Users
-              </button>
             </div>
           </div>
 
@@ -644,6 +646,10 @@
           </div>
         </div>
       </section>
+
+      <footer class="portal-footer">
+        <p class="portal-footer-disclaimer">Software not officially recognized by MHS. This is an MVP designed by <a href="https://github.com/DaEpickid540" target="_blank" rel="noopener">Sarvin Sukhe</a>.</p>
+      </footer>
 
     </main>
   </div>

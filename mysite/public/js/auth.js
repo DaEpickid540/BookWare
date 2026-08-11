@@ -330,7 +330,14 @@ async function completeLogin(user, role) {
   // Already has a non-student account. This isn't a rejection — we can send
   // them somewhere useful — but landing on a portal you didn't pick is
   // disorienting, so say so first.
-  if (uSnap.exists() && uSnap.data().role !== "student") {
+  // Admins may sign in to any portal they pick — if an admin deliberately
+  // chose "Student", take them to the student portal rather than bouncing them
+  // back to /admin.html. Everyone else still gets redirected with an
+  // explanation. (The student doc is provisioned just below, as usual.)
+  const isAdminUsingAnotherPortal =
+    uSnap.exists() && uSnap.data().role === "admin" && isAdmin(user.email);
+
+  if (uSnap.exists() && uSnap.data().role !== "student" && !isAdminUsingAnotherPortal) {
     const r = uSnap.data().role;
     const dest = r === "teacher" ? "/teacher.html" : "/admin.html";
     await showRoleDialog({

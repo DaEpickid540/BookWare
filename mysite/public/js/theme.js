@@ -191,9 +191,14 @@ export function openSettingsModal() {
   }
 }
 
+// Called at module top level by every portal so the modal's escape routes exist
+// even if the portal's auth/init pass later throws or bails out early — a
+// settings modal you can open but not close traps the user on the page.
+// Idempotent, because the portals also called it from inside their init.
 export function initSettingsModal() {
   const overlay = document.getElementById('settingsPage');
-  if (!overlay) return;
+  if (!overlay || overlay.dataset.escapeWired === '1') return;
+  overlay.dataset.escapeWired = '1';
   const close = () => { overlay.hidden = true; };
   // Click on the backdrop (outside the box) closes it
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
