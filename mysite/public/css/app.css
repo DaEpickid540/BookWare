@@ -1529,7 +1529,7 @@ html[data-theme="light"] .book-row:hover { background: rgba(0,0,0,0.015); }
   letter-spacing: 0.04em;
 }
 .alib-badge--enrolled  { background: var(--success-bg); color: var(--success); border: 1px solid var(--success-border); }
-.alib-badge--public    { background: rgba(52,152,219,.1); color: #3498db; border: 1px solid rgba(52,152,219,.25); }
+.alib-badge--public    { background: rgba(52,152,219,.1); color: var(--info); border: 1px solid rgba(52,152,219,.25); }
 .alib-badge--classonly { background: var(--bg-inset); color: var(--text-3); border: 1px solid var(--border); }
 
 .all-lib-actions { margin-top: auto; display: flex; gap: 6px; flex-wrap: wrap; }

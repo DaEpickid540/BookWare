@@ -27,6 +27,7 @@ export const THEME_PRESETS = {
   night:     { brightness: 18, color: 'crimson' },
   dusk:      { brightness: 32, color: 'sunset'  },
   ash:       { brightness: 52, color: 'slate'   },
+  moss:      { brightness: 62, color: 'forest'  },
   parchment: { brightness: 72, color: 'sunset'  },
   snow:      { brightness: 95, color: 'ocean'   },
 };
