@@ -122,6 +122,20 @@ onAuthStateChanged(auth, async (user) => {
     if (!tSnap.exists()) { toast('Teacher record not found. Ask an admin or another teacher for an invite link.', 'danger'); return; }
     teacherData   = tSnap.data();
 
+    // Backfill for accounts created before canInvite existed on the schema —
+    // every teacher is meant to be able to invite (see settings badge below),
+    // but legacy docs never got the field, so the invites/{token} create rule
+    // (which defaults missing canInvite to false) silently blocks their
+    // "Generate & Copy Link" button.
+    if (teacherData.canInvite !== true) {
+      try {
+        await updateDoc(doc(db, 'teachers', user.uid), { canInvite: true });
+        teacherData.canInvite = true;
+      } catch (err) {
+        console.warn('[teacher] failed to backfill canInvite:', err);
+      }
+    }
+
     populateTopBar();
     if (!sessionStorage.getItem('bw-welcomed')) {
       const first = (currentUser.displayName ?? '').split(' ')[0] || 'there';
