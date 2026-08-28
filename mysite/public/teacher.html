@@ -406,6 +406,43 @@
             </div>
           </details>
 
+          <!-- Data & Privacy -->
+          <details class="settings-section">
+            <summary class="settings-section-header">
+              <div>
+                <div class="settings-section-title"><i class="bi bi-shield-lock-fill" aria-hidden="true"></i> Data &amp; Retention</div>
+                <div class="settings-section-sub">Student data you hold, and when it is deleted</div>
+              </div>
+              <i class="bi bi-chevron-right settings-caret" aria-hidden="true"></i>
+            </summary>
+            <div class="settings-body">
+              <div class="settings-row">
+                <div>
+                  <div class="settings-label">Class rosters</div>
+                  <div class="settings-hint">
+                    Student names and emails are deleted on each class's last day of school.
+                    You lose access on that date.
+                  </div>
+                </div>
+                <span id="rosterRetentionBadge" class="muted-text small-text">—</span>
+              </div>
+              <div class="settings-row">
+                <div>
+                  <div class="settings-label">Checkout records</div>
+                  <div class="settings-hint">Deleted automatically 2 years after a book is returned.</div>
+                </div>
+                <span id="historyRetentionBadge" class="muted-text small-text">—</span>
+              </div>
+              <div class="settings-row">
+                <div>
+                  <div class="settings-label">Full data statement</div>
+                  <div class="settings-hint">Everything BookWare stores and where it lives</div>
+                </div>
+                <a class="btn btn--ghost btn--sm" href="/privacy.html" target="_blank" rel="noopener">Open</a>
+              </div>
+            </div>
+          </details>
+
           <!-- Appearance -->
           <details class="settings-section">
             <summary class="settings-section-header">
@@ -669,6 +706,32 @@
   </div><!-- /main-area -->
 
   <div id="toastContainer" class="toast-container" role="region" aria-live="polite" aria-label="Notifications"></div>
+
+  <!-- ═══ SCHOOL-YEAR END DATE (required, blocking) ═══════════════════════ -->
+  <div id="schoolYearModal" class="settings-modal" hidden role="dialog" aria-modal="true" aria-labelledby="schoolYearTitle">
+    <div class="settings-modal-box" style="max-width:520px">
+      <h2 class="settings-modal-title" id="schoolYearTitle">
+        <i class="bi bi-calendar-check" aria-hidden="true"></i> Set your last day of school
+      </h2>
+      <p class="muted-text small-text" style="margin-top:10px">
+        BookWare deletes each class roster automatically on the last day of school, so student
+        names and emails don't stay in your library over the summer. This is required before
+        you can manage classes.
+      </p>
+      <div id="schoolYearClassList" style="margin-top:16px"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:18px">
+        <button class="btn btn--primary" id="schoolYearSaveBtn">
+          <i class="bi bi-check2" aria-hidden="true"></i> Save
+        </button>
+        <span class="muted-text small-text" id="schoolYearHint"></span>
+      </div>
+      <p class="muted-text small-text" style="margin-top:14px">
+        <i class="bi bi-shield-lock-fill" aria-hidden="true"></i>
+        Book records are kept for 2 years, then deleted automatically.
+        <a href="/privacy.html" target="_blank" rel="noopener">What data does BookWare store?</a>
+      </p>
+    </div>
+  </div>
 
   <!-- ═══ MOBILE BOTTOM NAV ═══════════════════════════════════════════════ -->
   <nav class="bottom-nav" aria-label="Main navigation">

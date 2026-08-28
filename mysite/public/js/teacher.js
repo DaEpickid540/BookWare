@@ -6,6 +6,10 @@ import { initTheme, initARIA, initAriaChat, initAriaRecommends, refreshAriaChats
 import { runReadingQuiz } from './quiz.js';
 import { setQrImage } from './qr.js';
 import {
+  runRetentionSweep, eraseStudentFromTeacher, isClassExpired,
+  endOfSchoolDay, HISTORY_RETENTION_DAYS,
+} from './retention.js';
+import {
   signOut, onAuthStateChanged,
   setPersistence, browserLocalPersistence, browserSessionPersistence,
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
@@ -156,6 +160,10 @@ onAuthStateChanged(auth, async (user) => {
     // already-loaded portal so it never blocks the rest of the page).
     maybeRunOnboardingQuiz();
 
+    // Retention sweep BEFORE the roster loads, so expired student data is gone
+    // rather than briefly rendered. Opportunistic — see retention.js.
+    const purged = await runRetentionSweep(db, currentUser.uid);
+
     await loadRecommendations();
     await loadLibrary();
     await loadStudentCode();
@@ -163,6 +171,16 @@ onAuthStateChanged(auth, async (user) => {
     initVisibilityToggle();
     initApprovalToggle();
     checkBiweeklyNotification();
+
+    if (purged) {
+      const bits = [];
+      if (purged.students) bits.push(`${purged.students} student record${purged.students !== 1 ? 's' : ''} from ${purged.classes} ended class${purged.classes !== 1 ? 'es' : ''}`);
+      if (purged.history)  bits.push(`${purged.history} checkout record${purged.history !== 1 ? 's' : ''} over ${Math.round(HISTORY_RETENTION_DAYS / 365)} years old`);
+      toast(`<i class='bi bi-shield-check'></i> Auto-deleted ${bits.join(' and ')}.`, 'info');
+    }
+
+    // Any class still missing a last day of school blocks class management.
+    await requireSchoolYearEndDates();
 
   } catch (err) {
     console.error('[teacher] Init failed:', err);
@@ -249,6 +267,115 @@ function renderSettings() {
   const invChip = document.getElementById('canInviteStatus');
   if (badge)   { badge.textContent   = 'All teachers'; badge.style.color   = 'var(--success)'; }
   if (invChip) { invChip.textContent = 'All teachers can invite'; invChip.style.color = 'var(--success)'; }
+
+  renderRetentionBadges();
+}
+
+/** Show the teacher concretely when their student data disappears, rather than
+ *  only stating the policy in the abstract. */
+function renderRetentionBadges() {
+  const rosterEl  = document.getElementById('rosterRetentionBadge');
+  const historyEl = document.getElementById('historyRetentionBadge');
+
+  if (rosterEl) {
+    const dated = allClasses.filter(c => c.endDate);
+    if (!allClasses.length) {
+      rosterEl.textContent = 'No classes yet';
+    } else if (!dated.length) {
+      rosterEl.textContent = 'No date set';
+      rosterEl.style.color = 'var(--danger)';
+    } else {
+      // Soonest upcoming deletion is the one worth surfacing.
+      const next = dated
+        .map(c => endOfSchoolDay(c.endDate))
+        .filter(Boolean)
+        .sort((a, b) => a - b)[0];
+      rosterEl.textContent = `Next: ${fmtDate(next)}`;
+      rosterEl.style.color = 'var(--success)';
+    }
+  }
+
+  if (historyEl) {
+    historyEl.textContent = `${Math.round(HISTORY_RETENTION_DAYS / 365)} years`;
+    historyEl.style.color = 'var(--success)';
+  }
+}
+
+// ── School-year end date (data-retention control) ─────────────────────────────
+// Every class must carry a last day of school. On that date the roster (student
+// names + emails) is deleted automatically and firestore.rules stops serving it,
+// so a teacher keeps no student data past the year they taught them.
+
+/** Default suggestion: next June 4th (typical Mason last day). */
+function defaultEndDate() {
+  const now  = new Date();
+  const year = now.getMonth() > 5 ? now.getFullYear() + 1 : now.getFullYear();
+  return `${year}-06-04`;
+}
+
+/** Format a stored endDate as a YYYY-MM-DD value for <input type="date">. */
+function endDateInputValue(endDate) {
+  const d = endOfSchoolDay(endDate);
+  if (!d) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Block the portal until every class has a last day of school. Resolves once
+ *  all classes have one (or immediately, if they already do). */
+async function requireSchoolYearEndDates() {
+  const modal = document.getElementById('schoolYearModal');
+  const list  = document.getElementById('schoolYearClassList');
+  const save  = document.getElementById('schoolYearSaveBtn');
+  const hint  = document.getElementById('schoolYearHint');
+  if (!modal || !list || !save) return;
+
+  const missing = allClasses.filter(c => !c.endDate);
+  if (!missing.length) { modal.hidden = true; return; }
+
+  const today = new Date().toISOString().slice(0, 10);
+  list.innerHTML = missing.map(c => `
+    <div class='settings-row'>
+      <div>
+        <div class='settings-label'>${esc(c.name)}</div>
+        <div class='settings-hint'>${c.studentCount ?? 0} student${(c.studentCount ?? 0) !== 1 ? 's' : ''}</div>
+      </div>
+      <input type='date' class='text-input school-year-input' style='max-width:190px'
+             data-cid='${esc(c.id)}' min='${today}' value='${defaultEndDate()}'
+             aria-label='Last day of school for ${esc(c.name)}' />
+    </div>`).join('');
+  modal.hidden = false;
+
+  save.onclick = async () => {
+    const inputs = [...list.querySelectorAll('.school-year-input')];
+    if (inputs.some(i => !i.value)) {
+      if (hint) { hint.textContent = 'Pick a date for every class.'; hint.style.color = 'var(--danger)'; }
+      return;
+    }
+    if (inputs.some(i => i.value < today)) {
+      if (hint) { hint.textContent = 'The last day of school can\'t be in the past.'; hint.style.color = 'var(--danger)'; }
+      return;
+    }
+    save.disabled = true;
+    if (hint) { hint.textContent = 'Saving…'; hint.style.color = ''; }
+    try {
+      for (const input of inputs) {
+        const cid = input.dataset.cid;
+        // Stored as a Timestamp at 23:59:59 on the last school day so
+        // firestore.rules can compare it directly against request.time.
+        const stamp = Timestamp.fromDate(endOfSchoolDay(input.value));
+        await updateDoc(doc(db, 'teachers', currentUser.uid, 'classes', cid), { endDate: stamp });
+        const cls = allClasses.find(c => c.id === cid);
+        if (cls) cls.endDate = stamp;
+      }
+      modal.hidden = true;
+      renderClassManager();
+      toast(`<i class='bi bi-shield-check'></i> Last day of school saved — rosters auto-delete then.`, 'success');
+    } catch (err) {
+      if (hint) { hint.textContent = `Save failed: ${err.message ?? 'unknown'}`; hint.style.color = 'var(--danger)'; }
+    } finally {
+      save.disabled = false;
+    }
+  };
 }
 
 // ── Multi-class system ────────────────────────────────────────────────────────
@@ -263,8 +390,16 @@ async function loadClasses() {
     allClasses = [{ id: classRef.id, name: 'Period 1', inviteCode: legacyCode, studentCount: oldRoster.size }];
   } else {
     allClasses = await Promise.all(snap.docs.map(async d => {
-      const rosterSnap = await getDocs(collection(db, 'teachers', currentUser.uid, 'classes', d.id, 'students'));
-      return { id: d.id, ...d.data(), studentCount: rosterSnap.size };
+      const data = d.data();
+      // An expired class's roster is no longer readable by the teacher (by
+      // design — see firestore.rules). Skip the count rather than throwing.
+      if (isClassExpired(data.endDate)) return { id: d.id, ...data, studentCount: 0 };
+      let studentCount = 0;
+      try {
+        const rosterSnap = await getDocs(collection(db, 'teachers', currentUser.uid, 'classes', d.id, 'students'));
+        studentCount = rosterSnap.size;
+      } catch (_) {}
+      return { id: d.id, ...data, studentCount };
     }));
     allClasses.sort((a, b) => (a.createdAt?.seconds ?? 0) - (b.createdAt?.seconds ?? 0));
   }
@@ -280,11 +415,18 @@ function renderClassManager() {
   allClasses.forEach(cls => {
     const card = document.createElement('div');
     card.className = 'class-card';
+    const endLabel = cls.endDate
+      ? `Roster auto-deletes ${esc(endDateInputValue(cls.endDate))}`
+      : '<span style="color:var(--danger)">No last day of school set</span>';
     card.innerHTML = `
       <div class='class-card-header'>
         <div>
           <div class='class-card-name'>${esc(cls.name)}</div>
           <div class='class-card-meta'>${cls.studentCount} student${cls.studentCount !== 1 ? 's' : ''}</div>
+          <div class='class-card-meta' style='display:flex;align-items:center;gap:6px;margin-top:2px'>
+            <i class='bi bi-shield-lock-fill' aria-hidden='true'></i> ${endLabel}
+            <button class='btn btn--xs' data-action='end-date' data-cid='${esc(cls.id)}'>Change</button>
+          </div>
         </div>
         <div style='display:flex;gap:6px;align-items:center'>
           <button class='btn btn--xs' data-action='rename' data-cid='${esc(cls.id)}'><i class='bi bi-pencil-fill'></i> Rename</button>
@@ -304,6 +446,7 @@ function renderClassManager() {
       navigator.clipboard.writeText(cls.inviteCode).then(() => toast(`<i class='bi bi-check2'></i> Code for ${esc(cls.name)} copied`, 'success'));
     });
     card.querySelector('[data-action="refresh-code"]')?.addEventListener('click', () => refreshClassCode(cls.id, cls.name));
+    card.querySelector('[data-action="end-date"]')?.addEventListener('click', () => editClassEndDate(cls.id, cls.name, cls.endDate));
     container.appendChild(card);
   });
   const addBtn = document.createElement('button');
@@ -312,16 +455,56 @@ function renderClassManager() {
   addBtn.innerHTML = '<i class="bi bi-plus-lg"></i> Add Class / Period';
   addBtn.addEventListener('click', createClass);
   container.appendChild(addBtn);
+
+  // Settings renders before classes are loaded, so refresh the retention
+  // summary whenever the class list changes.
+  renderRetentionBadges();
 }
 
 async function createClass() {
   const name = prompt('Class name (e.g. Period 3, English 10B):')?.trim();
   if (!name) return;
-  const code = genCode();
-  const ref  = await addDoc(collection(db, 'teachers', currentUser.uid, 'classes'), { name, inviteCode: code, createdAt: serverTimestamp() });
-  allClasses.push({ id: ref.id, name, inviteCode: code, studentCount: 0, createdAt: { seconds: Date.now() / 1000 } });
+
+  // Required: a class cannot exist without a deletion date for its roster.
+  const today   = new Date().toISOString().slice(0, 10);
+  const endDate = prompt(
+    `Last day of school for "${name}" (YYYY-MM-DD).\n\n` +
+    `On this date the roster — student names and emails — is deleted automatically ` +
+    `and you lose access to it.`,
+    defaultEndDate()
+  )?.trim();
+  if (!endDate) { toast('Class not created — a last day of school is required.', 'danger'); return; }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate) || !endOfSchoolDay(endDate)) {
+    toast('Class not created — date must look like 2027-06-04.', 'danger'); return;
+  }
+  if (endDate < today) { toast('Class not created — that date is in the past.', 'danger'); return; }
+
+  const code  = genCode();
+  const stamp = Timestamp.fromDate(endOfSchoolDay(endDate));
+  const ref  = await addDoc(collection(db, 'teachers', currentUser.uid, 'classes'), { name, inviteCode: code, endDate: stamp, createdAt: serverTimestamp() });
+  allClasses.push({ id: ref.id, name, inviteCode: code, endDate: stamp, studentCount: 0, createdAt: { seconds: Date.now() / 1000 } });
   renderClassManager();
   toast(`<i class='bi bi-check2'></i> "${esc(name)}" created — code: ${esc(code)}`, 'success');
+}
+
+async function editClassEndDate(classId, className, current) {
+  const today = new Date().toISOString().slice(0, 10);
+  const val = prompt(
+    `Last day of school for "${className}" (YYYY-MM-DD).\n\n` +
+    `The roster is deleted automatically on this date.`,
+    endDateInputValue(current) || defaultEndDate()
+  )?.trim();
+  if (!val) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(val) || !endOfSchoolDay(val)) {
+    toast('Date must look like 2027-06-04.', 'danger'); return;
+  }
+  if (val < today) { toast('That date is in the past.', 'danger'); return; }
+  const stamp = Timestamp.fromDate(endOfSchoolDay(val));
+  await updateDoc(doc(db, 'teachers', currentUser.uid, 'classes', classId), { endDate: stamp });
+  const cls = allClasses.find(c => c.id === classId);
+  if (cls) cls.endDate = stamp;
+  renderClassManager();
+  toast(`<i class='bi bi-check2'></i> Roster for "${esc(className)}" now deletes on ${esc(val)}`, 'success');
 }
 
 async function renameClass(classId, oldName) {
@@ -756,7 +939,12 @@ async function validateReturn(bookId, bookTitle) {
   const histDoc   = snap.empty ? null : snap.docs[0];
   const studentId = histDoc?.data()?.studentId ?? bData.checkedOutBy ?? null;
 
-  await updateDoc(bookRef, { checkedOutCount: newCount, status: newCount === 0 ? 'available' : 'checked_out', checkedOutBy: newCount === 0 ? null : bData.checkedOutBy, checkedOutAt: newCount === 0 ? null : bData.checkedOutAt, dueDate: newCount === 0 ? null : bData.dueDate });
+  // Status mirrors the checkout path (`newCount >= copies`), NOT `newCount === 0`.
+  // On a multi-copy book, returning one of several copies leaves copies free, so
+  // the book must go back to 'available' — otherwise the student view showed
+  // "1/3 available" with no Check Out button.
+  const copies = bData.copies ?? 1;
+  await updateDoc(bookRef, { checkedOutCount: newCount, status: newCount >= copies ? 'checked_out' : 'available', checkedOutBy: newCount === 0 ? null : bData.checkedOutBy, checkedOutAt: newCount === 0 ? null : bData.checkedOutAt, dueDate: newCount === 0 ? null : bData.dueDate });
 
   // Close the history log entry → shows "returned"
   if (histDoc) await updateDoc(histDoc.ref, { dateReturned: serverTimestamp() });
@@ -956,7 +1144,7 @@ document.getElementById('exportCheckoutsPdfBtn')?.addEventListener('click', asyn
     const altRows    = { fillColor: ALT };
 
     // ── Currently checked out ──
-    const active = allBooks.filter(b => b.status === 'checked_out');
+    const active = allBooks.filter(b => (b.checkedOutCount ?? 0) > 0 || b.status === 'checked_out');
     const activeRows = active.map(book => {
       const e = entries.find(x => x.bookId === book.id && !x.dateReturned);
       return { title: book.title ?? '—', author: book.author ?? '—', student: e?.studentName ?? '—', out: fmtDate(e?.dateOut ?? null), rec: recSet.has(book.id) };
@@ -1025,8 +1213,29 @@ async function loadRoster() {
     let totalStudents = 0;
     listEl.innerHTML  = '';
     for (const cls of allClasses) {
-      const snap     = await getDocs(collection(db, 'teachers', currentUser.uid, 'classes', cls.id, 'students'));
-      const students = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
+      // Past its last day of school, firestore.rules stops serving this roster
+      // to the teacher — a denied read here is the retention policy working,
+      // not a failure. Render it as such instead of a red error.
+      if (isClassExpired(cls.endDate)) {
+        const header = document.createElement('div');
+        header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;padding-bottom:6px;border-bottom:1px solid var(--border)';
+        header.innerHTML = `<div class='settings-label' style='margin:0'>${esc(cls.name)}</div><span class='muted-text small-text'><i class='bi bi-shield-lock-fill'></i> School year ended</span>`;
+        listEl.appendChild(header);
+        const note = document.createElement('p');
+        note.className = 'empty-state';
+        note.style.marginBottom = '6px';
+        note.textContent = `Roster deleted on ${fmtDate(endOfSchoolDay(cls.endDate))} — student names and emails are no longer retained for this class.`;
+        listEl.appendChild(note);
+        continue;
+      }
+
+      let students = [];
+      try {
+        const snap = await getDocs(collection(db, 'teachers', currentUser.uid, 'classes', cls.id, 'students'));
+        students = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
+      } catch (err) {
+        console.warn('[teacher] roster read denied for class', cls.id, err);
+      }
       totalStudents  += students.length;
       const header = document.createElement('div');
       header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;padding-bottom:6px;border-bottom:1px solid var(--border)';
@@ -1572,7 +1781,7 @@ function checkBiweeklyNotification() {
   if (last && Date.now() - parseInt(last) < TWO_WEEKS) return;
 
   const show = async () => {
-    const checkedOut = allBooks.filter(b => b.status === 'checked_out');
+    const checkedOut = allBooks.filter(b => (b.checkedOutCount ?? 0) > 0 || b.status === 'checked_out');
     const banner     = document.getElementById('biweeklyBanner');
     const content    = document.getElementById('biweeklyContent');
     if (!banner || !content) return;

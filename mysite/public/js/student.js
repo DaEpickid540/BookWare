@@ -441,6 +441,24 @@ async function addTeacherByCode() {
     if (!snap.empty) {
       teacherId = snap.docs[0].id;
       className = "Class";
+      // Legacy teacher-level code. Land the student in a real class anyway:
+      // only per-class rosters carry a last-day-of-school date, so the flat
+      // `teachers/{id}/students` roster would keep their name and email with no
+      // expiry at all. Prefer the teacher's oldest class.
+      try {
+        const clsSnap = await getDocs(
+          collection(db, "teachers", teacherId, "classes"),
+        );
+        if (!clsSnap.empty) {
+          const oldest = clsSnap.docs.sort(
+            (a, b) =>
+              (a.data().createdAt?.seconds ?? 0) -
+              (b.data().createdAt?.seconds ?? 0),
+          )[0];
+          classId = oldest.id;
+          className = oldest.data().name ?? "Class";
+        }
+      } catch (_) {}
     }
   }
 
@@ -519,8 +537,33 @@ async function renderAddedTeachersList() {
       await updateDoc(doc(db, "students", currentUser.uid), {
         addedTeachers: arrayRemove(id),
       });
+      // Remove the roster entry (name + email) from BOTH the legacy flat roster
+      // and the per-class rosters. Students who joined with a class code live in
+      // classes/{classId}/students, so deleting only the flat doc left their
+      // name and email in the teacher's roster forever after they "removed" the
+      // library — the student had no way to actually withdraw their data.
       try {
         await deleteDoc(doc(db, "teachers", id, "students", currentUser.uid));
+      } catch (_) {}
+      try {
+        const classesSnap = await getDocs(
+          collection(db, "teachers", id, "classes"),
+        );
+        await Promise.all(
+          classesSnap.docs.map((c) =>
+            deleteDoc(
+              doc(
+                db,
+                "teachers",
+                id,
+                "classes",
+                c.id,
+                "students",
+                currentUser.uid,
+              ),
+            ).catch(() => {}),
+          ),
+        );
       } catch (_) {}
       toast("Library removed.", "info");
       renderAddedTeachersList();
@@ -954,15 +997,20 @@ function renderBooks(books) {
 
   books.forEach((book) => {
     const isActive = book.id === studentData?.currentBook;
-    const isAvail = book.status === "available";
     const isWished = wishlist.includes(book.id);
     const isReced = myRecs.has ? myRecs.has(book.id) : false;
     const isReading = reading.has(book.id);
-    const canCheckout = isAvail && !hasBook && !isActive;
 
     const copies = book.copies ?? 1;
     const out = book.checkedOutCount ?? (book.status === "checked_out" ? 1 : 0);
     const avail = copies - out;
+
+    // Availability comes from the copy count, not the `status` string. On a
+    // multi-copy book the two can disagree, and the count is the truth — the
+    // badge already reported "1/3 available" while `status` still said
+    // checked_out, leaving a visibly-available book with no Check Out button.
+    const isAvail = avail > 0;
+    const canCheckout = isAvail && !hasBook && !isActive;
 
     const statusBadge = isActive
       ? `<span class='badge badge--reading badge--dot'>Currently Reading</span>`

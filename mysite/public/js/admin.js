@@ -3,6 +3,7 @@ import { auth, db } from './firebase.js';
 import { ADMIN_EMAILS } from './config.js';
 import { initTheme, initAriaChat, initARIA, initSettingsModal, openSettingsModal, initStaySignedIn } from './theme.js';
 import { setQrImage } from './qr.js';
+import { eraseStudentEverywhere, runAdminRetentionSweep, findOverdueRosters } from './retention.js';
 import {
   signOut, onAuthStateChanged,
   setPersistence, browserLocalPersistence, browserSessionPersistence,
@@ -173,6 +174,18 @@ onAuthStateChanged(auth, async (user) => {
     setupEventListeners();
     watchPendingRequests();
 
+    // End-of-year erasure. Only an admin can still read an expired roster
+    // (firestore.rules cuts the teacher off on the last day), so this sweep is
+    // what actually deletes it. Runs after the dashboard so it never delays
+    // first paint.
+    runAdminRetentionSweep(db).then(swept => {
+      if (!swept) return;
+      const bits = [];
+      if (swept.students) bits.push(`${swept.students} student record${swept.students !== 1 ? 's' : ''} from ${swept.classes} ended class${swept.classes !== 1 ? 'es' : ''}`);
+      if (swept.history)  bits.push(`${swept.history} expired checkout record${swept.history !== 1 ? 's' : ''}`);
+      toast(`<i class="bi bi-shield-check"></i> Retention sweep deleted ${bits.join(' and ')}.`, 'info');
+    });
+
   } catch (err) {
     console.error('[admin] Init failed:', err);
     toast(`Failed to load admin portal: ${err.message ?? 'unknown error'}. Try refreshing.`, 'danger');
@@ -332,13 +345,30 @@ function viewUserDetails(uid) {
 async function deleteUserRecord(uid) {
   const u     = allUsers.find(x => x.uid === uid);
   const label = u?.name || u?.email || uid;
-  const ok    = await appConfirm(`Permanently delete "${label}"?\n\nThis removes their BookWare account. Cannot be undone.`, 'Delete', true);
+  const ok    = await appConfirm(
+    `Permanently delete "${label}"?\n\n` +
+    `Removes their account, their entry in every class roster, and their name ` +
+    `from every teacher's checkout history. Cannot be undone.`,
+    'Delete', true
+  );
   if (!ok) return;
   try {
+    // Erase roster + history references FIRST. These live inside other
+    // teachers' document trees, so deleting only users/students/teachers left
+    // the person's name and email sitting in every class they ever joined —
+    // which made "permanently delete" untrue.
+    toast('Erasing records across all libraries…', 'info');
+    const swept = await eraseStudentEverywhere(db, uid);
+
     await deleteDoc(doc(db, 'users', uid));
     try { await deleteDoc(doc(db, 'students', uid)); } catch (_) {}
     try { await deleteDoc(doc(db, 'teachers', uid)); } catch (_) {}
-    toast(`Deleted ${esc(label)}`, 'success');
+
+    toast(
+      `Deleted ${esc(label)} — ${swept.rosterRemoved} roster entr${swept.rosterRemoved !== 1 ? 'ies' : 'y'}, ` +
+      `${swept.historyRedacted} history record${swept.historyRedacted !== 1 ? 's' : ''} redacted`,
+      'success'
+    );
     await loadAllUsers();
     await loadSystemStats();
   } catch (err) { toast(`Delete failed: ${esc(err.message)}`, 'danger'); }
@@ -611,7 +641,44 @@ async function unbanUser(uid) {
 
 // ── Debug ─────────────────────────────────────────────────────────────────────
 async function loadDebugInfo() {
-  await Promise.all([loadFirestoreStats(), loadAuthStats()]);
+  await Promise.all([loadFirestoreStats(), loadAuthStats(), loadRetentionStatus()]);
+}
+
+/** Show any roster that is past its deletion date but still holds student data.
+ *  Without this the sweep is invisible, and a stalled purge would look
+ *  identical to a clean one. */
+async function loadRetentionStatus() {
+  const el = document.getElementById('retentionStatus');
+  if (!el) return;
+  el.innerHTML = `<p class='empty-state'>Checking…</p>`;
+  const overdue = await findOverdueRosters(db);
+  if (!overdue.length) {
+    el.innerHTML = `<p class='empty-state' style='color:var(--success)'>
+      <i class='bi bi-check2-circle'></i> All rosters within retention policy.</p>`;
+    return;
+  }
+  el.innerHTML = `
+    <table class='data-table'>
+      <thead><tr><th>Teacher</th><th>Class</th><th>Last day</th><th>Records</th></tr></thead>
+      <tbody>${overdue.map(o => `
+        <tr>
+          <td>${esc(o.teacher)}</td>
+          <td>${esc(o.className)}</td>
+          <td style='color:var(--danger)'>${esc(fmtDate(o.endDate))}</td>
+          <td>${o.students}</td>
+        </tr>`).join('')}</tbody>
+    </table>
+    <button class='btn btn--primary btn--sm' id='runSweepBtn' style='margin-top:10px'>
+      <i class='bi bi-trash3-fill'></i> Delete these now
+    </button>`;
+  document.getElementById('runSweepBtn')?.addEventListener('click', async (e) => {
+    e.currentTarget.disabled = true;
+    const swept = await runAdminRetentionSweep(db);
+    toast(swept
+      ? `Deleted ${swept.students} student record${swept.students !== 1 ? 's' : ''}.`
+      : 'Nothing left to delete.', 'success');
+    loadRetentionStatus();
+  });
 }
 
 async function loadFirestoreStats() {

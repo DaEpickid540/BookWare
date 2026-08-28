@@ -32,14 +32,35 @@
 | `students/{uid}/recommendations` | **self, teacher, or admin** (not arbitrary peers) | owner only, if not banned |
 | `teachers/{uid}` | any signed-in user (public library directory — no secrets stored here) | teacher-self or admin |
 | `teachers/{uid}/books` | teacher-self, admin, or a student who is enrolled or whose library is public | teacher/admin; students may only flip checkout-status fields, gated on enrollment |
-| `teachers/{uid}/history` | teacher-self, admin, or the student it's about | student-create; teacher/admin update |
+| `teachers/{uid}/history` | teacher-self, admin, or the student it's about | student-create; teacher/admin update; **teacher/admin delete** (needed by the 2-year retention purge) |
 | `teachers/{uid}/requests` | teacher-self, admin, or the requesting student | student-create (own, `pending`); teacher/admin approve-deny |
-| `teachers/{uid}/classes` (+ roster) | signed-in (join codes); roster scoped to teacher/self/admin | teacher/admin |
+| `teachers/{uid}/classes` | signed-in (join codes) | teacher/admin |
+| `teachers/{uid}/classes/{cid}/students` (roster) | the student themselves, admins, **and the teacher only until the class's `endDate`** | teacher/admin create; teacher, self, or admin delete |
 | `invites/{token}` | single-doc `get` is public (pre-login claim page); `list` is teacher/admin only | teacher-with-`canInvite`/admin create; creator can revoke; claim flow marks used |
 | `accessRequests/{uid}` | requester or admin | requester-create (own, `pending`, can't self-approve); admin approve/deny |
 | `pendingUsers/{emailKey}` | **only the owning email** (can't enumerate) | admin only |
 | `admin/{doc}` | any signed-in user (holds only `maintenanceMode` / `sessionEpoch` — no PII) | admin only |
 | everything else | denied | denied (`allow read, write: if false`) |
+
+## Data-retention rules
+
+Two rules exist to limit how long student personal data is reachable:
+
+1. **Class rosters expire on the last day of school.** Each class carries an
+   `endDate` timestamp. The roster read rule calls `classNotEnded()`, which
+   compares `request.time` against it, so the owning teacher's access ends on
+   that date — server-side, on every request, whether or not any client code
+   runs. Students and admins keep access: the student so they can still withdraw
+   their own record, the admin so somebody can still perform the deletion.
+2. **Teachers may delete their own history.** Required so the 2-year checkout
+   purge in `retention.js` can actually delete. Previously delete was
+   admin-only, which meant expired records could never be removed.
+
+⚠️ **Access ≠ erasure.** These rules end *access* precisely on time. Actual
+deletion is done by client-side sweeps in `public/js/retention.js`, which run
+when a portal is opened — so records can be unreachable-but-present for a
+while. The admin Debug page lists anything in that state. Guaranteed-timely
+erasure would need a scheduled Cloud Function.
 
 ## Known, intentional trade-offs
 
@@ -47,6 +68,10 @@
   Libraries" discovery screen lists every teacher. Only directory-appropriate
   fields (name, email, library visibility, currently-reading) live there — do
   **not** add secrets to a teacher document.
+- The legacy flat roster `teachers/{uid}/students` has **no** `endDate` cut-off,
+  because it has no parent class to carry one. The join flow now routes students
+  into a real class instead, but any pre-existing entries there are still
+  unexpiring — worth migrating.
 - `admin/{doc}` is world-readable because the student/teacher portals check
   `maintenanceMode` at load. Keep it limited to non-sensitive operational flags.
 - Instant token revocation isn't possible without a Cloud Function. The admin

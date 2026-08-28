@@ -1,56 +1,177 @@
-users/{uid} {
-name: string
-email: string
-role: "student" | "teacher" | "admin"
-banned: boolean
-class: string | null
-createdAt: timestamp
-}
+# BookWare Firestore Schema
 
-teachers/{teacherId} {
-name: string
-email: string
-createdAt: timestamp
-canInvite: boolean
-}
+Every collection BookWare writes, with the fields it actually stores.
 
-teachers/{teacherId}/books/{bookId} {
-title: string
-author: string
-isbn: string
-coverUrl: string
-description: string
-status: "available" | "checked_out"
-checkedOutBy: studentId | null
-checkedOutAt: timestamp | null
-wishlist: array<studentId>
-}
+**Legend**
+- 🔴 **PII** — personally identifies a student or staff member.
+- ⏳ **Retention** — deleted automatically; see `public/js/retention.js`.
 
-teachers/{teacherId}/history/{entryId} {
-bookId: string
-bookTitle: string
-studentId: string
-studentName: string
-dateOut: timestamp
-dateReturned: timestamp | null
-}
+Anything not marked has no personal data in it.
 
-students/{studentId} {
-name: string
-email: string
-currentBook: bookId | null
-wishlist: array<bookId>
-banned: boolean
-}
+---
 
-invites/{token} {
-createdBy: teacherId
-createdAt: timestamp
-expiresAt: timestamp
-used: boolean
-}
+## `users/{uid}` 🔴
+The role record. Created on first sign-in.
 
-admin/settings {
-maintenanceMode: boolean
-globalBanList: array<uid>
-}
+```
+name          string            🔴 from the Google account
+email         string            🔴 from the Google account
+role          "student" | "teacher" | "admin"
+banned        boolean
+banExpiry     timestamp | null  null on a permanent ban
+banReason     string            (only when banned)
+bannedBy      uid | "system"
+bannedAt      timestamp
+class         string | null     legacy, unused by the multi-class system
+createdAt     timestamp
+```
+
+## `students/{studentId}` 🔴
+```
+name                  string                🔴
+email                 string                🔴
+currentBook           bookId | null
+currentBookTeacherId  teacherId | null
+addedTeachers         array<teacherId>      libraries this student joined
+wishlist              array<bookId>
+currentlyReading      array<{bookId,...}>
+readingProfile        map                   quiz answers (genres/length/vibe/format)
+notifWishlist         boolean
+```
+
+### `students/{studentId}/recommendations/{recId}`
+Star ratings a student left. Readable only by that student, teachers, admins.
+
+## `teachers/{teacherId}` 🔴
+Readable by any signed-in user — this is the in-app library directory. Store
+nothing private here.
+
+```
+name             string      🔴
+email            string      🔴
+photoURL         string      🔴
+createdAt        timestamp
+canInvite        boolean     gates invite creation in firestore.rules
+libraryPublic    boolean     discoverable by non-enrolled students
+requireApproval  boolean     checkouts need teacher approval
+inviteCode       string      legacy single-class code
+readingProfile   map
+currentlyReading {title, author, coverUrl}
+```
+
+### `teachers/{teacherId}/classes/{classId}` ⏳
+```
+name            string
+inviteCode      string      6 chars, crypto.getRandomValues
+endDate         timestamp   ⏳ LAST DAY OF SCHOOL — 23:59:59 local on that day.
+                            Required. firestore.rules refuses to serve this
+                            class's roster to the teacher once request.time
+                            passes it.
+rosterPurgedAt  timestamp   set when the roster was actually erased
+archived        boolean
+createdAt       timestamp
+```
+
+### `teachers/{teacherId}/classes/{classId}/students/{studentId}` 🔴 ⏳
+The class roster. **The most sensitive collection in the app.**
+
+```
+studentId  uid       🔴
+name       string    🔴
+email      string    🔴
+joinedAt   timestamp
+joinedVia  "code"
+```
+⏳ **Deleted on the parent class's `endDate`.** Teacher access is cut off by
+`firestore.rules` on that date; erasure runs on the next admin portal load
+(only admins can still read an expired roster in order to delete it).
+
+### `teachers/{teacherId}/books/{bookId}`
+```
+title, author, isbn, coverUrl, description   string
+copies           number
+checkedOutCount  number    authoritative count of copies out
+status           "available" | "checked_out"
+                 Derived: 'checked_out' only when checkedOutCount >= copies.
+                 Set consistently on BOTH checkout and return paths.
+checkedOutBy     studentId | null
+checkedOutAt     timestamp | null
+dueDate          timestamp | null
+```
+
+### `teachers/{teacherId}/history/{entryId}` 🔴 ⏳
+The borrowing record — a student education record.
+
+```
+bookId, bookTitle, author   string
+studentId     uid | null     🔴 null once redacted
+studentName   string         🔴 "[deleted]" once redacted
+dateOut       timestamp
+dateReturned  timestamp | null   null = still checked out
+redactedAt    timestamp          set when the student was erased
+```
+⏳ **Deleted `HISTORY_RETENTION_DAYS` (730 = 2 years) after `dateOut`, and only
+once `dateReturned` is set.** An open loan is a live record and is never purged.
+
+### `teachers/{teacherId}/requests/{reqId}` 🔴
+Rental approval queue: `studentId`, `studentName` 🔴, `bookId`, `bookTitle`,
+`status` ("pending"|"approved"|"denied"), `requestedAt`, `respondedAt`.
+
+### `teachers/{teacherId}/recommendations/{recId}`
+Teacher's starred picks. No student data.
+
+### `teachers/{teacherId}/students/{studentId}` 🔴
+Legacy flat roster, superseded by per-class rosters. Same shape. Still written
+by the join path when a code resolves to a teacher rather than a class.
+
+> ⚠️ **Not covered by the `endDate` cut-off** — it has no parent class to carry
+> a date. Migrate any remaining entries into a class roster.
+
+## `invites/{token}` 🔴
+```
+recipientEmail  string     🔴 "" for an open invite
+used, revoked   boolean
+expiresAt       timestamp  7 days
+createdBy       uid
+createdByName   string     🔴
+createdByRole   "teacher" | "admin"
+claimedBy       uid | null
+claimedAt, revokedAt, revokedBy
+```
+Single-doc `get` is public (the claim page validates before sign-in), so anyone
+holding a token can read that invite's recipient email.
+
+## `accessRequests/{uid}` 🔴
+Walk-in teacher access requests: `name` 🔴, `email` 🔴, `photoURL` 🔴,
+`requestedAt`, `status` ("pending"|"approved"|"denied").
+
+## `pendingUsers/{emailKey}` 🔴
+Admin pre-registrations. Doc ID is the lowercased email with dots → `_`.
+Readable only by the matching email. Deleted when claimed.
+
+## `admin/settings`
+```
+maintenanceMode  boolean
+sessionEpoch     timestamp   forces re-login for sessions older than this
+```
+Readable by any signed-in user (portals check `maintenanceMode` at load), so it
+must never hold PII. The old `globalBanList` field was removed for this reason.
+
+---
+
+## Not stored in Firestore
+
+Kept in the browser's own storage, never uploaded:
+
+| Key | Purpose |
+|---|---|
+| `bookware-preset` / `-color` / `-brightness` / `-btnsize` | Theme |
+| `bw-stay-signed-in` | Session persistence choice |
+| `bw-aria-enabled` / `-provider` / `-search-provider` | ARIA settings |
+| `bw-aria-key-*`, `bw-aria-search-key-*` | The user's **own** AI API keys |
+| `bookware-biweekly-{uid}` | Last overdue-reminder timestamp |
+| `bw-admin-attempts-{uid}` | Failed admin-access attempts |
+| `bw-github-star-shown` | One-time prompt flag |
+| `bw-welcomed`, `bw-pending-role` *(sessionStorage)* | Per-session UI state |
+
+See `public/privacy.html` for the user-facing version of all of this.

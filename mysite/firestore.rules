@@ -192,7 +192,11 @@ service cloud.firestore {
            (isStudent() && resource.data.studentId == uid()));
         allow create: if isSignedIn() && isStudent() && notBanned();
         allow update: if (isSignedIn() && uid() == teacherId && isTeacher()) || isAdmin();
-        allow delete: if isAdmin();
+        // The owning teacher may delete their own checkout records. Required by
+        // the 2-year retention purge in retention.js — without this, expired
+        // student borrowing records could never actually be removed, since
+        // BookWare has no server-side job to do it.
+        allow delete: if (isSignedIn() && uid() == teacherId && isTeacher()) || isAdmin();
       }
 
       // ── teachers/{uid}/requests/{reqId} ─────────────────────────────────
@@ -221,9 +225,31 @@ service cloud.firestore {
         allow read: if isSignedIn() && allowedEmail();
         allow write: if (isSignedIn() && uid() == teacherId && isTeacher()) || isAdmin();
 
+        // A class roster holds student names and school emails. It stops being
+        // readable by the teacher the moment the school year ends.
+        //
+        // This is the REAL enforcement of the last-day-of-school control. The
+        // client-side purge in retention.js only runs when a teacher opens the
+        // portal, so it cannot be relied on for timeliness — but this rule is
+        // evaluated server-side on every single request, so a teacher loses
+        // access on the date itself whether or not the purge has run.
+        //
+        // endDate is a Timestamp pinned to 23:59:59 on the last day of school,
+        // so a plain `request.time <= endDate` covers that final day. A class
+        // with no endDate stays readable: existing classes predate this field,
+        // and the portal blocks on setting one — see requireSchoolYearEndDates().
+        function classNotEnded() {
+          let c = get(/databases/$(database)/documents/teachers/$(teacherId)/classes/$(classId)).data;
+          return c.get("endDate", null) == null || request.time <= c.endDate;
+        }
+
         match /students/{sid} {
+          // The student themselves and admins keep access regardless — a
+          // student may always see and delete their own record, which is what
+          // makes the withdrawal path in student.js work after the year ends.
           allow read: if isSignedIn() &&
-            (uid() == teacherId || uid() == sid || isAdmin());
+            (uid() == sid || isAdmin() ||
+             (uid() == teacherId && classNotEnded()));
           allow create: if isSignedIn() &&
             (uid() == sid || uid() == teacherId) && allowedEmail();
           allow delete: if isSignedIn() &&

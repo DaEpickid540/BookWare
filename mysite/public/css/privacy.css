@@ -1,0 +1,235 @@
+/* privacy.css — standalone styles for privacy.html.
+   Kept separate from app.css because this page is public (no sign-in) and
+   should stay readable even if the app's theming changes. Same design tokens
+   as the rest of BookWare, declared locally so the page has no dependencies. */
+
+:root {
+  color-scheme: dark;
+  --bg:       #1a1a1e;
+  --bg-card:  #22222a;
+  --bg-inset: #16161a;
+  --border:   #2d2d38;
+  --text:     #f0f0f0;
+  --text-2:   #b0b0be;
+  --text-3:   #6e6e80;
+  --accent:   #e74c3c;
+  --success:  #2ecc71;
+  --warn:     #f39c12;
+  --info:     #5dade2;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+  font-weight: 300;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.doc {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 48px 20px 80px;
+}
+
+/* ── Header ─────────────────────────────────────────────────────── */
+.doc-head { margin-bottom: 44px; }
+
+.doc-logo { display: flex; align-items: center; gap: 9px; margin-bottom: 26px; }
+.logo-dot {
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--accent); flex-shrink: 0;
+}
+.doc-logo-name {
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: 1.3rem; letter-spacing: 0.01em;
+}
+
+.doc-head h1 {
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: clamp(1.9rem, 5vw, 2.6rem);
+  font-weight: 400;
+  line-height: 1.15;
+  margin-bottom: 16px;
+}
+
+.doc-sub { color: var(--text-2); font-size: 1.02rem; max-width: 68ch; }
+
+.doc-meta {
+  margin-top: 14px;
+  color: var(--text-3);
+  font-size: 0.8rem;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+/* ── Sections ───────────────────────────────────────────────────── */
+.doc-section { margin-bottom: 46px; }
+
+.doc-section h2 {
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: 1.42rem;
+  font-weight: 400;
+  margin-bottom: 16px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--border);
+}
+
+.doc-section > p { color: var(--text-2); margin-bottom: 14px; max-width: 72ch; }
+
+.doc-list { list-style: none; display: grid; gap: 11px; }
+.doc-list li {
+  position: relative;
+  padding-left: 22px;
+  color: var(--text-2);
+  max-width: 72ch;
+}
+.doc-list li::before {
+  content: '';
+  position: absolute;
+  left: 4px; top: 0.62em;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.doc-list strong, .doc-table strong { color: var(--text); font-weight: 500; }
+
+/* ── Storage-location cards ─────────────────────────────────────── */
+.loc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 14px;
+}
+.loc-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 16px;
+}
+.loc-card p { color: var(--text-2); font-size: 0.88rem; }
+.loc-tag {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 0.8rem; font-weight: 600;
+  padding: 4px 10px; border-radius: 999px;
+  margin-bottom: 10px;
+}
+.loc-tag--cloud { background: rgba(93, 173, 226, 0.13); color: var(--info);    border: 1px solid rgba(93, 173, 226, 0.28); }
+.loc-tag--auth  { background: rgba(243, 156, 18, 0.13); color: var(--warn);    border: 1px solid rgba(243, 156, 18, 0.28); }
+.loc-tag--local { background: rgba(46, 204, 113, 0.13); color: var(--success); border: 1px solid rgba(46, 204, 113, 0.28); }
+
+/* ── Tables ─────────────────────────────────────────────────────── */
+/* Wide tables scroll inside their own box so the page body never does. */
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-card);
+}
+
+.doc-table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+  font-size: 0.87rem;
+}
+.doc-table th {
+  text-align: left;
+  padding: 12px 14px;
+  background: var(--bg-inset);
+  color: var(--text-3);
+  font-weight: 600;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.doc-table td {
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  vertical-align: top;
+}
+.doc-table tr:last-child td { border-bottom: none; }
+.doc-table .dim { color: var(--text-3); font-size: 0.82rem; }
+.doc-table .hl  { color: var(--warn); font-weight: 500; }
+.row-flag { background: rgba(243, 156, 18, 0.045); }
+
+.pill {
+  display: inline-block;
+  font-size: 0.74rem; font-weight: 600;
+  padding: 3px 9px; border-radius: 999px;
+  white-space: nowrap;
+}
+.pill--cloud { background: rgba(93, 173, 226, 0.13); color: var(--info);    border: 1px solid rgba(93, 173, 226, 0.28); }
+.pill--local { background: rgba(46, 204, 113, 0.13); color: var(--success); border: 1px solid rgba(46, 204, 113, 0.28); }
+
+/* ── Retention rule cards ───────────────────────────────────────── */
+.rule-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+  margin: 16px 0;
+}
+.rule-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-md);
+  padding: 16px;
+}
+.rule-when {
+  font-weight: 600; color: var(--text);
+  font-size: 0.95rem; margin-bottom: 8px;
+}
+.rule-card p { color: var(--text-2); font-size: 0.88rem; }
+
+/* ── Callout notes ──────────────────────────────────────────────── */
+.doc-note {
+  display: flex; gap: 11px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+  margin-top: 16px;
+  color: var(--text-2);
+  font-size: 0.88rem;
+  max-width: none;
+}
+.doc-note i { color: var(--info); flex-shrink: 0; margin-top: 2px; }
+.doc-note--warn { border-color: rgba(243, 156, 18, 0.3); background: rgba(243, 156, 18, 0.06); }
+.doc-note--warn i { color: var(--warn); }
+
+/* ── Footer ─────────────────────────────────────────────────────── */
+.doc-foot {
+  border-top: 1px solid var(--border);
+  padding-top: 22px;
+  color: var(--text-3);
+  font-size: 0.85rem;
+  display: grid;
+  gap: 6px;
+}
+.doc-foot .dim { color: var(--text-3); }
+
+/* ── Mobile ─────────────────────────────────────────────────────── */
+@media (max-width: 600px) {
+  .doc { padding: 30px 15px 60px; }
+  .doc-section { margin-bottom: 36px; }
+  .doc-sub { font-size: 0.95rem; }
+}
+
+/* Respect reduced-motion and print sensibly. */
+@media print {
+  body { background: #fff; color: #000; }
+  .doc-table th { background: #eee; }
+  .table-scroll, .loc-card, .rule-card, .doc-note { break-inside: avoid; }
+}
