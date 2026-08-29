@@ -81,13 +81,17 @@ export async function purgeExpiredHistory(db, teacherUid) {
   const cutoff = historyCutoff();
   let deleted = 0;
   try {
-    const snap = await getDocs(collection(db, 'teachers', teacherUid, 'history'));
-    const stale = snap.docs.filter(d => {
-      const h = d.data();
-      if (!h.dateReturned) return false;              // still checked out
-      const out = h.dateOut?.toDate?.() ?? null;
-      return out !== null && out < cutoff;
-    });
+    // Filter by dateOut server-side rather than fetching the whole history
+    // collection and filtering in the browser — this ran on every single
+    // portal load, so for a teacher with years of records it was the single
+    // slowest thing blocking first paint. A single inequality needs no
+    // composite index. dateReturned still has to be checked client-side
+    // (an open loan can have an old dateOut too), but that's now a filter
+    // over a handful of already-old records instead of the whole history.
+    const snap = await getDocs(
+      query(collection(db, 'teachers', teacherUid, 'history'), where('dateOut', '<', cutoff)),
+    );
+    const stale = snap.docs.filter(d => !!d.data().dateReturned);
     for (const d of stale) {
       try { await deleteDoc(d.ref); deleted++; } catch (_) {}
     }

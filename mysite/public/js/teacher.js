@@ -17,6 +17,7 @@ import {
 import {
   doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc,
   collection, query, where, onSnapshot, serverTimestamp, Timestamp, arrayRemove,
+  getCountFromServer,
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -87,7 +88,8 @@ function showPage(name) {
   });
   const pt = document.getElementById('pageTitle');
   if (pt) pt.textContent = PAGE_TITLES[name] ?? name;
-  if (name === 'students')        { loadCheckedOut(); loadHistory(); loadActiveBans(); loadRoster(); loadPendingRequests(); }
+  if (name === 'library')         { loadCheckedOut(); loadHistory(); }
+  if (name === 'students')        { loadActiveBans(); loadRoster(); loadPendingRequests(); }
   if (name === 'recommendations') { renderRecommendationsList(); renderRecPicker(); renderRecReadingDisplay(); }
   if (name === 'invites')         { loadPastInvites(); }
   if (name === 'reading')         { renderReadingPicker(); renderReadingDisplay(); renderReadingPreview(); }
@@ -174,6 +176,12 @@ onAuthStateChanged(auth, async (user) => {
       loadStudentCode(),
       loadCurrentlyReading(),
     ]);
+    // Checked-out/history now live on the Library page, which is active by
+    // default — showPage() only loads them on a nav click, which never fires
+    // for the page that's already showing. loadCheckedOut() reads `allBooks`,
+    // so it has to wait for loadLibrary() above.
+    loadCheckedOut();
+    loadHistory();
     initVisibilityToggle();
     initApprovalToggle();
     checkBiweeklyNotification();
@@ -413,10 +421,13 @@ async function loadClasses() {
       // An expired class's roster is no longer readable by the teacher (by
       // design — see firestore.rules). Skip the count rather than throwing.
       if (isClassExpired(data.endDate)) return { id: d.id, ...data, studentCount: 0 };
+      // A count aggregation reads none of the roster documents themselves —
+      // much cheaper than getDocs().size once a class has more than a
+      // handful of students, and this runs for every class on every load.
       let studentCount = 0;
       try {
-        const rosterSnap = await getDocs(collection(db, 'teachers', currentUser.uid, 'classes', d.id, 'students'));
-        studentCount = rosterSnap.size;
+        const countSnap = await getCountFromServer(collection(db, 'teachers', currentUser.uid, 'classes', d.id, 'students'));
+        studentCount = countSnap.data().count;
       } catch (_) {}
       return { id: d.id, ...data, studentCount };
     }));
@@ -708,7 +719,7 @@ async function approveRequest(reqId, bookId, studentId, bookTitle) {
   }
   await loadLibrary();
   loadPendingRequests();
-  if (document.getElementById('studentsPage')?.classList.contains('active')) { loadCheckedOut(); loadHistory(); }
+  loadCheckedOut(); loadHistory();
 }
 
 async function denyRequest(reqId) {
@@ -981,7 +992,7 @@ async function validateReturn(bookId, bookTitle) {
   }
 
   await loadLibrary();
-  if (document.getElementById('studentsPage')?.classList.contains('active')) { loadCheckedOut(); loadHistory(); }
+  loadCheckedOut(); loadHistory();
   toast(`<i class='bi bi-check2'></i> "${esc(bookTitle)}" marked returned`, 'success');
 }
 

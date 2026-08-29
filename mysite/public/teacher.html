@@ -111,14 +111,6 @@
             </div>
 
             <div class="panel-card">
-              <div class="section-label">Classes &amp; Access Codes</div>
-              <p class="muted-text small-text" style="margin-bottom:12px">Each class gets its own code. All classes share the same book library. Students enter their class code to join and access your books.</p>
-              <div id="classManagerContainer">
-                <p class="empty-state">Loading classes…</p>
-              </div>
-            </div>
-
-            <div class="panel-card">
               <div class="section-label">Library Settings</div>
               <!-- Visibility -->
               <div class="settings-row" style="padding:0 0 10px">
@@ -170,6 +162,21 @@
 
         </div>
 
+        <div class="split-grid" style="margin-top:16px">
+          <div class="panel-card">
+            <div class="section-label">Currently Checked Out</div>
+            <div id="checkedOutList" role="list">
+              <p class="empty-state">Loading…</p>
+            </div>
+          </div>
+          <div class="panel-card">
+            <div class="section-label">Checkout History</div>
+            <div id="historyList" role="list">
+              <p class="empty-state">Loading…</p>
+            </div>
+          </div>
+        </div>
+
         <!-- ARIA AI chat (appears when enabled in Settings) -->
         <div id="ariaChatMount" hidden style="margin-top:18px"></div>
 
@@ -204,18 +211,12 @@
           </div>
         </div>
 
-        <div class="split-grid">
-          <div class="panel-card">
-            <div class="section-label">Currently Checked Out</div>
-            <div id="checkedOutList" role="list">
-              <p class="empty-state">Loading…</p>
-            </div>
-          </div>
-          <div class="panel-card">
-            <div class="section-label">Checkout History</div>
-            <div id="historyList" role="list">
-              <p class="empty-state">Loading…</p>
-            </div>
+        <!-- Classes & access codes -->
+        <div class="panel-card">
+          <div class="section-label">Classes &amp; Access Codes</div>
+          <p class="muted-text small-text" style="margin-bottom:12px">Each class gets its own code. All classes share the same book library. Students enter their class code to join and access your books.</p>
+          <div id="classManagerContainer">
+            <p class="empty-state">Loading classes…</p>
           </div>
         </div>
 
