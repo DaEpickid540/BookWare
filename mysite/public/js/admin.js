@@ -3,6 +3,7 @@ import { auth, db } from './firebase.js';
 import { ADMIN_EMAILS } from './config.js';
 import { initTheme, initAriaChat, initARIA, initSettingsModal, openSettingsModal, initStaySignedIn } from './theme.js';
 import { setQrImage } from './qr.js';
+import { hidePreloader } from './preloader.js';
 import { eraseStudentEverywhere, runAdminRetentionSweep, findOverdueRosters } from './retention.js';
 import {
   signOut, onAuthStateChanged,
@@ -173,6 +174,7 @@ onAuthStateChanged(auth, async (user) => {
     await loadDashboard();
     setupEventListeners();
     watchPendingRequests();
+    hidePreloader();
 
     // End-of-year erasure. Only an admin can still read an expired roster
     // (firestore.rules cuts the teacher off on the last day), so this sweep is
@@ -188,6 +190,7 @@ onAuthStateChanged(auth, async (user) => {
 
   } catch (err) {
     console.error('[admin] Init failed:', err);
+    hidePreloader();
     toast(`Failed to load admin portal: ${err.message ?? 'unknown error'}. Try refreshing.`, 'danger');
   }
 });

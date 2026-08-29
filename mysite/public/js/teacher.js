@@ -5,6 +5,7 @@ import { lookupISBN, searchBooks } from './books.js';
 import { initTheme, initARIA, initAriaChat, initAriaRecommends, refreshAriaChats, initSettingsModal, openSettingsModal, initStaySignedIn } from './theme.js';
 import { runReadingQuiz } from './quiz.js';
 import { setQrImage } from './qr.js';
+import { hidePreloader } from './preloader.js';
 import {
   runRetentionSweep, eraseStudentFromTeacher, isClassExpired,
   endOfSchoolDay, HISTORY_RETENTION_DAYS,
@@ -123,7 +124,7 @@ onAuthStateChanged(auth, async (user) => {
 
     currentUser   = user;
     const tSnap   = await getDoc(doc(db, 'teachers', user.uid));
-    if (!tSnap.exists()) { toast('Teacher record not found. Ask an admin or another teacher for an invite link.', 'danger'); return; }
+    if (!tSnap.exists()) { hidePreloader(); toast('Teacher record not found. Ask an admin or another teacher for an invite link.', 'danger'); return; }
     teacherData   = tSnap.data();
 
     // Backfill for accounts created before canInvite existed on the schema —
@@ -164,13 +165,19 @@ onAuthStateChanged(auth, async (user) => {
     // rather than briefly rendered. Opportunistic — see retention.js.
     const purged = await runRetentionSweep(db, currentUser.uid);
 
-    await loadRecommendations();
-    await loadLibrary();
-    await loadStudentCode();
-    await loadCurrentlyReading();
+    // renderLibraryList() reads `recommendations` to badge recommended books,
+    // so that pair must stay sequential — but neither depends on the class
+    // roster or the currently-reading doc, so those load concurrently instead
+    // of stacking four round trips end to end.
+    await Promise.all([
+      (async () => { await loadRecommendations(); await loadLibrary(); })(),
+      loadStudentCode(),
+      loadCurrentlyReading(),
+    ]);
     initVisibilityToggle();
     initApprovalToggle();
     checkBiweeklyNotification();
+    hidePreloader();
 
     if (purged) {
       const bits = [];
@@ -184,6 +191,7 @@ onAuthStateChanged(auth, async (user) => {
 
   } catch (err) {
     console.error('[teacher] Init failed:', err);
+    hidePreloader();
     toast(`Failed to load teacher portal: ${err.message ?? 'unknown error'}. Try refreshing.`, 'danger');
   }
 });
@@ -326,11 +334,22 @@ async function requireSchoolYearEndDates() {
   const modal = document.getElementById('schoolYearModal');
   const list  = document.getElementById('schoolYearClassList');
   const save  = document.getElementById('schoolYearSaveBtn');
+  const later = document.getElementById('schoolYearLaterBtn');
   const hint  = document.getElementById('schoolYearHint');
   if (!modal || !list || !save) return;
 
+  // Asked once already this session — don't trap the teacher out of every
+  // other feature (invites, ARIA, reading, etc.) on every page. The roster
+  // itself stays flagged in Settings until a date is actually set.
+  if (sessionStorage.getItem('bw-schoolyear-dismissed')) return;
+
   const missing = allClasses.filter(c => !c.endDate);
   if (!missing.length) { modal.hidden = true; return; }
+
+  if (later) later.onclick = () => {
+    sessionStorage.setItem('bw-schoolyear-dismissed', '1');
+    modal.hidden = true;
+  };
 
   const today = new Date().toISOString().slice(0, 10);
   list.innerHTML = missing.map(c => `

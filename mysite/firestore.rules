@@ -250,8 +250,11 @@ service cloud.firestore {
           allow read: if isSignedIn() &&
             (uid() == sid || isAdmin() ||
              (uid() == teacherId && classNotEnded()));
+          // A student shouldn't be able to join a class whose year already
+          // ended — admin is exempt since erasure itself writes here (redaction).
           allow create: if isSignedIn() &&
-            (uid() == sid || uid() == teacherId) && allowedEmail();
+            (uid() == sid || uid() == teacherId) && allowedEmail() &&
+            (classNotEnded() || isAdmin());
           allow delete: if isSignedIn() &&
             (uid() == teacherId || uid() == sid || isAdmin());
           allow update: if isAdmin();
@@ -274,6 +277,23 @@ service cloud.firestore {
           (uid() == teacherId || uid() == sid || isAdmin());
         allow update: if isAdmin();
       }
+    }
+
+    // ── classes/{classId} — collection-group support ────────────────────────────
+    // The nested rule above (teachers/{teacherId}/classes/{classId}) only covers
+    // reads scoped to one known teacher. It does NOT extend to a
+    // collectionGroup('classes') query — Firestore requires a SEPARATE rule,
+    // matched purely by collection ID via a recursive wildcard, to authorize
+    // that shape of request at all. Without this block, every collectionGroup
+    // query against "classes" is denied outright, regardless of the where()
+    // filter or any index.
+    //
+    // Students resolve a class-join code with exactly such a query (see
+    // addTeacherByCode in student.js) — the code is unguessable and this only
+    // grants read, so exposing name/inviteCode/endDate to any signed-in user
+    // here carries the same risk already accepted by the per-teacher rule above.
+    match /{path=**}/classes/{classId} {
+      allow read: if isSignedIn();
     }
 
     // ── invites/{token} ────────────────────────────────────────────────────────

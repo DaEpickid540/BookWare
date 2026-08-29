@@ -42,6 +42,28 @@
 | `admin/{doc}` | any signed-in user (holds only `maintenanceMode` / `sessionEpoch` — no PII) | admin only |
 | everything else | denied | denied (`allow read, write: if false`) |
 
+## Collection-group reads
+
+A rule nested under a parent (`teachers/{teacherId}/classes/{classId}` above)
+only authorizes requests scoped to one known teacher — a direct `get`, or a
+query against that one subcollection. It does **not** extend to a
+`collectionGroup('classes')` query, which Firestore matches against a
+*separate* rule keyed purely by collection name. `firestore.rules` therefore
+also declares:
+
+```
+match /{path=**}/classes/{classId} {
+  allow read: if isSignedIn();
+}
+```
+
+This is what lets a student resolve a class-join code without knowing which
+teacher issued it (`addTeacherByCode` in `student.js` queries `classes` by
+`inviteCode` across every teacher). Without this second rule the query is
+denied outright — not merely empty — regardless of any index. Verified against
+the real ruleset with `@firebase/rules-unit-testing` before this was added; see
+git history for the test script if this needs re-checking.
+
 ## Data-retention rules
 
 Two rules exist to limit how long student personal data is reachable:

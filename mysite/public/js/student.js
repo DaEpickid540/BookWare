@@ -4,6 +4,7 @@ import { shouldForceLogout } from "./config.js";
 import { searchBooks } from "./books.js";
 import { initTheme, initARIA, applyPreset, initAriaChat, initAriaRecommends, refreshAriaChats, initSettingsModal, openSettingsModal, initStaySignedIn } from "./theme.js";
 import { runReadingQuiz } from "./quiz.js";
+import { hidePreloader } from "./preloader.js";
 import {
   signOut, onAuthStateChanged,
   setPersistence, browserLocalPersistence, browserSessionPersistence,
@@ -267,9 +268,11 @@ onAuthStateChanged(auth, async (user) => {
           await setSelectedTeacher(firstId, tSnap.data().name);
       } catch (_) {}
     }
+    hidePreloader();
   } catch (err) {
     console.error("[student] Init failed:", err);
     document.documentElement.style.visibility = "visible";
+    hidePreloader();
     toast(
       `Failed to load student portal: ${
         err.message ?? "unknown error"

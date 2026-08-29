@@ -1,0 +1,64 @@
+/* preloader.css — shared pre-app loading screen (teacher/student/admin/index).
+   Sits above everything until the page's own JS calls hidePreloader() from
+   preloader.js, once the first real screen of data has rendered. */
+
+.preloader {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: var(--bg);
+  transition: opacity 0.25s ease;
+}
+
+.preloader-mark {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.preloader-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 12px var(--accent-border, var(--accent));
+}
+
+.preloader-name {
+  font-family: var(--font-serif, Georgia, serif);
+  font-size: 1.4rem;
+  color: var(--text);
+}
+
+.preloader-spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2.5px solid var(--border, rgba(128, 128, 128, 0.3));
+  border-top-color: var(--accent);
+  animation: preloaderSpin 0.7s linear infinite;
+}
+
+.preloader-hint {
+  font-size: 0.8rem;
+  color: var(--text-3, var(--text));
+  opacity: 0.6;
+}
+
+@keyframes preloaderSpin {
+  to { transform: rotate(360deg); }
+}
+
+.preloader--out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .preloader-spinner { animation: none; border-top-color: var(--border, var(--accent)); }
+}
