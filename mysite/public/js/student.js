@@ -421,22 +421,29 @@ async function addTeacherByCode() {
   let teacherId = null,
     classId = null,
     className = "";
+  let lookupError = null;
 
   try {
-    const { collectionGroup } = await import(
-      "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js"
-    );
-    const cgSnap = await getDocs(
-      query(collectionGroup(db, "classes"), where("inviteCode", "==", code)),
-    );
-    if (!cgSnap.empty) {
-      const classDoc = cgSnap.docs[0];
-      const parts = classDoc.ref.path.split("/");
-      teacherId = parts[1];
-      classId = parts[3];
-      className = classDoc.data().name ?? "Class";
+    // classCodes/{code} is a direct doc-ID lookup — {teacherId, classId} was
+    // written when the code was created, so this needs no index and can't be
+    // silently blocked by one going missing or still being built.
+    const codeSnap = await getDoc(doc(db, "classCodes", code));
+    if (codeSnap.exists()) {
+      const data = codeSnap.data();
+      teacherId = data.teacherId;
+      classId = data.classId;
+      const classDoc = await getDoc(
+        doc(db, "teachers", teacherId, "classes", classId),
+      );
+      className = classDoc.exists() ? (classDoc.data().name ?? "Class") : "Class";
     }
-  } catch (_) {}
+  } catch (err) {
+    // Was silently swallowed — a class-code lookup that fails for a REAL
+    // reason (rules regression) looked identical to "no such code," which
+    // made this impossible to diagnose from a bug report alone.
+    lookupError = err;
+    console.error("[student] Class-code lookup failed:", err.code, err.message);
+  }
 
   if (!teacherId) {
     const snap = await getDocs(
@@ -467,7 +474,12 @@ async function addTeacherByCode() {
   }
 
   if (!teacherId) {
-    toast("Code not found. Double-check with your teacher.", "danger");
+    toast(
+      lookupError
+        ? `Couldn't check that code right now (${esc(lookupError.code ?? lookupError.message ?? "unknown error")}). Try again in a moment.`
+        : "Code not found. Double-check with your teacher.",
+      "danger",
+    );
     return;
   }
   if (addedTeacherIds.includes(teacherId)) {

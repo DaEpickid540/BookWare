@@ -418,12 +418,26 @@ async function loadClasses() {
     const tSnap     = await getDoc(doc(db, 'teachers', currentUser.uid));
     const legacyCode = tSnap.data()?.inviteCode ?? genCode();
     const classRef  = await addDoc(collection(db, 'teachers', currentUser.uid, 'classes'), { name: 'Period 1', inviteCode: legacyCode, createdAt: serverTimestamp() });
+    await setDoc(doc(db, 'classCodes', legacyCode), { teacherId: currentUser.uid, classId: classRef.id, createdAt: serverTimestamp() });
     const oldRoster = await getDocs(collection(db, 'teachers', currentUser.uid, 'students'));
     for (const s of oldRoster.docs) await setDoc(doc(db, 'teachers', currentUser.uid, 'classes', classRef.id, 'students', s.id), s.data());
     allClasses = [{ id: classRef.id, name: 'Period 1', inviteCode: legacyCode, studentCount: oldRoster.size }];
   } else {
     allClasses = await Promise.all(snap.docs.map(async d => {
       const data = d.data();
+
+      // One-time backfill: classes created before the classCodes collection
+      // existed have a code that only ever lived on the class doc itself,
+      // which a student has no permission to search by. codeMapped marks it
+      // done so this write happens once per class, not on every load.
+      if (!data.codeMapped && data.inviteCode) {
+        try {
+          await setDoc(doc(db, 'classCodes', data.inviteCode), { teacherId: currentUser.uid, classId: d.id, createdAt: data.createdAt ?? serverTimestamp() });
+          await updateDoc(d.ref, { codeMapped: true });
+          data.codeMapped = true;
+        } catch (_) {}
+      }
+
       // An expired class's roster is no longer readable by the teacher (by
       // design — see firestore.rules). Skip the count rather than throwing.
       if (isClassExpired(data.endDate)) return { id: d.id, ...data, studentCount: 0 };
@@ -518,6 +532,7 @@ async function createClass() {
   const code  = genCode();
   const stamp = Timestamp.fromDate(endOfSchoolDay(endDate));
   const ref  = await addDoc(collection(db, 'teachers', currentUser.uid, 'classes'), { name, inviteCode: code, endDate: stamp, createdAt: serverTimestamp() });
+  await setDoc(doc(db, 'classCodes', code), { teacherId: currentUser.uid, classId: ref.id, createdAt: serverTimestamp() });
   allClasses.push({ id: ref.id, name, inviteCode: code, endDate: stamp, studentCount: 0, createdAt: { seconds: Date.now() / 1000 } });
   renderClassManager();
   toast(`<i class='bi bi-check2'></i> "${esc(name)}" created — code: ${esc(code)}`, 'success');
@@ -555,9 +570,12 @@ async function renameClass(classId, oldName) {
 }
 
 async function refreshClassCode(classId, className) {
-  const code = genCode();
+  const cls     = allClasses.find(c => c.id === classId);
+  const oldCode = cls?.inviteCode;
+  const code    = genCode();
+  await setDoc(doc(db, 'classCodes', code), { teacherId: currentUser.uid, classId, createdAt: serverTimestamp() });
   await updateDoc(doc(db, 'teachers', currentUser.uid, 'classes', classId), { inviteCode: code });
-  const cls = allClasses.find(c => c.id === classId);
+  if (oldCode) { try { await deleteDoc(doc(db, 'classCodes', oldCode)); } catch (_) {} }
   if (cls) cls.inviteCode = code;
   renderClassManager();
   toast(`<i class='bi bi-check2'></i> New code for ${esc(className)} — existing students unaffected`, 'success');
@@ -570,6 +588,8 @@ async function deleteClass(classId, className) {
     : `Delete class "${className}"? This cannot be undone.`;
   if (!confirm(confirmMsg)) return;
   for (const s of roster.docs) await deleteDoc(doc(db, 'teachers', currentUser.uid, 'classes', classId, 'students', s.id));
+  const cls = allClasses.find(c => c.id === classId);
+  if (cls?.inviteCode) { try { await deleteDoc(doc(db, 'classCodes', cls.inviteCode)); } catch (_) {} }
   await deleteDoc(doc(db, 'teachers', currentUser.uid, 'classes', classId));
   allClasses = allClasses.filter(c => c.id !== classId);
   renderClassManager();

@@ -62,12 +62,17 @@ currentlyReading {title, author, coverUrl}
 ### `teachers/{teacherId}/classes/{classId}` ⏳
 ```
 name            string
-inviteCode      string      6 chars, crypto.getRandomValues
+inviteCode      string      6 chars, crypto.getRandomValues. Mirrored into
+                            classCodes/{inviteCode} — see below — which is
+                            what a student's code entry actually looks up.
 endDate         timestamp   ⏳ LAST DAY OF SCHOOL — 23:59:59 local on that day.
                             Required. firestore.rules refuses to serve this
                             class's roster to the teacher once request.time
                             passes it.
 rosterPurgedAt  timestamp   set when the roster was actually erased
+codeMapped      boolean     true once this class's classCodes entry has been
+                            backfilled (classes created before that collection
+                            existed didn't have one yet)
 archived        boolean
 createdAt       timestamp
 ```
@@ -85,6 +90,21 @@ joinedVia  "code"
 ⏳ **Deleted on the parent class's `endDate`.** Teacher access is cut off by
 `firestore.rules` on that date; erasure runs on the next admin portal load
 (only admins can still read an expired roster in order to delete it).
+
+## `classCodes/{code}`
+The join-code → class lookup a student's app actually reads. Doc ID is the
+code itself.
+```
+teacherId  uid
+classId    string    id within teachers/{teacherId}/classes
+createdAt  timestamp
+```
+Readable by any signed-in user via `get` (never `list` — the collection can't
+be enumerated), so a student can resolve a code without knowing which teacher
+issued it, without exposing every class code in the app to every user. Written
+and deleted alongside `classes/{classId}.inviteCode` by `createClass()`,
+`refreshClassCode()`, `deleteClass()`, and a one-time backfill in
+`loadClasses()` for classes that predate this collection.
 
 ### `teachers/{teacherId}/books/{bookId}`
 ```

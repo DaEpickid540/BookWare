@@ -35,34 +35,49 @@
 | `teachers/{uid}/history` | teacher-self, admin, or the student it's about | student-create; teacher/admin update; **teacher/admin delete** (needed by the 2-year retention purge) |
 | `teachers/{uid}/requests` | teacher-self, admin, or the requesting student | student-create (own, `pending`); teacher/admin approve-deny |
 | `teachers/{uid}/classes` | signed-in (join codes) | teacher/admin |
-| `teachers/{uid}/classes/{cid}/students` (roster) | the student themselves, admins, **and the teacher only until the class's `endDate`** | teacher/admin create; teacher, self, or admin delete |
+| `teachers/{uid}/classes/{cid}/students` (roster) | the student themselves, admins, **and the teacher only until the class's `endDate`** | teacher/admin create (roster create additionally requires `classNotEnded()`, admin exempt); teacher, self, or admin delete |
+| `classCodes/{code}` | single-doc `get` only, any signed-in user; **`list` is denied outright** (no enumeration) | teacher-create for their own `teacherId` only; owning teacher or admin delete; never updated |
 | `invites/{token}` | single-doc `get` is public (pre-login claim page); `list` is teacher/admin only | teacher-with-`canInvite`/admin create; creator can revoke; claim flow marks used |
 | `accessRequests/{uid}` | requester or admin | requester-create (own, `pending`, can't self-approve); admin approve/deny |
 | `pendingUsers/{emailKey}` | **only the owning email** (can't enumerate) | admin only |
 | `admin/{doc}` | any signed-in user (holds only `maintenanceMode` / `sessionEpoch` — no PII) | admin only |
 | everything else | denied | denied (`allow read, write: if false`) |
 
-## Collection-group reads
+## Class-code lookup: why `classCodes/{code}` exists
 
-A rule nested under a parent (`teachers/{teacherId}/classes/{classId}` above)
-only authorizes requests scoped to one known teacher — a direct `get`, or a
-query against that one subcollection. It does **not** extend to a
-`collectionGroup('classes')` query, which Firestore matches against a
-*separate* rule keyed purely by collection name. `firestore.rules` therefore
-also declares:
+A student resolves a class-join code without knowing which teacher issued it
+(`addTeacherByCode` in `student.js`). The first version of this did that with
+`collectionGroup('classes').where('inviteCode', '==', code)` — which turned
+out to need **two** separate things just to be reachable at all: a rule keyed
+purely by collection name via a `{path=**}` wildcard (a rule nested under
+`teachers/{teacherId}/classes/{classId}` does not cover a collection-group
+query, only requests scoped to one known teacher), *and* a collection-group
+scope override on the `inviteCode` field, since Firestore's automatic
+single-field indexing doesn't cover collection-group queries by default. Two
+independent ways for the lookup to silently break — and the index-build state
+in particular isn't something the client, or a rules-emulator test, can see:
+the emulator doesn't enforce indexes at all, so a test suite passing there
+proves nothing about whether a real collection-group index has finished
+building in production.
 
-```
-match /{path=**}/classes/{classId} {
-  allow read: if isSignedIn();
-}
-```
+That whole design is gone. `classCodes/{code}` is a flat top-level collection
+where the code **is** the document ID, holding `{ teacherId, classId }`. A
+lookup is a plain `get` — no index of any kind, ever, at any collection depth.
+It's also tighter: `allow get` (not `list`) means a code resolves for whoever
+already holds it, but the collection can't be enumerated to harvest every
+class code and teacher ID in the app the way the old collectionGroup rule
+allowed.
 
-This is what lets a student resolve a class-join code without knowing which
-teacher issued it (`addTeacherByCode` in `student.js` queries `classes` by
-`inviteCode` across every teacher). Without this second rule the query is
-denied outright — not merely empty — regardless of any index. Verified against
-the real ruleset with `@firebase/rules-unit-testing` before this was added; see
-git history for the test script if this needs re-checking.
+Every place a code is created or destroyed keeps this in sync: `createClass()`,
+`refreshClassCode()` (old code deleted, new one written), `deleteClass()`, and
+the legacy-flat-roster migration in `loadClasses()`. Classes created before
+this fix existed are backfilled once, lazily, on the owning teacher's next
+load — see the `codeMapped` flag in `loadClasses()`.
+
+Verified against the real ruleset with `@firebase/rules-unit-testing`
+(ownership enforcement, enumeration blocking, expired-class handling, legacy
+fallback) before this was deployed; see git history for the test script if
+this needs re-checking.
 
 ## Data-retention rules
 
