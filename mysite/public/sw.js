@@ -3,14 +3,18 @@
 // Strategy:
 //   - Precache app shell on install
 //   - HTML pages: network-first (always fresh), fall back to cache when offline
-//   - Static assets (CSS/JS/icons): cache-first, update in background
+//   - Static assets (CSS/JS/icons): network-first, fall back to cache offline
 //   - External CDN (Firebase, Google, jsDelivr): pass-through (no caching)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Bump this on every release that changes CSS/JS. HTML is network-first but
-// static assets are cache-first, so without a bump a returning user gets new
-// markup against a stale stylesheet.
-const CACHE  = 'bookware-v4';
+// Assets are NETWORK-FIRST now (see the fetch handler), so picking up a release
+// no longer depends on remembering to bump this. It used to: assets were
+// cache-first, and the version below was the only thing that evicted them.
+// That trap went off exactly as its old comment warned — release after release
+// shipped while browsers kept running the PREVIOUS build's JavaScript, so every
+// deployed fix appeared to do nothing at all. Bump it when you want old entries
+// evicted outright; correctness no longer hinges on it.
+const CACHE  = 'bookware-v5';
 const SHELL  = [
   '/',
   '/index.html',
@@ -35,6 +39,11 @@ const SHELL  = [
   '/js/teacher.js',
   '/js/admin.js',
   '/js/books.js',
+  '/js/preloader.js',
+  '/js/retention.js',
+  '/css/preloader.css',
+  '/privacy.html',
+  '/css/privacy.css',
   '/js/booklist.js',
   '/js/quiz.js',
   '/js/qr.js',
@@ -92,18 +101,27 @@ self.addEventListener('fetch', evt => {
         )
     );
   } else {
-    // Cache-first for static assets — fast load, refresh in background
+    // Network-first for static assets, cache only as an offline fallback.
+    //
+    // This was `cached || network`, which handed a returning user the PREVIOUS
+    // release's JS/CSS on every load — the network copy it fetched alongside
+    // only refreshed the cache for some future visit. The practical effect was
+    // that deploying a fix changed nothing for anyone who had already used the
+    // app, indefinitely, and the only escape hatch was remembering to bump
+    // CACHE by hand. Serving stale application code by default is not a
+    // trade-off worth the few milliseconds it saved.
     evt.respondWith(
-      caches.match(req).then(cached => {
-        const network = fetch(req).then(res => {
+      fetch(req)
+        .then(res => {
           if (res.ok) {
             const copy = res.clone();
             caches.open(CACHE).then(c => c.put(req, copy));
           }
           return res;
-        });
-        return cached || network;
-      })
+        })
+        // Offline (or the request failed): fall back to whatever we cached.
+        // respondWith() rejects on undefined, so never hand it a miss.
+        .catch(() => caches.match(req).then(cached => cached || Response.error()))
     );
   }
 });
