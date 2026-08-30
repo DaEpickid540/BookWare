@@ -14,7 +14,7 @@
 // shipped while browsers kept running the PREVIOUS build's JavaScript, so every
 // deployed fix appeared to do nothing at all. Bump it when you want old entries
 // evicted outright; correctness no longer hinges on it.
-const CACHE  = 'bookware-v6';
+const CACHE  = 'bookware-v7';
 const SHELL  = [
   '/',
   '/index.html',
@@ -57,6 +57,27 @@ const SHELL  = [
   '/icons/apple-touch-icon.png',
 ];
 
+
+// Fetch that genuinely goes to the network.
+//
+// `fetch(req)` inside a service worker STILL consults the browser's HTTP cache.
+// Firebase Hosting's default for files with no explicit Cache-Control is
+// max-age=3600, so "network-first" below was quietly returning hour-old
+// responses — including their hour-old *headers*. That is how a corrected
+// Content-Security-Policy kept failing to take effect after a deploy: the
+// document was replayed from cache with the old policy attached.
+//
+// Built from req.url rather than passing init to fetch(req): a navigation
+// request has mode 'navigate', and re-constructing one of those with an init
+// object throws.
+function networkFirstFetch(req) {
+  return fetch(req.url, {
+    cache: 'reload',            // bypass the HTTP cache outright
+    credentials: 'same-origin',
+    redirect: 'follow',
+  });
+}
+
 // ── Install — precache all shell assets ───────────────────────────────────────
 self.addEventListener('install', evt => {
   evt.waitUntil(
@@ -90,7 +111,7 @@ self.addEventListener('fetch', evt => {
   if (isHTML) {
     // Network-first for HTML — always try to load fresh, offline falls back to cache
     evt.respondWith(
-      fetch(req)
+      networkFirstFetch(req)
         .then(res => {
           const copy = res.clone();
           caches.open(CACHE).then(c => c.put(req, copy));
@@ -112,7 +133,7 @@ self.addEventListener('fetch', evt => {
     // CACHE by hand. Serving stale application code by default is not a
     // trade-off worth the few milliseconds it saved.
     evt.respondWith(
-      fetch(req)
+      networkFirstFetch(req)
         .then(res => {
           if (res.ok) {
             const copy = res.clone();
