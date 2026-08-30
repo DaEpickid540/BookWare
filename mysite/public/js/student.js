@@ -1,9 +1,10 @@
 // student.js — BookWare Student Portal
 import { auth, db } from "./firebase.js";
-import { shouldForceLogout } from "./config.js";
+import { shouldForceLogout, PENDING_JOIN_KEY, readJoinCode } from "./config.js";
 import { searchBooks, initCoverFallback } from "./books.js";
-import { initTheme, initARIA, applyPreset, initAriaChat, initAriaRecommends, refreshAriaChats, initSettingsModal, openSettingsModal, closeSettingsModal, initStaySignedIn } from "./theme.js";
+import { initTheme, initARIA, applyPreset, initAriaChat, initAriaRecommends, refreshAriaChats, initSettingsModal, openSettingsModal, closeSettingsModal, initStaySignedIn, setAriaAvailability } from "./theme.js";
 import { runReadingQuiz } from "./quiz.js";
+import { runWelcomeTour } from "./welcome.js";
 import { hidePreloader } from "./preloader.js";
 import {
   signOut, onAuthStateChanged,
@@ -138,13 +139,12 @@ onAuthStateChanged(auth, async (user) => {
   }
 
   try {
-    // Maintenance + admin force-logout check
+    // Maintenance + admin force-logout check. The same document also carries
+    // the school-wide ARIA policy, so read it once and use it for both.
     try {
       const settingsSnap = await getDoc(doc(db, "admin", "settings"));
-      if (
-        settingsSnap.exists() &&
-        settingsSnap.data().maintenanceMode === true
-      ) {
+      const settings = settingsSnap.exists() ? settingsSnap.data() : {};
+      if (settings.maintenanceMode === true) {
         await signOut(auth);
         window.location.href = "/?maintenance=1";
         return;
@@ -154,6 +154,12 @@ onAuthStateChanged(auth, async (user) => {
         window.location.href = "/";
         return;
       }
+      // Unset means allowed — a school that has never touched the switch keeps
+      // ARIA, and a failed read below leaves the default (allowed) in place.
+      setAriaAvailability(
+        settings.ariaStudentsEnabled !== false,
+        "ARIA has been turned off for students by a school administrator.",
+      );
     } catch (_) {}
 
     const userRef = doc(db, "users", user.uid);
@@ -236,9 +242,15 @@ onAuthStateChanged(auth, async (user) => {
     initSettingsModal();
     initStaySignedIn((stay) => setPersistence(auth, stay ? browserLocalPersistence : browserSessionPersistence));
     setupRetakeQuiz();
+    setupReplayIntro();
     setupSignout();
+    setupSettingsControls();
     populateSettingsInfo();
     renderWishlist();
+    // Must run BEFORE the first library is selected below — it's what makes a
+    // Class Only library readable at all for anyone who joined before the
+    // membership marker existed.
+    await ensureLibraryAccessMarkers();
     await loadTeachers();
 
     // Welcome toast (once per session)
@@ -255,22 +267,23 @@ onAuthStateChanged(auth, async (user) => {
       sessionStorage.setItem("bw-welcomed", "1");
     }
 
-    // First-time reading-preferences quiz (fire-and-forget — pops up over the
-    // already-loaded page so it never blocks the rest of the portal).
-    maybeRunOnboardingQuiz();
-
-    // Auto-select first linked library
-    const firstId = classTeacherId ?? addedTeacherIds[0] ?? null;
-    if (firstId) {
-      try {
-        const tSnap = await getDoc(doc(db, "teachers", firstId));
-        if (tSnap.exists())
-          await setSelectedTeacher(firstId, tSnap.data().name);
-      } catch (_) {}
-    }
+    // Auto-select a linked library. Try each in turn rather than only the
+    // first: a class teacher whose account was deleted (or whose doc read
+    // fails) used to abort the whole thing, leaving a student who HAS joined
+    // libraries staring at the "add a library code" prompts on every card.
+    if (!(await autoSelectFirstLibrary())) refreshSidePlaceholders();
     hidePreloader();
     // Sequential per-wishlist-item lookups — not essential to first paint.
     renderNotifications();
+
+    // A class QR code or share link carries the code in ?join= — claim it now,
+    // before onboarding, so the intro opens over a library they already have.
+    await consumePendingJoinCode();
+
+    // First-run intro slideshow, then the reading-preferences quiz. Both run
+    // after the preloader is gone: a modal that opens *behind* the splash
+    // screen is exactly how an intro ends up looking like it never fired.
+    runFirstRunOnboarding();
   } catch (err) {
     console.error("[student] Init failed:", err);
     document.documentElement.style.visibility = "visible";
@@ -298,6 +311,44 @@ function populateTopBar() {
     .toUpperCase();
   if (av) av.textContent = initials;
   if (nameEl) nameEl.textContent = display.split(" ")[0];
+}
+
+// ── First-run onboarding: intro slideshow, then the reading quiz ──────────────
+/** Runs both first-run steps in order, skipping whichever the student has
+ *  already seen. Never blocks the portal — it is deliberately not awaited. */
+async function runFirstRunOnboarding() {
+  await maybeRunWelcomeTour();
+  await maybeRunOnboardingQuiz();
+}
+
+/** The intro slideshow. Shown once per account; "seen" lives on the student
+ *  doc so it follows them across devices and so the admin portal's "Replay
+ *  Onboarding" button can actually bring it back. */
+async function maybeRunWelcomeTour() {
+  if (studentData?.welcomeSeenAt) return;
+  await showWelcomeTour();
+}
+
+async function showWelcomeTour() {
+  await runWelcomeTour("student");
+  try {
+    await updateDoc(doc(db, "students", currentUser.uid), {
+      welcomeSeenAt: serverTimestamp(),
+    });
+    studentData.welcomeSeenAt = new Date();
+  } catch (err) {
+    // Not worth interrupting anyone over — worst case the tour shows again.
+    console.warn("[student] could not record welcome tour as seen:", err);
+  }
+}
+
+function setupReplayIntro() {
+  const btn = document.getElementById("replayIntroBtn");
+  btn?.addEventListener("click", () => {
+    closeSettingsModal();
+    btn.disabled = true;
+    showWelcomeTour().finally(() => { btn.disabled = false; });
+  });
 }
 
 // ── Reading-preferences quiz (first run + retake) ─────────────────────────────
@@ -339,13 +390,18 @@ function setupRetakeQuiz() {
 }
 
 // ── Sign out ──────────────────────────────────────────────────────────────────
+// Bound at module scope, NOT inside the auth handler. Signing out needs nothing
+// but the auth object, yet it used to be wired partway down the start-up chain —
+// so anything that threw above it left the user on a page whose Sign Out button
+// did nothing. The way out of the app must not depend on the app having loaded.
+document
+  .getElementById("signoutBar")
+  ?.addEventListener("click", () => signOut(auth));
+document
+  .getElementById("sidebarSignoutBtn")
+  ?.addEventListener("click", () => signOut(auth));
+
 function setupSignout() {
-  document
-    .getElementById("signoutBar")
-    ?.addEventListener("click", () => signOut(auth));
-  document
-    .getElementById("sidebarSignoutBtn")
-    ?.addEventListener("click", () => signOut(auth));
   const hint = document.getElementById("signoutEmail");
   if (hint && currentUser) hint.textContent = currentUser.email;
 }
@@ -383,10 +439,15 @@ async function populateSettingsInfo() {
     </div>`;
 
   renderAddedTeachersList();
+}
 
+// Wired exactly once, at init. populateSettingsInfo() re-runs after a join (to
+// refresh the Class row), and binding these there would stack a fresh listener
+// on every join — the second one firing a duplicate join for the same code.
+function setupSettingsControls() {
   document
     .getElementById("addTeacherCodeBtn")
-    ?.addEventListener("click", addTeacherByCode);
+    ?.addEventListener("click", () => addTeacherByCode());
   document
     .getElementById("teacherCodeInput")
     ?.addEventListener("keydown", (e) => {
@@ -414,11 +475,32 @@ async function populateSettingsInfo() {
 }
 
 // ── Teacher code (join library) ───────────────────────────────────────────────
-async function addTeacherByCode() {
-  const input = document.getElementById("teacherCodeInput");
-  const code = input?.value.trim().toUpperCase();
-  if (!code) return;
+// Guards against a second join running while the first is still in flight. The
+// join mutates addedTeacherIds optimistically, so two overlapping runs (a
+// double-tapped button, or a ?join= link landing while the student also hits
+// Add) could push the same teacher twice and then race on the writes.
+let joinInFlight = false;
 
+/** Join a library by class code.
+ *  @param {string} [codeArg] code to use instead of the Settings input — this
+ *  is how a QR/share link joins without the student typing anything. */
+async function addTeacherByCode(codeArg) {
+  const input = document.getElementById("teacherCodeInput");
+  const code = (codeArg ?? input?.value ?? "").trim().toUpperCase();
+  if (!code || joinInFlight) return;
+
+  joinInFlight = true;
+  const btn = document.getElementById("addTeacherCodeBtn");
+  if (btn) btn.disabled = true;
+  try {
+    await joinLibraryByCode(code, input);
+  } finally {
+    joinInFlight = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function joinLibraryByCode(code, input) {
   let teacherId = null,
     classId = null,
     className = "";
@@ -447,10 +529,20 @@ async function addTeacherByCode() {
   }
 
   if (!teacherId) {
-    const snap = await getDocs(
-      query(collection(db, "teachers"), where("inviteCode", "==", code)),
-    );
-    if (!snap.empty) {
+    // Legacy fallback. Wrapped because this is a collection QUERY, not a
+    // doc-ID get — it can fail on rules or a missing index, and an unhandled
+    // rejection here escapes all the way out to the portal's init handler and
+    // surfaces as "Failed to load student portal".
+    let snap = null;
+    try {
+      snap = await getDocs(
+        query(collection(db, "teachers"), where("inviteCode", "==", code)),
+      );
+    } catch (err) {
+      lookupError ??= err;
+      console.error("[student] Legacy invite-code lookup failed:", err.code, err.message);
+    }
+    if (snap && !snap.empty) {
       teacherId = snap.docs[0].id;
       className = "Class";
       // Legacy teacher-level code. Land the student in a real class anyway:
@@ -483,15 +575,30 @@ async function addTeacherByCode() {
     );
     return;
   }
-  if (addedTeacherIds.includes(teacherId)) {
-    toast("That library is already added.", "info");
-    return;
-  }
+  // One teacher, many classes: a student already in Period 1 who is handed
+  // Period 2's code still needs the roster write below. Bailing out here on
+  // "library already added" (which is what this did) silently dropped them —
+  // the library was already listed, so nothing looked wrong, but the teacher
+  // never saw them in the second class.
+  const alreadyLinked = addedTeacherIds.includes(teacherId);
 
-  addedTeacherIds.push(teacherId);
-  await updateDoc(doc(db, "students", currentUser.uid), {
-    addedTeachers: arrayUnion(teacherId),
-  });
+  if (!alreadyLinked) {
+    try {
+      await updateDoc(doc(db, "students", currentUser.uid), {
+        addedTeachers: arrayUnion(teacherId),
+      });
+    } catch (err) {
+      // Don't leave addedTeacherIds claiming a library the server never
+      // recorded — the chip row would show it until reload, then lose it.
+      console.error("[student] could not save the joined library:", err);
+      toast(
+        `Couldn't save that library (${esc(err.code ?? err.message ?? "unknown error")}). Try again.`,
+        "danger",
+      );
+      return;
+    }
+    addedTeacherIds.push(teacherId);
+  }
 
   const payload = {
     studentId: currentUser.uid,
@@ -500,40 +607,80 @@ async function addTeacherByCode() {
     joinedAt: serverTimestamp(),
     joinedVia: "code",
   };
+  // firestore.rules lets a student CREATE their own roster entry but never
+  // update one (`allow update: if isAdmin()`), so a blind setDoc over an entry
+  // that already exists is a permission-denied — which is what re-scanning a
+  // QR code, or joining a teacher's second class, would do. Write only what's
+  // actually missing.
+  const setIfAbsent = async (ref, data) => {
+    if ((await getDoc(ref)).exists()) return;
+    await setDoc(ref, data);
+  };
+
+  const markerRef = doc(db, "teachers", teacherId, "students", currentUser.uid);
+  let rosterError = null;
   try {
-    if (classId)
-      await setDoc(
-        doc(
-          db,
-          "teachers",
-          teacherId,
-          "classes",
-          classId,
-          "students",
-          currentUser.uid,
-        ),
+    if (classId) {
+      await setIfAbsent(
+        doc(db, "teachers", teacherId, "classes", classId, "students", currentUser.uid),
         payload,
       );
-    else
-      await setDoc(
-        doc(db, "teachers", teacherId, "students", currentUser.uid),
-        payload,
-      );
-  } catch (_) {}
+      // …AND a membership marker on the teacher's flat roster.
+      //
+      // firestore.rules grants access to a Class Only library by checking
+      // `exists(teachers/{tid}/students/{uid})` — the flat roster. Writing only
+      // the per-class roster (as this did) meant every student who joined with a
+      // class code was denied every book read, checkout, and rental request in
+      // any library that wasn't public: they'd see "Joined!" and then an empty
+      // or broken library, which is precisely the reported symptom.
+      //
+      // The marker deliberately carries NO name or email. The class roster is
+      // the record with personal data, and it is the one tied to a last day of
+      // school; duplicating the PII out here would put a copy of it somewhere
+      // with no expiry at all. retention.js deletes the marker alongside the
+      // class roster it belongs to.
+      await setIfAbsent(markerRef, {
+        studentId: currentUser.uid,
+        classId,
+        joinedAt: serverTimestamp(),
+        joinedVia: "code",
+        membershipOnly: true,
+      });
+    } else {
+      await setIfAbsent(markerRef, payload);
+    }
+  } catch (err) {
+    rosterError = err;
+    console.error("[student] roster write failed:", err);
+  }
 
   if (input) input.value = "";
-  toast(
-    `<i class='bi bi-check2'></i> Joined ${esc(className)}! Library added.`,
-    "success",
-  );
+  if (rosterError) {
+    toast(
+      `Library added, but your teacher's roster didn't accept the join (${esc(
+        rosterError.code ?? rosterError.message ?? "unknown error",
+      )}). You may not be able to check books out — tell your teacher.`,
+      "danger",
+    );
+  } else if (alreadyLinked) {
+    toast(
+      `<i class='bi bi-check2'></i> You're now in ${esc(className)} — this library was already on your list.`,
+      "success",
+    );
+  } else {
+    toast(
+      `<i class='bi bi-check2'></i> Joined ${esc(className)}! Library added.`,
+      "success",
+    );
+  }
   renderAddedTeachersList();
   await loadTeachers();
 
   // Actually open the library they just joined. Without this the join only
   // refreshed the chip row — the code is entered from inside the Settings
   // modal, so the student was left looking at Settings with the book list
-  // still on "Select a library above to browse books", and nothing appeared
-  // to have happened at all.
+  // still on its "pick a library" placeholder, and nothing appeared to have
+  // happened at all.
   let teacherName = "Library";
   try {
     const tSnap = await getDoc(doc(db, "teachers", teacherId));
@@ -542,12 +689,88 @@ async function addTeacherByCode() {
   closeSettingsModal();
   showPage("library");
   await setSelectedTeacher(teacherId, teacherName);
+
+  // The notifications banner and the Settings "Class" row were both computed
+  // before this library existed, so without these the student is left staring
+  // at "Join a library to see notifications" on a page that just joined one.
+  renderNotifications();
+  populateSettingsInfo();
+}
+
+/** Backfill the flat-roster membership marker for libraries this student
+ *  joined BEFORE that marker started being written.
+ *
+ *  Those students are on a class roster but have nothing at
+ *  `teachers/{tid}/students/{uid}`, which is the only thing firestore.rules
+ *  looks at when deciding whether to serve a Class Only library — so without
+ *  this they stay locked out of libraries they legitimately joined until they
+ *  re-enter the code. Costs one read per linked library in the healthy case,
+ *  and only goes looking through the class rosters when the marker is missing.
+ *
+ *  Deliberately conservative: the marker is only written when the student is
+ *  genuinely listed on one of that teacher's class rosters. */
+async function ensureLibraryAccessMarkers() {
+  const ids = new Set([classTeacherId, ...addedTeacherIds].filter(Boolean));
+  for (const tid of ids) {
+    try {
+      const markerRef = doc(db, "teachers", tid, "students", currentUser.uid);
+      if ((await getDoc(markerRef)).exists()) continue;
+
+      let classId = null;
+      const classesSnap = await getDocs(collection(db, "teachers", tid, "classes"));
+      for (const c of classesSnap.docs) {
+        const entry = await getDoc(
+          doc(db, "teachers", tid, "classes", c.id, "students", currentUser.uid),
+        );
+        if (entry.exists()) { classId = c.id; break; }
+      }
+      if (!classId) continue; // not on any roster — nothing to grant
+
+      await setDoc(markerRef, {
+        studentId: currentUser.uid,
+        classId,
+        joinedAt: serverTimestamp(),
+        joinedVia: "backfill",
+        membershipOnly: true,
+      });
+      console.info("[student] restored library access marker for teacher", tid);
+    } catch (err) {
+      console.warn("[student] could not verify library access for teacher", tid, err);
+    }
+  }
+}
+
+// ── Joining from a QR code / share link ───────────────────────────────────────
+/** Claim a class code carried in `?join=` — either on this URL (an already
+ *  signed-in student following the link) or parked by index.html while the
+ *  student signed in. Silently does nothing when there's no code. */
+async function consumePendingJoinCode() {
+  let code = readJoinCode();
+  if (code) {
+    // Strip it from the address bar so a refresh doesn't re-run the join and
+    // so the code isn't left sitting in the student's history.
+    history.replaceState(null, "", window.location.pathname);
+  } else {
+    try {
+      code = localStorage.getItem(PENDING_JOIN_KEY) ?? "";
+    } catch (_) {
+      code = "";
+    }
+  }
+  try { localStorage.removeItem(PENDING_JOIN_KEY); } catch (_) {}
+  if (!code) return;
+  // A code for a library they're already in reports itself as "already added".
+  await addTeacherByCode(code);
 }
 
 async function renderAddedTeachersList() {
   const container = document.getElementById("addedTeachersList");
-  if (!container || addedTeacherIds.length === 0) return;
+  if (!container) return;
+  // Clearing has to happen even when the list is empty. Bailing out early left
+  // the just-removed library's row on screen until the next page load, so
+  // "Remove" looked like it had done nothing at all.
   container.innerHTML = "";
+  if (addedTeacherIds.length === 0) return;
   for (const tid of addedTeacherIds) {
     const snap = await getDoc(doc(db, "teachers", tid));
     if (!snap.exists()) continue;
@@ -860,6 +1083,47 @@ async function renderAllLibraries() {
   allLibEl.appendChild(wrapper);
 }
 
+/** Correct the two side cards when no library ended up selected.
+ *
+ *  Their static markup says "Join a library using your teacher's code" with an
+ *  Add a Code button — right for a student with no libraries, wrong and
+ *  confusing for one who has several but whose libraries couldn't be opened.
+ *  Tell them which situation they're actually in. */
+function refreshSidePlaceholders() {
+  const hasLibraries = !!classTeacherId || addedTeacherIds.length > 0;
+  const rec  = document.getElementById("recCardPlaceholder");
+  const read = document.getElementById("readingCardPlaceholder");
+  if (!hasLibraries) return; // the default copy is already correct
+
+  if (rec) {
+    rec.innerHTML = `
+      <div class='section-label'><i class='bi bi-star-fill' aria-hidden='true'></i> Recommended by Your Teacher</div>
+      <p class='empty-state'>Pick a library above to see what your teacher recommends.</p>`;
+  }
+  if (read) {
+    read.innerHTML = `
+      <div class='section-label'><i class='bi bi-book-fill' aria-hidden='true'></i> Your Teacher Is Reading</div>
+      <p class='empty-state'>Pick a library above to see what your teacher is reading.</p>`;
+  }
+}
+
+/** Open the first linked library that actually resolves. Returns true if one
+ *  was selected. */
+async function autoSelectFirstLibrary() {
+  const ids = [classTeacherId, ...addedTeacherIds].filter(Boolean);
+  for (const tid of ids) {
+    try {
+      const tSnap = await getDoc(doc(db, "teachers", tid));
+      if (!tSnap.exists()) continue;
+      await setSelectedTeacher(tid, tSnap.data().name);
+      return true;
+    } catch (err) {
+      console.warn("[student] could not open library", tid, err);
+    }
+  }
+  return false;
+}
+
 async function setSelectedTeacher(tid, name) {
   selectedTeacherId = tid;
   selectedTeacherName = name;
@@ -882,9 +1146,11 @@ async function setSelectedTeacher(tid, name) {
 }
 
 // ── Teacher extras (recs + now reading) ───────────────────────────────────────
+// Bumped on every call so a slower earlier render can't overwrite a newer one.
+let extrasRun = 0;
+
 async function renderTeacherExtras(tid, name) {
-  const recPlaceholder = document.getElementById("recCardPlaceholder");
-  const readPlaceholder = document.getElementById("readingCardPlaceholder");
+  const myRun = ++extrasRun;
   const tSnap = await getDoc(doc(db, "teachers", tid));
   const t = tSnap.exists() ? tSnap.data() : {};
 
@@ -932,7 +1198,7 @@ async function renderTeacherExtras(tid, name) {
     readCard.innerHTML = `
       <div class='section-label'><i class='bi bi-book-fill' aria-hidden='true'></i> ${esc(
         name,
-      )} is Reading</div>
+      )} Is Reading</div>
       <div class='book-row'>
         ${
           r.coverUrl
@@ -950,12 +1216,23 @@ async function renderTeacherExtras(tid, name) {
     readCard.innerHTML = `
       <div class='section-label'><i class='bi bi-book-fill' aria-hidden='true'></i> ${esc(
         name,
-      )} is Reading</div>
+      )} Is Reading</div>
       <p class='empty-state'>Nothing set yet.</p>`;
   }
 
-  recPlaceholder?.replaceWith(recCard);
-  readPlaceholder?.replaceWith(readCard);
+  // Two things matter here, and both used to be wrong.
+  //
+  // 1. Look the placeholders up NOW, not before the awaits above. They were
+  //    captured up front, so when two renders overlapped — the initial
+  //    auto-select and a join, or two quick chip taps — the second one held a
+  //    reference to a node the first had already replaced. replaceWith() on a
+  //    detached node does nothing at all, silently, so the newer (correct)
+  //    cards were dropped and the teacher's current read never appeared.
+  // 2. Bail if a newer render started while this one was waiting, so the
+  //    slower of two overlapping runs can't win.
+  if (myRun !== extrasRun) return;
+  document.getElementById("recCardPlaceholder")?.replaceWith(recCard);
+  document.getElementById("readingCardPlaceholder")?.replaceWith(readCard);
 }
 
 // ── Skeleton helpers ──────────────────────────────────────────────────────────
@@ -997,7 +1274,22 @@ async function loadTeacherBooks(tid) {
     }
   }
 
-  const snap = await getDocs(collection(db, "teachers", tid, "books"));
+  let snap;
+  try {
+    snap = await getDocs(collection(db, "teachers", tid, "books"));
+  } catch (err) {
+    // Unhandled, this rejected all the way back out through setSelectedTeacher
+    // into whatever triggered it — leaving the skeleton rows spinning forever
+    // with no message, which is what a freshly-joined student saw whenever the
+    // library was Class Only and their roster entry hadn't registered.
+    console.error("[student] could not read library books:", err);
+    allBooks = [];
+    bookListEl.innerHTML = `<p class='empty-state'>Couldn't load this library's books (${esc(
+      err.code ?? err.message ?? "unknown error",
+    )}). If you just joined, refresh the page — and if it keeps happening, ask your teacher to re-share their class code.</p>`;
+    return;
+  }
+
   if (snap.empty) {
     bookListEl.innerHTML = `<p class='empty-state'>No books in this library yet.</p>`;
     allBooks = [];
@@ -1026,9 +1318,10 @@ document
   ?.addEventListener("input", filterAndRenderBooks);
 
 function filterAndRenderBooks() {
-  const term = (document.getElementById("searchInput")?.value ?? "")
-    .trim()
-    .toLowerCase();
+  // `raw` keeps the student's own capitalization for the "no matches" message;
+  // `term` is the lowercased form the filter compares against.
+  const raw = (document.getElementById("searchInput")?.value ?? "").trim();
+  const term = raw.toLowerCase();
   const list = term
     ? allBooks.filter(
         (b) =>
@@ -1037,15 +1330,21 @@ function filterAndRenderBooks() {
           b.isbn?.toLowerCase().includes(term),
       )
     : allBooks;
-  renderBooks(list);
+  renderBooks(list, raw);
 }
 
 // ── Render books ──────────────────────────────────────────────────────────────
-function renderBooks(books) {
+function renderBooks(books, searchTerm = "") {
   const bookListEl = document.getElementById("bookList");
   if (!bookListEl) return;
   if (books.length === 0) {
-    bookListEl.innerHTML = `<p class='empty-state'>No books match your search.</p>`;
+    // "No books match your search" with an empty search box is nonsense — it
+    // reads as a broken library rather than an empty one. Say which it is.
+    bookListEl.innerHTML = searchTerm
+      ? `<p class='empty-state'>No books match “${esc(searchTerm)}”.</p>`
+      : selectedTeacherId
+      ? `<p class='empty-state'>This library doesn't have any books yet.</p>`
+      : `<p class='empty-state'>Pick a library above to browse books.</p>`;
     return;
   }
 
@@ -1084,28 +1383,38 @@ function renderBooks(books) {
       ? `<span class='badge badge--available'>Available</span>`
       : `<span class='badge badge--checked-out'>Checked Out</span>`;
 
-    // Determine if teacher requires approval for checkouts
+    // Which checkout mode the teacher chose (Library Settings → How students
+    // check out books). Automatic runs the checkout straight away; "Ask me
+    // first" routes it through teachers/{tid}/requests for approval.
     const teacherRequiresApproval =
       _selectedTeacherData?.requireApproval ?? false;
+
+    // Every book now carries a checkout control in SOME state. Previously a
+    // book that was unavailable, or blocked because the student already had a
+    // loan out, rendered either a bare disabled button whose only explanation
+    // was a hover tooltip, or nothing at all — which read as "this app has no
+    // way to check books out".
     let checkoutBtn = "";
     if (isActive)
       checkoutBtn = `<button class='btn btn--ghost btn--sm' data-action='return' data-id='${esc(
         book.id,
-      )}'>Return Book</button>`;
+      )}'><i class='bi bi-arrow-return-left' aria-hidden='true'></i> Return Book</button>`;
     else if (canCheckout && teacherRequiresApproval)
       checkoutBtn = `<button class='btn btn--primary btn--sm' data-action='request-checkout' data-id='${esc(
         book.id,
       )}' data-title='${esc(book.title)}' data-cover='${esc(
         book.coverUrl ?? "",
       )}'>
-                            <i class='bi bi-send-fill' aria-hidden='true'></i> Request Checkout
+                            <i class='bi bi-send-fill' aria-hidden='true'></i> Ask to Borrow
                           </button>`;
     else if (canCheckout)
       checkoutBtn = `<button class='btn btn--primary btn--sm' data-action='checkout' data-id='${esc(
         book.id,
-      )}' data-title='${esc(book.title)}'>Check Out</button>`;
-    else if (isAvail)
-      checkoutBtn = `<button class='btn btn--primary btn--sm' disabled title='Return your current book first'>Check Out</button>`;
+      )}' data-title='${esc(book.title)}'><i class='bi bi-bag-check-fill' aria-hidden='true'></i> Check Out</button>`;
+    else if (isAvail && hasBook)
+      checkoutBtn = `<button class='btn btn--sm' disabled>Return your current book first</button>`;
+    else
+      checkoutBtn = `<button class='btn btn--sm' disabled>All copies are out</button>`;
 
     const wishBtn = !isActive
       ? `<button class='btn btn--xs ${
@@ -1614,7 +1923,7 @@ function renderWishlist() {
   if (!wishlistEl) return;
   const list = studentData?.wishlist ?? [];
   if (list.length === 0) {
-    wishlistEl.innerHTML = `<p class='empty-state'>Your wishlist is empty. Search for books on the right to add them!</p>`;
+    wishlistEl.innerHTML = `<p class='empty-state'>Your wishlist is empty. Use the search panel to find books and add them.</p>`;
     return;
   }
   wishlistEl.innerHTML = "";
@@ -1666,7 +1975,27 @@ async function renderActiveLoans() {
   if (!el) return;
   const bookId = studentData.currentBook;
   if (!bookId) {
-    el.innerHTML = `<p class='empty-state'>No active loans. Check out a book from the Library!</p>`;
+    // A book they've marked returned but the teacher hasn't confirmed yet is
+    // neither an active loan nor history, so it used to disappear entirely the
+    // moment they tapped "Returned It" — no confirmation, no trace, nothing to
+    // show a teacher who says the book is still out against their name.
+    const pending = await findAwaitingReturnConfirmation();
+    el.innerHTML = pending.length
+      ? ""
+      : `<p class='empty-state'>No active loans. Check out a book from the Library!</p>`;
+    pending.forEach((e) => {
+      const card = document.createElement("div");
+      card.className = "book-row";
+      card.setAttribute("role", "listitem");
+      card.innerHTML = `
+        <div class='book-cover-ph'><i class='bi bi-hourglass-split'></i></div>
+        <div class='book-info'>
+          <div class='book-title'>${esc(e.bookTitle)}</div>
+          <div class='book-author'>Handed back — waiting for your teacher to confirm</div>
+          <span class='badge badge--pending'>Awaiting confirmation</span>
+        </div>`;
+      el.appendChild(card);
+    });
     return;
   }
 
@@ -1737,6 +2066,31 @@ async function renderActiveLoans() {
     ?.addEventListener("click", () => initiateReturn(bookId));
   grid.appendChild(card);
   el.appendChild(grid);
+}
+
+/** Open checkout rows (dateReturned still null) for books this student is no
+ *  longer holding — i.e. they pressed "Returned It" and the teacher hasn't
+ *  signed it off yet. */
+async function findAwaitingReturnConfirmation() {
+  const out = [];
+  const ids = new Set([classTeacherId, ...addedTeacherIds].filter(Boolean));
+  for (const tid of ids) {
+    try {
+      const snap = await getDocs(
+        query(
+          collection(db, "teachers", tid, "history"),
+          where("studentId", "==", currentUser.uid),
+        ),
+      );
+      snap.forEach((d) => {
+        const e = d.data();
+        if (!e.dateReturned && e.bookId !== studentData.currentBook) {
+          out.push({ ...e, teacherId: tid });
+        }
+      });
+    } catch (_) {}
+  }
+  return out;
 }
 
 async function renderReadingLog() {
@@ -2025,13 +2379,7 @@ async function addToCurrentlyReading(bookId, bookTitle, author, coverUrl) {
     ...current,
     { bookId, bookTitle, author: author ?? "", coverUrl: coverUrl ?? "" },
   ];
-  await updateDoc(doc(db, "students", currentUser.uid), {
-    currentlyReading: updated,
-  });
-  studentData.currentlyReading = updated;
-  filterAndRenderBooks();
-  if (document.getElementById("profilePage")?.classList.contains("active"))
-    renderProfileCurrentBook();
+  if (!(await saveCurrentlyReading(updated))) return;
   toast(
     `<i class='bi bi-book-fill'></i> "${esc(
       bookTitle,
@@ -2044,14 +2392,33 @@ async function removeFromCurrentlyReading(bookId) {
   const updated = (studentData.currentlyReading ?? []).filter(
     (r) => r.bookId !== bookId,
   );
-  await updateDoc(doc(db, "students", currentUser.uid), {
-    currentlyReading: updated,
-  });
-  studentData.currentlyReading = updated;
-  filterAndRenderBooks();
-  if (document.getElementById("profilePage")?.classList.contains("active"))
-    renderProfileCurrentBook();
+  if (!(await saveCurrentlyReading(updated))) return;
   toast("Removed from reading list", "info");
+}
+
+/** Persist the student's reading list and refresh everything that shows it.
+ *  Returns false (and says so) when the write failed — this used to be an
+ *  unguarded await, so a rejected write left the button looking dead: no
+ *  toast, no list change, nothing in the UI to explain it. */
+async function saveCurrentlyReading(list) {
+  try {
+    await updateDoc(doc(db, "students", currentUser.uid), {
+      currentlyReading: list,
+    });
+  } catch (err) {
+    console.error("[student] could not save reading list:", err);
+    toast(
+      `Couldn't update your reading list (${esc(err.code ?? err.message ?? "unknown error")}). Try again.`,
+      "danger",
+    );
+    return false;
+  }
+  studentData.currentlyReading = list;
+  filterAndRenderBooks();
+  // Render unconditionally: the card is cheap to rebuild, and gating on "is the
+  // Profile tab open right now" is how it ended up showing a stale list.
+  renderProfileCurrentBook();
+  return true;
 }
 
 async function renderMyRecommendations() {

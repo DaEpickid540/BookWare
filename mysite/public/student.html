@@ -99,7 +99,7 @@
           <div class="notif-list" id="notifBannerInner">
             <div class="notif-item">
               <span class="notif-dot notif-dot--dim" aria-hidden="true"></span>
-              <span class="notif-text muted-text">Loading notifications…</span>
+              <span class="notif-text muted-text loading-state">Loading notifications…</span>
             </div>
           </div>
         </div>
@@ -107,25 +107,34 @@
         <!-- Two-column grid -->
         <div class="split-grid">
 
-          <!-- Left: library selector + book list -->
+          <!-- Left: library selector + book list.
+               The card's heading describes the WHOLE card (the book list is the
+               bulk of it); the library picker gets its own small caption. The
+               heading used to read "Select a Library", which described only the
+               chip row and left the search box and book list underneath it
+               looking like they belonged to something else. -->
           <div class="panel-card">
-            <div class="section-label">Select a Library</div>
+            <div class="section-label"><i class="bi bi-collection-fill" aria-hidden="true"></i> Browse Books</div>
+            <div class="picker-label">Choose a library</div>
             <div class="chip-row" id="teacherList">
-              <span class="muted-text small-text">Loading libraries…</span>
+              <span class="muted-text small-text loading-state">Loading libraries…</span>
             </div>
             <div class="search-box">
               <i class="bi bi-search search-box-icon" aria-hidden="true"></i>
               <input type="search" id="searchInput" class="search-box-input" placeholder="Search by title, author, or ISBN…" aria-label="Search books" />
             </div>
             <div id="bookList" role="list">
-              <p class="empty-state">Select a library above to browse books.</p>
+              <p class="empty-state">Pick a library above to browse books.</p>
             </div>
           </div>
 
-          <!-- Right: teacher recommendations + now reading -->
+          <!-- Right: teacher recommendations + now reading.
+               Both headings mirror what they become once a library is selected
+               ("Recommended by Ms. Lee", "Ms. Lee Is Reading") so the card
+               doesn't appear to change subject the moment it loads. -->
           <div class="stack-col" id="teacherExtras">
             <div class="panel-card" id="recCardPlaceholder">
-              <div class="section-label"><i class="bi bi-star-fill" aria-hidden="true"></i> Recommendations</div>
+              <div class="section-label"><i class="bi bi-star-fill" aria-hidden="true"></i> Recommended by Your Teacher</div>
               <p class="empty-state">
                 Join a library using your teacher's code to see their recommendations.
                 <br><br>
@@ -135,7 +144,7 @@
               </p>
             </div>
             <div class="panel-card" id="readingCardPlaceholder">
-              <div class="section-label"><i class="bi bi-book-fill" aria-hidden="true"></i> Teacher is Reading</div>
+              <div class="section-label"><i class="bi bi-book-fill" aria-hidden="true"></i> Your Teacher Is Reading</div>
               <p class="empty-state">Join a library to see what your teacher is currently reading.</p>
             </div>
             <div class="panel-card" id="ariaRecommendsMount" hidden></div>
@@ -180,13 +189,13 @@
             <div class="section-label" style="margin-bottom:0">Rental Requests</div>
           </div>
           <div id="rentalRequestsList" role="list" style="margin-bottom:20px">
-            <p class="empty-state">Loading…</p>
+            <p class="empty-state loading-state">Loading…</p>
           </div>
         </div>
 
         <div class="section-label">Active Loans</div>
         <div id="activeLoans" role="list">
-          <p class="empty-state">Loading…</p>
+          <p class="empty-state loading-state">Loading…</p>
         </div>
 
         <div class="log-header">
@@ -196,7 +205,7 @@
           </button>
         </div>
         <div id="readingLog" role="list">
-          <p class="empty-state">Loading history…</p>
+          <p class="empty-state loading-state">Loading history…</p>
         </div>
 
       </section><!-- /lockerPage -->
@@ -208,14 +217,16 @@
         <div class="split-grid">
 
           <div class="panel-card">
-            <div class="section-label">My Wishlist</div>
+            <div class="section-label"><i class="bi bi-heart-fill" aria-hidden="true"></i> Books I Want to Read</div>
             <div id="wishlistPanel" role="list">
-              <p class="empty-state">Your wishlist is empty. Search for books on the right!</p>
+              <!-- "on the right" is wrong on any phone, where the two panels
+                   stack. Describe the panel, not where it happens to sit. -->
+              <p class="empty-state">Your wishlist is empty. Use the search panel to find books and add them.</p>
             </div>
           </div>
 
           <div class="panel-card">
-            <div class="section-label">Search Books to Wishlist</div>
+            <div class="section-label"><i class="bi bi-search" aria-hidden="true"></i> Find Books to Add</div>
             <div class="search-box">
               <i class="bi bi-search search-box-icon" aria-hidden="true"></i>
               <input type="search" id="wishlistSearchInput" class="search-box-input" placeholder="Search by title or author…" aria-label="Search books to wishlist" />
@@ -239,7 +250,7 @@
             <div class="panel-card">
               <div class="section-label"><i class="bi bi-book-fill" aria-hidden="true"></i> Currently Reading</div>
               <div id="profileCurrentBook">
-                <p class="empty-state">Loading…</p>
+                <p class="empty-state loading-state">Loading…</p>
               </div>
             </div>
             <div class="panel-card">
@@ -253,7 +264,7 @@
           <div class="panel-card">
             <div class="section-label">Reading Stats</div>
             <div class="stats-grid" id="readingStats">
-              <p class="empty-state">Loading…</p>
+              <p class="empty-state loading-state">Loading…</p>
             </div>
           </div>
 
@@ -289,7 +300,7 @@
               <i class="bi bi-chevron-right settings-caret" aria-hidden="true"></i>
             </summary>
             <div class="settings-body" id="myInfoSection">
-              <p class="empty-state">Loading…</p>
+              <p class="empty-state loading-state">Loading…</p>
             </div>
           </details>
 
@@ -315,6 +326,19 @@
               <div id="addedTeachersList"></div>
             </div>
           </details>
+
+          <!-- Getting Started -->
+          <div class="settings-section">
+            <div class="settings-section-header">
+              <div>
+                <div class="settings-section-title">Getting Started</div>
+                <div class="settings-section-sub">The intro slideshow, anytime you want it</div>
+              </div>
+              <button type="button" class="btn btn--sm" id="replayIntroBtn">
+                <i class="bi bi-play-circle" aria-hidden="true"></i> Replay intro
+              </button>
+            </div>
+          </div>
 
           <!-- Appearance -->
           <details class="settings-section">
@@ -604,7 +628,7 @@
             <div class="settings-section-header">
               <div>
                 <div class="settings-section-title">About</div>
-                <div class="settings-section-sub">BookWare v2.0 · Mason High School · Sarvin Sukhe</div>
+                <div class="settings-section-sub">BookWare v2.1 · Mason High School · Sarvin Sukhe</div>
               </div>
             </div>
           </div>

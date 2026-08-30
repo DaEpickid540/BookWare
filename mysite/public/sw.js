@@ -14,7 +14,7 @@
 // shipped while browsers kept running the PREVIOUS build's JavaScript, so every
 // deployed fix appeared to do nothing at all. Bump it when you want old entries
 // evicted outright; correctness no longer hinges on it.
-const CACHE  = 'bookware-v5';
+const CACHE  = 'bookware-v6';
 const SHELL  = [
   '/',
   '/index.html',
@@ -46,6 +46,7 @@ const SHELL  = [
   '/css/privacy.css',
   '/js/booklist.js',
   '/js/quiz.js',
+  '/js/welcome.js',
   '/js/qr.js',
   '/js/theme.js',
   '/js/teacher-access.js',

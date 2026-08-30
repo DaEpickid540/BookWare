@@ -1,9 +1,10 @@
 // teacher.js — BookWare Teacher Portal
 import { auth, db } from './firebase.js';
-import { ADMIN_EMAILS, isTeacherEmail as isEmailAllowed, shouldForceLogout } from './config.js';
+import { ADMIN_EMAILS, isTeacherEmail as isEmailAllowed, shouldForceLogout, buildJoinUrl } from './config.js';
 import { lookupISBN, searchBooks, initCoverFallback } from './books.js';
-import { initTheme, initARIA, initAriaChat, initAriaRecommends, refreshAriaChats, initSettingsModal, openSettingsModal, initStaySignedIn } from './theme.js';
+import { initTheme, initARIA, initAriaChat, initAriaRecommends, refreshAriaChats, initSettingsModal, openSettingsModal, closeSettingsModal, initStaySignedIn, setAriaAvailability } from './theme.js';
 import { runReadingQuiz } from './quiz.js';
+import { runWelcomeTour } from './welcome.js';
 import { setQrImage } from './qr.js';
 import { hidePreloader } from './preloader.js';
 import {
@@ -96,6 +97,22 @@ function showPage(name) {
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
+/** Run one start-up step in isolation.
+ *
+ *  Start-up is a long sequence of independent loads, and running them as a
+ *  single chain meant the first failure silently cancelled everything after it.
+ *  A step that fails now logs, tells the user which panel is affected, and lets
+ *  the rest of the portal carry on loading. Returns the step's value, or null. */
+async function step(label, fn) {
+  try {
+    return await fn();
+  } catch (err) {
+    console.error(`[teacher] start-up step "${label}" failed:`, err);
+    toast(`Couldn't load ${esc(label)} (${esc(err?.code ?? err?.message ?? 'unknown error')}).`, 'danger');
+    return null;
+  }
+}
+
 onAuthStateChanged(auth, async (user) => {
   if (!user) { window.location.href = '/'; return; }
   document.documentElement.style.visibility = 'visible';
@@ -103,10 +120,14 @@ onAuthStateChanged(auth, async (user) => {
   try {
     if (!isEmailAllowed(user.email)) { await signOut(auth); window.location.href = '/'; return; }
 
-    if (!ADMIN_EMAILS.includes(user.email?.toLowerCase())) {
-      try {
-        const s = await getDoc(doc(db, 'admin', 'settings'));
-        if (s.exists() && s.data().maintenanceMode === true) {
+    // admin/settings carries both the access gates and the school-wide ARIA
+    // policy. Admins are exempt from the gates but NOT from the ARIA policy, so
+    // the read itself happens for everyone and only the gating is conditional.
+    try {
+      const s        = await getDoc(doc(db, 'admin', 'settings'));
+      const settings = s.exists() ? s.data() : {};
+      if (!ADMIN_EMAILS.includes(user.email?.toLowerCase())) {
+        if (settings.maintenanceMode === true) {
           await signOut(auth);
           alert('BookWare is currently under maintenance. Please check back soon.');
           window.location.href = '/';
@@ -117,8 +138,14 @@ onAuthStateChanged(auth, async (user) => {
           window.location.href = '/';
           return;
         }
-      } catch (_) {}
-    }
+      }
+      // Unset means allowed, so a school that never touched the switch — or a
+      // read that fails below — keeps ARIA rather than losing it silently.
+      setAriaAvailability(
+        settings.ariaTeachersEnabled !== false,
+        'ARIA has been turned off for teachers by a school administrator.',
+      );
+    } catch (_) {}
 
     const userSnap = await getDoc(doc(db, 'users', user.uid));
     const userRole = userSnap.exists() ? userSnap.data().role : null;
@@ -158,11 +185,8 @@ onAuthStateChanged(auth, async (user) => {
     initStaySignedIn((stay) => setPersistence(auth, stay ? browserLocalPersistence : browserSessionPersistence));
     initSettingsModal();
     setupRetakeQuiz();
+    setupReplayIntro();
     setupSignout();
-
-    // First-time reading-preferences quiz (fire-and-forget — pops up over the
-    // already-loaded portal so it never blocks the rest of the page).
-    maybeRunOnboardingQuiz();
 
     // The splash screen was waiting on EVERYTHING — retention sweep, classes,
     // currently-reading, checked-out, history — before revealing anything,
@@ -172,37 +196,56 @@ onAuthStateChanged(auth, async (user) => {
     // badge recommended books, so that pair has to stay sequential). Every
     // other panel already has its own "Loading…" placeholder, so it can
     // finish after reveal same as it would on any other tab switch.
-    await loadRecommendations();
-    await loadLibrary();
-    initVisibilityToggle();
-    initApprovalToggle();
+    // Only the default-visible Library list needs to be ready before reveal
+    // (renderLibraryList() reads `recommendations` to badge recommended books,
+    // so that pair has to stay sequential). Everything else has its own
+    // placeholder and can finish after reveal.
+    //
+    // Each step below is isolated with step(). They used to run as one
+    // unbroken chain, so a single failure anywhere — a denied read, a missing
+    // element — abandoned every step after it. That is what left the Library
+    // tab's panels stuck on "Loading…" until a nav click round-tripped through
+    // another tab and back, which reran them: the classic "nothing loads until
+    // I visit the Students tab".
+    await step('recommendations', () => loadRecommendations());
+    await step('library',         () => loadLibrary());
+    step('visibility toggle', () => initVisibilityToggle());
+    step('checkout mode',     () => initCheckoutMode());
     hidePreloader();
 
-    // Checked-out/history now live on the Library page, which is active by
-    // default — showPage() only loads them on a nav click, which never fires
-    // for the page that's already showing. loadCheckedOut() reads `allBooks`,
-    // so it has to wait for loadLibrary() above, but not for reveal.
-    loadCheckedOut();
-    loadHistory();
-    loadCurrentlyReading();
-    checkBiweeklyNotification();
+    // First-run intro slideshow, then the reading-preferences quiz. Both run
+    // AFTER hidePreloader(): opening a modal while the full-screen splash is
+    // still up is how an intro ends up looking like it never fires at all.
+    // Fire-and-forget — they pop up over the already-loaded portal.
+    runFirstRunOnboarding();
 
-    // Retention sweep BEFORE the roster loads, so expired student data is gone
-    // rather than briefly rendered. Opportunistic — see retention.js. Neither
-    // of these blocks first paint any more; requireSchoolYearEndDates() reads
-    // allClasses, so it has to wait for loadStudentCode() in this same chain.
-    const purged = await runRetentionSweep(db, currentUser.uid);
-    await loadStudentCode();
+    // The Library page is active by default, so showPage() never fires for it
+    // and these have to be kicked off by hand. loadCheckedOut() reads
+    // `allBooks`, so it waits for loadLibrary() above, but not for reveal.
+    step('checked-out list', () => loadCheckedOut());
+    step('history',          () => loadHistory());
+    step('now reading',      () => loadCurrentlyReading());
+    step('biweekly check-in', () => checkBiweeklyNotification());
 
+    // Classes drive the Students tab AND the class-code cards. They used to sit
+    // behind the retention sweep, which walks every class and years of history
+    // — so on a big library the codes stayed on "Loading classes…" for as long
+    // as that took. The sweep is opportunistic housekeeping; it can go last.
+    await step('classes', () => loadStudentCode());
+
+    // Retention sweep. Opportunistic — see retention.js.
+    const purged = await step('retention sweep', () => runRetentionSweep(db, currentUser.uid));
     if (purged) {
       const bits = [];
       if (purged.students) bits.push(`${purged.students} student record${purged.students !== 1 ? 's' : ''} from ${purged.classes} ended class${purged.classes !== 1 ? 'es' : ''}`);
       if (purged.history)  bits.push(`${purged.history} checkout record${purged.history !== 1 ? 's' : ''} over ${Math.round(HISTORY_RETENTION_DAYS / 365)} years old`);
       toast(`<i class='bi bi-shield-check'></i> Auto-deleted ${bits.join(' and ')}.`, 'info');
+      // The sweep can delete roster entries, so the counts on screen are stale.
+      await step('roster refresh', () => loadStudentCode());
     }
 
     // Any class still missing a last day of school blocks class management.
-    await requireSchoolYearEndDates();
+    await step('school-year prompt', () => requireSchoolYearEndDates());
 
   } catch (err) {
     console.error('[teacher] Init failed:', err);
@@ -211,10 +254,55 @@ onAuthStateChanged(auth, async (user) => {
   }
 });
 
+// Bound at module scope, NOT inside the auth handler.
+//
+// Signing out needs nothing but the auth object, yet it used to be wired
+// partway down the start-up chain — so any step that threw above it (or the
+// "Teacher record not found" early return, which bails before this point)
+// left the user on a page whose Sign Out button did nothing at all. The way
+// out of the app must never depend on the app having finished loading.
+document.getElementById('signoutBar')?.addEventListener('click', () => signOut(auth));
+document.getElementById('sidebarSignoutBtn')?.addEventListener('click', () => signOut(auth));
+
 function setupSignout() {
-  document.getElementById('signoutBar')?.addEventListener('click', () => signOut(auth));
   const hint = document.getElementById('signoutEmail');
   if (hint && currentUser) hint.textContent = currentUser.email;
+}
+
+// ── First-run onboarding: intro slideshow, then the reading quiz ──────────────
+/** Runs both first-run steps in order, skipping whichever this teacher has
+ *  already seen. Deliberately not awaited by the caller. */
+async function runFirstRunOnboarding() {
+  await maybeRunWelcomeTour();
+  await maybeRunOnboardingQuiz();
+}
+
+/** The intro slideshow. Shown once per account; "seen" lives on the teacher
+ *  doc so it follows them across devices and so the admin portal's "Replay
+ *  Onboarding" button can genuinely bring it back. */
+async function maybeRunWelcomeTour() {
+  if (teacherData?.welcomeSeenAt) return;
+  await showWelcomeTour();
+}
+
+async function showWelcomeTour() {
+  await runWelcomeTour('teacher');
+  try {
+    await updateDoc(doc(db, 'teachers', currentUser.uid), { welcomeSeenAt: serverTimestamp() });
+    teacherData.welcomeSeenAt = new Date();
+  } catch (err) {
+    // Worst case the tour shows once more — not worth a visible error.
+    console.warn('[teacher] could not record welcome tour as seen:', err);
+  }
+}
+
+function setupReplayIntro() {
+  const btn = document.getElementById('replayIntroBtn');
+  btn?.addEventListener('click', () => {
+    closeSettingsModal();
+    btn.disabled = true;
+    showWelcomeTour().finally(() => { btn.disabled = false; });
+  });
 }
 
 // ── Reading-preferences quiz (first run + retake) ─────────────────────────────
@@ -457,9 +545,14 @@ async function loadClasses() {
     const legacyCode = tSnap.data()?.inviteCode ?? genCode();
     const classRef  = await addDoc(collection(db, 'teachers', currentUser.uid, 'classes'), { name: 'Period 1', inviteCode: legacyCode, createdAt: serverTimestamp() });
     const res       = await ensureClassCodeMapping(legacyCode, classRef.id, null);
+    // Only genuine legacy roster entries migrate. Docs flagged membershipOnly
+    // are the PII-free access markers written alongside a class-code join (see
+    // student.js) — copying those in would seed the new roster with nameless
+    // "Unknown" students.
     const oldRoster = await getDocs(collection(db, 'teachers', currentUser.uid, 'students'));
-    for (const s of oldRoster.docs) await setDoc(doc(db, 'teachers', currentUser.uid, 'classes', classRef.id, 'students', s.id), s.data());
-    allClasses = [{ id: classRef.id, name: 'Period 1', inviteCode: legacyCode, studentCount: oldRoster.size, codeLive: res.live, codeError: res.error }];
+    const legacyEntries = oldRoster.docs.filter(d => d.data().membershipOnly !== true);
+    for (const s of legacyEntries) await setDoc(doc(db, 'teachers', currentUser.uid, 'classes', classRef.id, 'students', s.id), s.data());
+    allClasses = [{ id: classRef.id, name: 'Period 1', inviteCode: legacyCode, studentCount: legacyEntries.length, codeLive: res.live, codeError: res.error }];
   } else {
     allClasses = await Promise.all(snap.docs.map(async d => {
       const data = d.data();
@@ -520,7 +613,22 @@ function renderClassManager() {
         <span class='code-val'>${esc(cls.inviteCode)}</span>
         <div class='code-box-btns'>
           <button class='btn btn--sm' data-action='copy-code' data-cid='${esc(cls.id)}'>Copy</button>
+          <button class='btn btn--sm' data-action='share' data-cid='${esc(cls.id)}'><i class='bi bi-qr-code'></i> Link &amp; QR</button>
           <button class='btn btn--sm' data-action='refresh-code' data-cid='${esc(cls.id)}'><i class='bi bi-arrow-clockwise'></i> New</button>
+        </div>
+      </div>
+      <!-- Same code, two easier ways to hand it out: a link students can tap
+           and a QR they can scan. Both land on "/?join=CODE", which fills the
+           code in for them (see consumePendingJoinCode in student.js). -->
+      <div class='join-share' hidden>
+        <div class='join-share-url' data-join-url></div>
+        <div class='join-share-body'>
+          <img class='join-share-qr' alt='QR code to join ${esc(cls.name)}' src='' />
+          <div class='join-share-actions'>
+            <button class='btn btn--sm' data-action='copy-link' data-cid='${esc(cls.id)}'><i class='bi bi-clipboard'></i> Copy link</button>
+            <button class='btn btn--sm' data-action='email-link' data-cid='${esc(cls.id)}'><i class='bi bi-envelope-fill'></i> Share by email</button>
+            <p class='join-share-hint'>Project the QR code, or send the link. Students who follow it sign in and join <strong>${esc(cls.name)}</strong> automatically — no typing the code.</p>
+          </div>
         </div>
       </div>
       ${cls.codeLive === false ? `
@@ -545,6 +653,35 @@ function renderClassManager() {
     card.querySelector('[data-action="delete-class"]')?.addEventListener('click', () => deleteClass(cls.id, cls.name));
     card.querySelector('[data-action="copy-code"]')?.addEventListener('click', () => {
       navigator.clipboard.writeText(cls.inviteCode).then(() => toast(`<i class='bi bi-check2'></i> Code for ${esc(cls.name)} copied`, 'success'));
+    });
+
+    // ── Join link + QR ───────────────────────────────────────────────────────
+    const joinUrl   = buildJoinUrl(cls.inviteCode);
+    const shareBox  = card.querySelector('.join-share');
+    const shareQr   = shareBox?.querySelector('.join-share-qr');
+    const shareUrlEl = shareBox?.querySelector('[data-join-url]');
+    if (shareUrlEl) shareUrlEl.textContent = joinUrl;
+    card.querySelector('[data-action="share"]')?.addEventListener('click', () => {
+      if (!shareBox) return;
+      shareBox.hidden = !shareBox.hidden;
+      // Generate the QR lazily — the library is a ~40 KB lazy import, and most
+      // page loads never open a single one of these panels.
+      if (!shareBox.hidden && shareQr && !shareQr.dataset.qrReady) setQrImage(shareQr, joinUrl, 240);
+    });
+    card.querySelector('[data-action="copy-link"]')?.addEventListener('click', () => {
+      navigator.clipboard.writeText(joinUrl)
+        .then(() => toast(`<i class='bi bi-check2'></i> Join link for ${esc(cls.name)} copied`, 'success'))
+        .catch(() => toast(`Copy failed — link: ${esc(joinUrl)}`, 'info'));
+    });
+    card.querySelector('[data-action="email-link"]')?.addEventListener('click', () => {
+      const subject = encodeURIComponent(`Join our BookWare class library — ${cls.name}`);
+      const body    = encodeURIComponent(
+        `Hi,\n\nUse this link to join our classroom library on BookWare:\n${joinUrl}\n\n` +
+        `Sign in with your school Google account and you'll be added to ${cls.name} automatically.\n\n` +
+        `If the link doesn't work, sign in at ${window.location.origin} and enter the class code ${cls.inviteCode} under Settings → Teacher Libraries.\n\n` +
+        `— ${teacherData?.name ?? 'Your teacher'}`
+      );
+      window.open(`mailto:?subject=${subject}&body=${body}`);
     });
     card.querySelector('[data-action="refresh-code"]')?.addEventListener('click', () => refreshClassCode(cls.id, cls.name));
     card.querySelector('[data-action="end-date"]')?.addEventListener('click', () => editClassEndDate(cls.id, cls.name, cls.endDate));
@@ -683,7 +820,7 @@ async function updateVisUI(isPublic) {
   if (!detail) return;
   if (!isPublic) { detail.hidden = true; return; }
   detail.hidden = false;
-  detail.innerHTML = `<span class='muted-text small-text'>Loading stats…</span>`;
+  detail.innerHTML = `<span class='muted-text small-text loading-state'>Loading stats…</span>`;
   try {
     let enrolled = 0;
     for (const cls of allClasses) {
@@ -704,19 +841,49 @@ async function updateVisUI(isPublic) {
   }
 }
 
-// ── Checkout approval toggle ──────────────────────────────────────────────────
-function initApprovalToggle() {
-  const toggle = document.getElementById('requireApprovalToggle');
-  if (!toggle) return;
-  toggle.checked = teacherData?.requireApproval ?? false;
-  toggle.addEventListener('change', async () => {
-    const on = toggle.checked;
-    await updateDoc(doc(db, 'teachers', currentUser.uid), { requireApproval: on });
-    teacherData.requireApproval = on;
-    toast(on
-      ? `<i class='bi bi-hourglass-split'></i> Checkout approval <strong>enabled</strong> — students will request, you approve`
-      : `<i class='bi bi-lightning-fill'></i> Checkout approval <strong>disabled</strong> — students check out instantly`,
-      'success');
+// ── Checkout mode ─────────────────────────────────────────────────────────────
+// Two named modes rather than one "Require Checkout Approval" switch whose off
+// state said nothing about what students could actually do. Still stored as the
+// same `requireApproval` boolean, so existing libraries keep their setting and
+// the student portal needs no migration.
+//
+//   Automatic  (requireApproval false) — the student's Check Out button runs
+//              the checkout transaction directly (requestCheckout in
+//              student.js) and writes the history row that logs the loan.
+//   Ask me first (true) — the button submits to teachers/{uid}/requests and
+//              approveRequest() below performs the checkout and the logging.
+function initCheckoutMode() {
+  const picker = document.querySelector('.mode-picker');
+  if (!picker) return;
+
+  const paint = (requireApproval) => {
+    picker.querySelectorAll('.mode-opt').forEach(btn => {
+      const isOn = (btn.dataset.mode === 'approval') === requireApproval;
+      btn.classList.toggle('mode-opt--active', isOn);
+      btn.setAttribute('aria-checked', String(isOn));
+    });
+  };
+  paint(teacherData?.requireApproval === true);
+
+  picker.querySelectorAll('.mode-opt').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const wantApproval = btn.dataset.mode === 'approval';
+      if ((teacherData?.requireApproval === true) === wantApproval) return;
+      paint(wantApproval);   // optimistic, reverted below if the write fails
+      try {
+        await updateDoc(doc(db, 'teachers', currentUser.uid), { requireApproval: wantApproval });
+        teacherData.requireApproval = wantApproval;
+      } catch (err) {
+        paint(teacherData?.requireApproval === true);
+        toast(`Couldn't change that (${esc(err.code ?? err.message ?? 'unknown error')}).`, 'danger');
+        return;
+      }
+      toast(wantApproval
+        ? `<i class='bi bi-person-check-fill'></i> Students now <strong>request</strong> books — approve them on the Students tab`
+        : `<i class='bi bi-lightning-charge-fill'></i> Students can now <strong>check out books themselves</strong>`,
+        'success');
+      if (wantApproval) loadPendingRequests();
+    });
   });
 }
 
@@ -851,13 +1018,47 @@ async function runBookSearch() {
   renderBookSearchResults(results);
 }
 
+/** Normalize a title/author for duplicate detection: case, punctuation, leading
+ *  article and spacing all vary between editions of the same book.
+ *  "The Hobbit!" and "hobbit, the" both become "hobbit". */
+function normBookKey(s) {
+  return String(s ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/^(the|a|an) +/, '')
+    .replace(/ +(the|a|an)$/, '')
+    .trim();
+}
+
+/** Find a book already in this library that is the same book as `book`.
+ *
+ *  Matching on ISBN or Google's sourceId ALONE (which is what this did) is far
+ *  too strict: every printing and edition carries its own ISBN, and a repeat
+ *  search can hand back a different Google volume id for the same title. The
+ *  result was that adding more copies of a book you already own silently
+ *  created a second entry for it, splitting the copy count across two rows.
+ *
+ *  Title + author is the identity a teacher actually means, so it is the final
+ *  fallback — ISBN and sourceId still win when present, since they are exact. */
+function findExistingBook(book, books = allBooks) {
+  if (!book) return null;
+  const byIsbn = book.isbn && books.find(b => b.isbn && b.isbn === book.isbn);
+  if (byIsbn) return byIsbn;
+  const bySource = book.sourceId && books.find(b => b.sourceId && b.sourceId === book.sourceId);
+  if (bySource) return bySource;
+  const t = normBookKey(book.title);
+  if (!t) return null;
+  const a = normBookKey(book.author);
+  return books.find(b => normBookKey(b.title) === t && normBookKey(b.author) === a) ?? null;
+}
+
 function renderBookSearchResults(results) {
   const resultEl = document.getElementById('isbnResult');
   resultEl.innerHTML = '';
   const grid = document.createElement('div');
   grid.className = 'book-search-grid';
   results.forEach((book, i) => {
-    const existing      = allBooks.find(b => (book.isbn && b.isbn === book.isbn) || (book.sourceId && b.sourceId === book.sourceId));
+    const existing      = findExistingBook(book);
     const existingCopies = existing?.copies ?? 0;
     const card = document.createElement('div');
     card.className = 'book-search-card';
@@ -893,10 +1094,15 @@ function renderBookSearchResults(results) {
 async function addCopiesToLibrary(idx, qty = 1, existingDocId = null) {
   const book = bookSearchResults[idx];
   if (!book || !currentUser?.uid) return;
+  // Re-check against the CURRENT library rather than trusting the id captured
+  // when these results were rendered. The search panel can sit on screen while
+  // the library changes underneath it (another add, a delete, a second tab),
+  // and a stale "no match" there is exactly what created a duplicate entry.
+  const existing = (existingDocId && allBooks.find(b => b.id === existingDocId)) || findExistingBook(book);
+  existingDocId = existing?.id ?? null;
   try {
     if (existingDocId) {
-      const existingBook    = allBooks.find(b => b.id === existingDocId);
-      const currentCopies   = existingBook?.copies ?? 1;
+      const currentCopies = existing?.copies ?? 1;
       await updateDoc(doc(db, 'teachers', currentUser.uid, 'books', existingDocId), { copies: currentCopies + qty });
     } else {
       await addDoc(collection(db, 'teachers', currentUser.uid, 'books'), {
@@ -956,6 +1162,78 @@ async function removeSingleCopy(bookId, bookTitle) {
   toast(`<i class='bi bi-check2'></i> "${esc(bookTitle)}" — now ${next} cop${next !== 1 ? 'ies' : 'y'}`, 'success');
 }
 
+// ── Duplicate cleanup ─────────────────────────────────────────────────────────
+/** Books already in the library that are the same title+author as another.
+ *  Returns one array per duplicated book, each with 2+ entries. */
+function findDuplicateGroups(books = allBooks) {
+  const groups = new Map();
+  for (const b of books) {
+    const t = normBookKey(b.title);
+    if (!t) continue;
+    const key = `${t}|${normBookKey(b.author)}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(b);
+  }
+  return [...groups.values()].filter(g => g.length > 1);
+}
+
+/** Fold duplicate entries into one, summing their copy counts.
+ *
+ *  Only offered because the old add path could create them; the fix above stops
+ *  new ones appearing. A group where TWO entries have copies checked out is
+ *  skipped rather than merged: each entry carries its own borrower and its own
+ *  history rows keyed by document id, so collapsing both would strand one
+ *  student's loan. */
+async function mergeDuplicateBooks() {
+  const groups = findDuplicateGroups();
+  if (!groups.length) { toast('No duplicate books found.', 'info'); return; }
+
+  const extra = groups.reduce((n, g) => n + g.length - 1, 0);
+  if (!confirm(
+    `${groups.length} book${groups.length !== 1 ? 's are' : ' is'} listed more than once.\n\n` +
+    `Merge them into one entry each? Copy counts are added together, so nothing is lost — ` +
+    `${extra} duplicate entr${extra !== 1 ? 'ies' : 'y'} will be removed.`
+  )) return;
+
+  let merged = 0, skipped = 0;
+  for (const group of groups) {
+    const withLoans = group.filter(b => (b.checkedOutCount ?? 0) > 0);
+    if (withLoans.length > 1) { skipped++; continue; }
+
+    // Keep the entry that has the active loan; otherwise the one with the most
+    // copies, so the surviving row is the one the teacher recognises.
+    const keeper = withLoans[0] ?? [...group].sort((a, b) => (b.copies ?? 1) - (a.copies ?? 1))[0];
+    const others = group.filter(b => b.id !== keeper.id);
+    const copies = group.reduce((n, b) => n + (b.copies ?? 1), 0);
+    const out    = keeper.checkedOutCount ?? 0;
+    try {
+      await updateDoc(doc(db, 'teachers', currentUser.uid, 'books', keeper.id), {
+        copies,
+        status:   out >= copies ? 'checked_out' : 'available',
+        // Fill in anything the keeper happens to be missing from its twins.
+        coverUrl: keeper.coverUrl || others.find(b => b.coverUrl)?.coverUrl || '',
+        isbn:     keeper.isbn     || others.find(b => b.isbn)?.isbn         || '',
+      });
+      for (const o of others) await deleteDoc(doc(db, 'teachers', currentUser.uid, 'books', o.id));
+      merged += others.length;
+    } catch (err) {
+      console.error('[teacher] merge failed for', keeper.title, err);
+      skipped++;
+    }
+  }
+
+  await loadLibrary();
+  loadCheckedOut();
+  toast(
+    skipped
+      ? `<i class='bi bi-check2'></i> Merged ${merged} duplicate entr${merged !== 1 ? 'ies' : 'y'}. ${skipped} skipped — those have copies checked out on more than one entry.`
+      : `<i class='bi bi-check2'></i> Merged ${merged} duplicate entr${merged !== 1 ? 'ies' : 'y'}.`,
+    merged ? 'success' : 'info',
+  );
+}
+
+document.getElementById('mergeDuplicatesBtn')?.addEventListener('click', () => mergeDuplicateBooks());
+
 // ── Skeleton helpers ──────────────────────────────────────────────────────────
 function renderSkeletonRows(container, count = 5) {
   container.innerHTML = Array.from({ length: count }, () => `
@@ -978,6 +1256,13 @@ async function loadLibrary() {
   const snap = await getDocs(collection(db, 'teachers', currentUser.uid, 'books'));
   allBooks   = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   if (countEl) countEl.textContent = `${allBooks.length} book${allBooks.length !== 1 ? 's' : ''}`;
+  // Offer the cleanup only when there is actually something to clean up.
+  const mergeBtn = document.getElementById('mergeDuplicatesBtn');
+  if (mergeBtn) {
+    const dupes = findDuplicateGroups();
+    mergeBtn.hidden = dupes.length === 0;
+    mergeBtn.innerHTML = `<i class="bi bi-union" aria-hidden="true"></i> Merge ${dupes.length} duplicate${dupes.length !== 1 ? 's' : ''}`;
+  }
   renderLibraryList(allBooks);
   renderReadingPicker();
   renderRecPicker();
@@ -1065,8 +1350,31 @@ async function validateReturn(bookId, bookTitle) {
   const copies = bData.copies ?? 1;
   await updateDoc(bookRef, { checkedOutCount: newCount, status: newCount >= copies ? 'checked_out' : 'available', checkedOutBy: newCount === 0 ? null : bData.checkedOutBy, checkedOutAt: newCount === 0 ? null : bData.checkedOutAt, dueDate: newCount === 0 ? null : bData.dueDate });
 
-  // Close the history log entry → shows "returned"
-  if (histDoc) await updateDoc(histDoc.ref, { dateReturned: serverTimestamp() });
+  // Close the history log entry → shows "returned".
+  if (histDoc) {
+    await updateDoc(histDoc.ref, { dateReturned: serverTimestamp() });
+  } else {
+    // No open row to close. That happens when the checkout predates the history
+    // log, or when the student's own history write failed at checkout time (it
+    // is a separate write from the transaction, and it can be denied on its
+    // own). Log the return anyway rather than letting the loan vanish with no
+    // record of it ever coming back.
+    try {
+      await addDoc(collection(db, 'teachers', currentUser.uid, 'history'), {
+        bookId,
+        bookTitle,
+        author:       bData.author ?? '',
+        studentId,
+        studentName:  studentId ? (await getDoc(doc(db, 'students', studentId))).data()?.name ?? '' : '',
+        dateOut:      bData.checkedOutAt ?? null,
+        dateReturned: serverTimestamp(),
+        reconstructed: true,
+      });
+    } catch (e) {
+      console.warn('[teacher] could not log this return:', e?.code ?? e);
+      toast('Return recorded, but it could not be written to the checkout history.', 'danger');
+    }
+  }
 
   // Clear the student's current book so they stop showing a phantom/missing book.
   // Guarded so a newer checkout by the same student isn't wiped.
@@ -1089,7 +1397,7 @@ async function validateReturn(bookId, bookTitle) {
 async function loadCheckedOut() {
   const el = document.getElementById('checkedOutList');
   if (!el) return;
-  el.innerHTML = `<p class='empty-state'>Loading…</p>`;
+  el.innerHTML = `<p class='empty-state loading-state'>Loading…</p>`;
   // Include multi-copy books with only some copies out (status stays 'available'
   // until every copy is gone, so filtering on status alone hid partial checkouts).
   const checkedOut = allBooks.filter(b => (b.checkedOutCount ?? 0) > 0 || b.status === 'checked_out');
@@ -1098,17 +1406,33 @@ async function loadCheckedOut() {
   // Look up every borrower's name concurrently — a sequential await per book
   // here meant a teacher with a dozen books out waited a dozen round trips
   // just to see who has what.
-  const names = await Promise.all(checkedOut.map(async book => {
-    if (!book.checkedOutBy) return 'Unknown';
+  // Also read whether the borrower still has this book as their current loan.
+  // A student's "Returned It" clears `currentBook` on their own record but
+  // deliberately leaves the copy count alone — the teacher is the single
+  // authority for the return (see validateReturn). Without surfacing that
+  // difference here, a handed-back book sat in this list looking identical to
+  // one still in a backpack, and the history row stayed open indefinitely,
+  // which is why returns never appeared as returned.
+  const borrowers = await Promise.all(checkedOut.map(async book => {
+    if (!book.checkedOutBy) return { name: 'Unknown', saysReturned: false };
     try {
       const s = await getDoc(doc(db, 'students', book.checkedOutBy));
-      return s.exists() ? (s.data().name ?? 'Unknown') : 'Unknown';
-    } catch (_) { return 'Unknown'; }
+      if (!s.exists()) return { name: 'Unknown', saysReturned: false };
+      return {
+        name: s.data().name ?? 'Unknown',
+        saysReturned: s.data().currentBook !== book.id,
+      };
+    } catch (_) { return { name: 'Unknown', saysReturned: false }; }
   }));
 
   el.innerHTML = '';
-  checkedOut.forEach((book, i) => {
-    const studentName = names[i];
+  // Books the student says they've handed back come first — those are the ones
+  // waiting on the teacher to do something.
+  const order = checkedOut
+    .map((book, i) => ({ book, ...borrowers[i] }))
+    .sort((a, b) => Number(b.saysReturned) - Number(a.saysReturned));
+
+  order.forEach(({ book, name: studentName, saysReturned }) => {
     const dueDate  = book.dueDate?.toDate?.() ?? null;
     const isOverdue = dueDate && dueDate < new Date();
     const row = document.createElement('div');
@@ -1121,8 +1445,11 @@ async function loadCheckedOut() {
         <div class='book-author'>${esc(book.author ?? '')}</div>
         <div style='display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px'>
           <span class='t-badge t-badge--checked-out'>${esc(studentName)} · Since ${fmtDate(book.checkedOutAt)}${isOverdue ? ` <strong style='color:var(--danger)'><i class='bi bi-exclamation-triangle-fill'></i> OVERDUE</strong>` : dueDate ? ` · Due ${fmtDate(book.dueDate)}` : ''}</span>
+          ${saysReturned ? `<span class='return-flag'><i class='bi bi-arrow-return-left' aria-hidden='true'></i> ${esc(studentName)} says they handed it back</span>` : ''}
         </div>
-        <button class='btn btn--xs success' data-action='return' data-id='${esc(book.id)}' data-title='${esc(book.title)}'><i class='bi bi-arrow-return-left'></i> Mark Returned</button>
+        <button class='btn btn--xs ${saysReturned ? 'btn--primary' : 'success'}' data-action='return' data-id='${esc(book.id)}' data-title='${esc(book.title)}'>
+          <i class='bi bi-arrow-return-left'></i> ${saysReturned ? 'Confirm Return' : 'Mark Returned'}
+        </button>
       </div>`;
     row.querySelector('[data-action="return"]')?.addEventListener('click', e => validateReturn(e.currentTarget.dataset.id, e.currentTarget.dataset.title));
     el.appendChild(row);
@@ -1134,7 +1461,7 @@ function loadHistory() {
   const el = document.getElementById('historyList');
   if (!el) return;
   if (historyUnsubscribe) { historyUnsubscribe(); historyUnsubscribe = null; }
-  el.innerHTML = `<p class='empty-state'>Loading…</p>`;
+  el.innerHTML = `<p class='empty-state loading-state'>Loading…</p>`;
   historyUnsubscribe = onSnapshot(collection(db, 'teachers', currentUser.uid, 'history'), snap => {
     if (snap.empty) { el.innerHTML = `<p class='empty-state'>No history yet.</p>`; return; }
     const entries = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0));
@@ -1335,7 +1662,7 @@ async function loadRoster() {
   const listEl  = document.getElementById('rosterList');
   const countEl = document.getElementById('rosterCount');
   if (!listEl || !currentUser) return;
-  listEl.innerHTML = `<p class='empty-state'>Loading roster…</p>`;
+  listEl.innerHTML = `<p class='empty-state loading-state'>Loading roster…</p>`;
   try {
     if (allClasses.length === 0) await loadClasses();
     let totalStudents = 0;
@@ -1358,12 +1685,18 @@ async function loadRoster() {
       }
 
       let students = [];
+      let rosterRead = false;
       try {
         const snap = await getDocs(collection(db, 'teachers', currentUser.uid, 'classes', cls.id, 'students'));
         students = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
+        rosterRead = true;
       } catch (err) {
         console.warn('[teacher] roster read denied for class', cls.id, err);
       }
+      // The counts on the class cards are captured once at portal load, so a
+      // student joining while the teacher has the page open never showed up
+      // there. This read is the live truth — reuse it.
+      if (rosterRead) cls.studentCount = students.length;
       totalStudents  += students.length;
       const header = document.createElement('div');
       header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;padding-bottom:6px;border-bottom:1px solid var(--border)';
@@ -1394,6 +1727,8 @@ async function loadRoster() {
     }
     if (countEl) countEl.textContent = `${totalStudents} student${totalStudents !== 1 ? 's' : ''} total`;
     if (totalStudents === 0 && allClasses.length === 0) listEl.innerHTML = `<p class='empty-state'>No classes yet. Add one above.</p>`;
+    // Push the freshly-counted numbers back onto the class cards above.
+    renderClassManager();
   } catch (err) {
     console.error('[teacher] loadRoster failed:', err);
     listEl.innerHTML = `<p class='empty-state' style='color:var(--danger)'>Failed to load roster: ${esc(err.message ?? '')}</p>`;
@@ -1412,6 +1747,10 @@ async function removeStudent(sid, name, classId) {
     }
     if (!stillIn) {
       try { await updateDoc(doc(db, 'students', sid), { addedTeachers: arrayRemove(currentUser.uid) }); } catch (_) {}
+      // The flat-roster membership marker is what firestore.rules actually
+      // checks to serve a Class Only library. Leaving it behind meant a removed
+      // student kept full read + checkout access to the books indefinitely.
+      try { await deleteDoc(doc(db, 'teachers', currentUser.uid, 'students', sid)); } catch (_) {}
     }
     toast(`Removed ${esc(name)} from class`, 'success');
     loadRoster();
@@ -1596,9 +1935,30 @@ document.getElementById('recSearchInput')?.addEventListener('input', () => {
 });
 
 // ── Now Reading ───────────────────────────────────────────────────────────────
-async function loadCurrentlyReading() {
-  const snap = await getDoc(doc(db, 'teachers', currentUser.uid));
-  currentUser._reading = snap.exists() ? snap.data().currentlyReading ?? null : null;
+// The current read lives on `teacherData.currentlyReading` — the same object
+// the portal already loaded at sign-in — rather than on an ad-hoc `_reading`
+// property bolted onto the Firebase Auth user.
+//
+// That old arrangement had a real race: `_reading` was populated by a SECOND,
+// fire-and-forget fetch of the teacher document kicked off at the very end of
+// init, while `showPage('reading')` renders from it the instant the teacher
+// clicks "Now Reading". Click fast enough — or have the fetch fail — and the
+// page rendered "Nothing set yet." over a book that was, in fact, set, and
+// stayed that way until a reload. Reading from teacherData removes both the
+// second fetch and the window.
+const currentReading = () => teacherData?.currentlyReading ?? null;
+
+/** Persist the current read (or null to clear) and refresh every view of it. */
+async function saveCurrentlyReading(reading) {
+  await updateDoc(doc(db, 'teachers', currentUser.uid), { currentlyReading: reading });
+  teacherData.currentlyReading = reading;
+  renderReadingDisplay();
+  renderReadingPreview();
+  renderRecReadingDisplay();
+  renderReadingPicker();   // so the picker marks the book that is now current
+}
+
+function loadCurrentlyReading() {
   renderReadingDisplay();
   renderReadingPreview();
   renderRecReadingDisplay();
@@ -1612,14 +1972,21 @@ function renderReadingPicker() {
     ? readingSearchResults
     : allBooks.map(b => ({ isLibrary: true, bookId: b.id, title: b.title, author: b.author, cover: b.coverUrl ?? '', isbn: b.isbn ?? '' }));
   if (toShow.length === 0) { listEl.innerHTML = `<p class='empty-state'>No books in your library yet. Search for one above.</p>`; return; }
+  const current = currentReading();
   toShow.forEach((book, i) => {
+    // Mark whichever entry is already the current read, so the picker reflects
+    // the state instead of offering "Set as Reading" on the book that is set.
+    const bookKey   = normBookKey(book.title);
+    const isCurrent = !!current && !!bookKey && normBookKey(current.title) === bookKey;
     const row = document.createElement('div');
     row.className = 'book-row';
     row.innerHTML = `
       ${book.cover ? `<img src='${esc(book.cover)}' class='book-cover' alt='' loading='lazy'>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
       <div class='book-info' style='display:flex;align-items:center;gap:8px'>
         <div style='flex:1;min-width:0'><div class='book-title'>${esc(book.title)}</div><div class='book-author'>${esc(book.author ?? '')}</div></div>
-        <button class='btn btn--xs success' data-idx='${i}' data-is-library='${book.isLibrary ? '1' : '0'}'><i class='bi bi-book-fill'></i> Set as Reading</button>
+        <button class='btn btn--xs ${isCurrent ? 'starred' : 'success'}' data-idx='${i}' data-is-library='${book.isLibrary ? '1' : '0'}' ${isCurrent ? 'disabled' : ''}>
+          <i class='bi bi-book-fill'></i> ${isCurrent ? 'Currently Reading' : 'Set as Reading'}
+        </button>
       </div>`;
     row.querySelector('button')?.addEventListener('click', e => setReading(parseInt(e.currentTarget.dataset.idx), e.currentTarget.dataset.isLibrary === '1'));
     listEl.appendChild(row);
@@ -1645,19 +2012,25 @@ async function setReading(idx, isLibrary) {
     : allBooks.map(b => ({ isLibrary: true, bookId: b.id, title: b.title, author: b.author, cover: b.coverUrl ?? '' }));
   const book = toShow[idx];
   if (!book) return;
-  const reading = { title: book.title, author: book.author ?? '', coverUrl: book.cover ?? '' };
+  const reading = { title: book.title ?? '', author: book.author ?? '', coverUrl: book.cover ?? '' };
   if (isLibrary && book.bookId) reading.bookId = book.bookId;
-  await updateDoc(doc(db, 'teachers', currentUser.uid), { currentlyReading: reading });
-  currentUser._reading = reading;
-  renderReadingDisplay(); renderReadingPreview(); renderRecReadingDisplay();
+  try {
+    await saveCurrentlyReading(reading);
+  } catch (err) {
+    console.error('[teacher] could not save currently reading:', err);
+    toast(`Couldn't set that as your current read (${esc(err.code ?? err.message ?? 'unknown error')}).`, 'danger');
+    return;
+  }
   toast(`<i class='bi bi-book-fill'></i> Now reading: "${esc(book.title)}"`, 'success');
 }
 
 function renderReadingDisplay() {
   const el = document.getElementById('currentlyReadingDisplay');
   if (!el) return;
-  const r = currentUser._reading;
-  if (!r) { el.innerHTML = ''; return; }
+  const r = currentReading();
+  // Was a blank area under the Clear button, which read as a failed render
+  // rather than as "you haven't picked anything".
+  if (!r) { el.innerHTML = `<p class='empty-state' style='margin-top:10px'>No current read set — pick one from the list above.</p>`; return; }
   el.innerHTML = `
     <div class='book-row' style='margin-top:10px'>
       ${r.coverUrl ? `<img src='${esc(r.coverUrl)}' class='book-cover' style='border-color:var(--accent)' alt=''>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
@@ -1668,7 +2041,7 @@ function renderReadingDisplay() {
 function renderReadingPreview() {
   const el = document.getElementById('readingPreview');
   if (!el) return;
-  const r = currentUser._reading;
+  const r = currentReading();
   if (!r) { el.innerHTML = `<p class='empty-state'>Nothing set yet.</p>`; return; }
   el.innerHTML = `
     <p class='muted-text small-text' style='margin-bottom:10px'>Students see this on the Library page:</p>
@@ -1679,9 +2052,14 @@ function renderReadingPreview() {
 }
 
 async function clearCurrentlyReading() {
-  await updateDoc(doc(db, 'teachers', currentUser.uid), { currentlyReading: null });
-  currentUser._reading = null;
-  renderReadingDisplay(); renderReadingPreview(); renderRecReadingDisplay();
+  if (!currentReading()) { toast('Nothing set to clear.', 'info'); return; }
+  try {
+    await saveCurrentlyReading(null);
+  } catch (err) {
+    console.error('[teacher] could not clear currently reading:', err);
+    toast(`Couldn't clear that (${esc(err.code ?? err.message ?? 'unknown error')}).`, 'danger');
+    return;
+  }
   toast('Currently reading cleared.', 'info');
 }
 
@@ -1690,7 +2068,7 @@ document.getElementById('clearCurrentlyReadingBtn')?.addEventListener('click', c
 function renderRecReadingDisplay() {
   const el = document.getElementById('recReadingDisplay');
   if (!el) return;
-  const r = currentUser._reading;
+  const r = currentReading();
   if (!r) { el.innerHTML = `<p class='empty-state'>Nothing set yet.</p>`; return; }
   el.innerHTML = `
     <div class='book-row'>
@@ -1723,10 +2101,14 @@ async function runRecReadingSearch() {
       </div>`;
     row.querySelector('button')?.addEventListener('click', async (e) => {
       const b = results[parseInt(e.currentTarget.dataset.idx)];
-      const reading = { title: b.title, author: b.author ?? '', coverUrl: b.cover ?? '' };
-      await updateDoc(doc(db, 'teachers', currentUser.uid), { currentlyReading: reading });
-      currentUser._reading = reading;
-      renderReadingDisplay(); renderReadingPreview(); renderRecReadingDisplay();
+      const reading = { title: b.title ?? '', author: b.author ?? '', coverUrl: b.cover ?? '' };
+      try {
+        await saveCurrentlyReading(reading);
+      } catch (err) {
+        console.error('[teacher] could not save currently reading:', err);
+        toast(`Couldn't set that as your current read (${esc(err.code ?? err.message ?? 'unknown error')}).`, 'danger');
+        return;
+      }
       toast(`<i class='bi bi-book-fill'></i> Now reading: "${esc(b.title)}"`, 'success');
       listEl.innerHTML = '';
     });
@@ -1810,7 +2192,7 @@ document.getElementById('emailInviteBtn')?.addEventListener('click', () => {
 async function loadPastInvites() {
   const el = document.getElementById('pastInvitesList');
   if (!el) return;
-  el.innerHTML = `<p class='empty-state'>Loading…</p>`;
+  el.innerHTML = `<p class='empty-state loading-state'>Loading…</p>`;
   try {
     const snap = await getDocs(query(collection(db, 'invites'), where('createdBy', '==', currentUser.uid)));
     if (snap.empty) { el.innerHTML = `<p class='empty-state'>No invites sent yet.</p>`; return; }

@@ -125,6 +125,21 @@ export async function purgeEndedClassRosters(db, teacherUid) {
   let classes = 0, students = 0;
   try {
     const snap = await getDocs(collection(db, 'teachers', teacherUid, 'classes'));
+
+    // Students still enrolled in a class that HASN'T ended. Their flat-roster
+    // membership marker must survive the purge below — that marker is what
+    // firestore.rules checks to serve a Class Only library, so dropping it for
+    // a student who is also in this teacher's second period would lock them out
+    // of a class they are still in.
+    const stillEnrolled = new Set();
+    for (const c of snap.docs) {
+      if (isClassExpired(c.data().endDate)) continue;
+      try {
+        const live = await getDocs(collection(db, 'teachers', teacherUid, 'classes', c.id, 'students'));
+        live.docs.forEach(s => stillEnrolled.add(s.id));
+      } catch (_) {}
+    }
+
     for (const c of snap.docs) {
       const data = c.data();
       if (data.rosterPurgedAt) continue;          // already done
@@ -138,6 +153,13 @@ export async function purgeEndedClassRosters(db, teacherUid) {
           await deleteDoc(doc(db, 'teachers', teacherUid, 'classes', c.id, 'students', s.id));
           students++;
         } catch (_) {}
+        // Revoke library access too. Deleting only the roster entry left the
+        // student's flat membership marker behind, so the year would end, their
+        // name would be erased, and they'd still be able to read and check out
+        // this teacher's books forever.
+        if (!stillEnrolled.has(s.id)) {
+          try { await deleteDoc(doc(db, 'teachers', teacherUid, 'students', s.id)); } catch (_) {}
+        }
       }
       try {
         await updateDoc(doc(db, 'teachers', teacherUid, 'classes', c.id), {

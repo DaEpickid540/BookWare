@@ -1539,7 +1539,9 @@ html[data-theme="light"] .book-row:hover { background: rgba(0,0,0,0.015); }
 /* Book search result grid */
 .book-search-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  /* 200px could not fit a 44px cover plus the stepper AND the Add button on one
+     line, so the controls spilled out past the card's right edge. */
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
   gap: 10px;
   margin-top: 10px;
 }
@@ -1552,6 +1554,8 @@ html[data-theme="light"] .book-row:hover { background: rgba(0,0,0,0.015); }
   display: flex;
   gap: 10px;
   transition: border-color var(--tr);
+  /* Belt and braces: nothing inside may paint outside the card. */
+  overflow: hidden;
 }
 .book-search-card:hover { border-color: var(--accent); }
 
@@ -1578,16 +1582,30 @@ html[data-theme="light"] .book-row:hover { background: rgba(0,0,0,0.015); }
 }
 
 .book-search-info { flex: 1; min-width: 0; }
-.book-search-title  { font-size: 0.76rem; font-weight: 500; color: var(--text); margin-bottom: 2px; }
-.book-search-author { font-size: 0.67rem; color: var(--text-3); margin-bottom: 2px; }
-.book-search-isbn   { font-size: 0.63rem; color: var(--text-3); }
+/* Long titles and author lists have no spaces to break on often enough — let
+   them wrap anywhere rather than pushing the card wider than its column. */
+.book-search-title  { font-size: 0.76rem; font-weight: 500; color: var(--text); margin-bottom: 2px; overflow-wrap: anywhere; }
+.book-search-author { font-size: 0.67rem; color: var(--text-3); margin-bottom: 2px; overflow-wrap: anywhere; }
+.book-search-isbn   { font-size: 0.63rem; color: var(--text-3); overflow-wrap: anywhere; }
 
-/* Copy stepper */
+/* Copy stepper.
+   The row is −, count, +, and "Add to Library" — around 200px of controls in a
+   column that could be narrower than that. Without wrapping, the Add button
+   simply overflowed the card. It now drops onto its own line when it has to. */
 .copy-stepper {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
+}
+.copy-stepper .stepper-dec,
+.copy-stepper .stepper-inc { flex: 0 0 auto; }
+/* Grows into any spare room, wraps to a full-width line when there isn't any. */
+.copy-stepper .stepper-add {
+  flex: 1 1 108px;
+  justify-content: center;
+  white-space: nowrap;
 }
 .stepper-val { font-size: 0.82rem; font-weight: 600; min-width: 18px; text-align: center; color: var(--text); }
 
@@ -2480,4 +2498,319 @@ button, .btn, .nav-item, a, label, summary, input, select, textarea {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ── First-run intro slideshow (welcome.js) ──────────────────────────────── */
+.welcome-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3100; /* above the quiz — the tour runs first */
+  background: rgba(0, 0, 0, 0.66);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: quizFadeIn 0.18s ease;
+}
+.welcome-overlay--closing { animation: quizFadeOut 0.16s ease forwards; }
+
+.welcome-card {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  max-height: 88dvh;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 34px 28px 20px;
+  animation: settingsPop 0.2s ease;
+}
+.welcome-skip {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  font-size: 0.72rem;
+  color: var(--text-3);
+  padding: 6px 10px;
+  border-radius: var(--r-full);
+  border: 1px solid transparent;
+  transition: color var(--tr), border-color var(--tr);
+}
+.welcome-skip:hover { color: var(--accent); border-color: var(--border); }
+
+.welcome-slide { text-align: center; }
+.welcome-icon {
+  width: 62px;
+  height: 62px;
+  margin: 4px auto 18px;
+  border-radius: var(--r-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+}
+.welcome-title {
+  font-family: var(--font-serif);
+  font-size: 1.34rem;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 8px;
+  line-height: 1.3;
+}
+.welcome-body {
+  font-size: 0.84rem;
+  color: var(--text-2);
+  line-height: 1.6;
+  margin: 0 auto;
+  max-width: 36ch;
+}
+.welcome-body strong { color: var(--text); font-weight: 600; }
+
+.welcome-footer {
+  margin-top: 26px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.welcome-dots {
+  display: flex;
+  justify-content: center;
+  gap: 7px;
+  margin-bottom: 14px;
+}
+.welcome-dot {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  border-radius: 999px;
+  background: var(--border);
+  transition: background var(--tr), width var(--tr);
+}
+.welcome-dot--active { background: var(--accent); width: 20px; border-radius: var(--r-full); }
+.welcome-dot--done   { background: var(--accent-border); }
+
+.welcome-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.welcome-back:disabled { opacity: 0.35; cursor: default; }
+
+@media (max-width: 640px) {
+  .welcome-card { padding: 30px 18px 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .welcome-overlay { backdrop-filter: none; background: rgba(0, 0, 0, 0.75); }
+}
+
+/* ── Class join link + QR (teacher: Students → Classes & Access Codes) ────── */
+.join-share {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--bg-inset);
+}
+.join-share-url {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.68rem;
+  color: var(--text-2);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 7px 9px;
+  word-break: break-all;
+  margin-bottom: 9px;
+}
+.join-share-body {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.join-share-qr {
+  width: 132px;
+  height: 132px;
+  background: #fff;
+  padding: 6px;
+  border-radius: var(--r-sm);
+  flex-shrink: 0;
+}
+.join-share-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 150px;
+  flex: 1;
+}
+.join-share-hint {
+  font-size: 0.68rem;
+  color: var(--text-3);
+  line-height: 1.5;
+}
+
+/* ── Library picker caption (student: Browse Books card) ─────────────────── */
+.picker-label {
+  font-size: 0.66rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  margin-bottom: 7px;
+}
+
+/* ── Admin-disabled ARIA notice ──────────────────────────────────────────── */
+.aria-blocked-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--text-3);
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 9px 11px;
+  margin-top: 10px;
+}
+.aria-blocked-note i { color: var(--warning, var(--accent)); margin-top: 1px; }
+
+/* ── LOADING STATE ───────────────────────────────────────────────────────────
+   A bare "Loading…" is indistinguishable from a panel that has given up. The
+   spinner is a ::before on the same element, so a placeholder only needs the
+   extra class — no wrapper markup at any of the ~40 call sites.
+   inline-flex (not flex) so this also works inside a table cell. */
+.loading-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+.loading-state::before {
+  content: '';
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  animation: bwSpin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes bwSpin { to { transform: rotate(360deg); } }
+
+/* The global prefers-reduced-motion block below neutralises the animation to
+   0.01ms, which would freeze the ring mid-turn. Show a static ring instead. */
+@media (prefers-reduced-motion: reduce) {
+  .loading-state::before { border-top-color: var(--border); }
+}
+
+/* ── COLLAPSED SIDEBAR ───────────────────────────────────────────────────────
+   `justify-content: center` centres the whole flex line — and the line still
+   contained the 11px gap plus a zero-width label, so the icon was pushed hard
+   against the left edge with all the slack piling up on the right. Take the
+   label out of layout entirely and drop the gap, so what gets centred is the
+   icon and nothing else. */
+.sidebar.collapsed .nav-item { gap: 0; }
+.sidebar.collapsed .nav-label { display: none; }
+
+/* Same problem in the header: 14px of padding either side of a 56px rail left
+   28px for a logo dot plus a 32px toggle, so the toggle overflowed the right
+   edge and got clipped. Collapsed, the toggle is the only thing worth keeping. */
+.sidebar.collapsed .sidebar-header {
+  padding: 0;
+  justify-content: center;
+  gap: 0;
+}
+.sidebar.collapsed .sidebar-logo { display: none; }
+
+/* ── TEACHER "YOUR BOOKS" PANEL ──────────────────────────────────────────────
+   The panel is the main working surface of the Library tab but was sized by
+   its content, so it sat as a stub next to the taller stack of cards beside
+   it. Give it a real minimum height and let the list scroll inside it. */
+.books-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 460px;
+  /* Capped so the list becomes a scroll region of its own rather than running
+     the whole page down past a much shorter left column. */
+  max-height: calc(100dvh - var(--topbar-h) - 74px);
+}
+/* The header and search box keep their natural height; only the list absorbs
+   the extra space. Without this they shrink as flex items once the list fills. */
+.books-panel > .panel-card-header,
+.books-panel > .search-box { flex-shrink: 0; }
+.books-panel .books-list {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 220px;
+  /* Room for the scrollbar so rows don't sit under it. */
+  padding-right: 2px;
+}
+
+/* Stacked layout: the panel is full width with the whole page scrolling, so an
+   inner scroll area would be a second scrollbar for no reason. */
+@media (max-width: 900px) {
+  .books-panel { min-height: 320px; max-height: none; }
+  .books-panel .books-list { overflow-y: visible; min-height: 0; }
+}
+
+/* ── CHECKOUT MODE PICKER (teacher → Library Settings) ───────────────────────
+   Two named, mutually exclusive modes. A plain on/off switch labelled "Require
+   Checkout Approval" never said what the OFF state let students do. */
+.mode-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+.mode-opt {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  text-align: left;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--bg-inset);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: border-color var(--tr), background var(--tr), color var(--tr);
+}
+.mode-opt:hover { border-color: var(--accent); color: var(--text); }
+.mode-opt--active {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--text);
+}
+.mode-opt-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.79rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.mode-opt-head i { color: var(--text-3); font-size: 0.9rem; }
+.mode-opt--active .mode-opt-head i { color: var(--accent); }
+.mode-opt-sub { font-size: 0.68rem; line-height: 1.5; color: var(--text-3); }
+
+/* ── "Student says returned" flag (teacher → Currently Checked Out) ────────── */
+.return-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--warning, #f39c12);
+  background: rgba(243, 156, 18, 0.12);
+  border: 1px solid rgba(243, 156, 18, 0.35);
+  border-radius: var(--r-full);
+  padding: 2px 8px;
 }

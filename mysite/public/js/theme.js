@@ -186,10 +186,15 @@ export function initTheme() {
 // ─── Settings modal ───────────────────────────────────────────────────────────
 export function openSettingsModal() {
   const overlay = document.getElementById('settingsPage');
-  if (overlay) {
-    overlay.hidden = false;
-    overlay.querySelector('.settings-modal-box')?.scrollTo?.(0, 0);
-  }
+  if (!overlay) return;
+  // Self-initialise. initSettingsModal() is called from each portal's start-up
+  // chain, and anything that throws earlier in that chain used to take the
+  // close button down with it — leaving Settings openable but not closable.
+  // Wiring it here too means the way OUT of the modal can never depend on
+  // whether some unrelated step further up succeeded.
+  initSettingsModal();
+  overlay.hidden = false;
+  overlay.querySelector('.settings-modal-box')?.scrollTo?.(0, 0);
 }
 
 export function closeSettingsModal() {
@@ -200,10 +205,20 @@ export function closeSettingsModal() {
 export function initSettingsModal() {
   const overlay = document.getElementById('settingsPage');
   if (!overlay) return;
+  if (overlay.dataset.settingsWired === '1') return;  // idempotent
+  overlay.dataset.settingsWired = '1';
+
   const close = () => { overlay.hidden = true; };
-  // Click on the backdrop (outside the box) closes it
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-  overlay.querySelector('.settings-modal-close')?.addEventListener('click', close);
+
+  // One delegated listener handles both exits. Delegation (rather than binding
+  // the button itself) means the close button keeps working even if the header
+  // is ever re-rendered, and `closest` catches clicks that land on the <i>
+  // glyph inside the button.
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) { close(); return; }          // backdrop
+    if (e.target.closest('.settings-modal-close')) close();  // × button
+  });
+
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !overlay.hidden) close();
   });
@@ -234,6 +249,38 @@ export function initStaySignedIn(onChangeFn) {
 // same keys Settings uses, instead of re-declaring their own copies that
 // could silently drift out of sync.
 export const ARIA_ENABLED_KEY  = 'bw-aria-enabled';
+
+// ── School-wide ARIA kill switch ──────────────────────────────────────────────
+// ARIA can be switched off for students and for teachers INDEPENDENTLY from the
+// admin portal (admin/settings → ariaStudentsEnabled / ariaTeachersEnabled).
+// The per-user toggle in Settings is a preference; this is a policy, so it wins:
+// when a role is blocked, the chat and Recommends panels never mount and the
+// Settings toggle is locked off with an explanation. The user's own on/off
+// choice is left untouched in localStorage, so lifting the block restores it.
+//
+// Defaults to allowed — a failed or slow admin/settings read must never be the
+// reason ARIA silently disappears.
+let ariaAllowed = true;
+let ariaBlockedReason = '';
+
+/** Called by each portal once it knows the admin policy for that role. */
+export function setAriaAvailability(allowed, reason = '') {
+  ariaAllowed = allowed !== false;
+  ariaBlockedReason = ariaAllowed ? '' : (reason || 'ARIA has been turned off for your role by a school administrator.');
+  refreshAriaChats();
+  refreshAriaSettingsPanel();
+}
+
+export const isAriaAllowed = () => ariaAllowed;
+
+/** The single question every ARIA surface asks: should I render at all? */
+function ariaIsOn() {
+  return ariaAllowed && localStorage.getItem(ARIA_ENABLED_KEY) === 'true';
+}
+
+// Set by initARIA so setAriaAvailability can re-lock the Settings toggle if the
+// policy arrives after the panel has already been wired.
+let refreshAriaSettingsPanel = () => {};
 // Web search is multi-provider too — pick whichever backend you have a key for.
 export const ARIA_SEARCH_PROVIDER_KEY  = 'bw-aria-search-provider';
 export const ARIA_SEARCH_PROVIDER_KEYS = {
@@ -623,7 +670,7 @@ export function initAriaChat(mountId, role = 'student', getProfile = null) {
   }
 
   function render() {
-    const enabled  = localStorage.getItem(ARIA_ENABLED_KEY) === 'true';
+    const enabled  = ariaIsOn();
     const key      = getAriaKey();
     const provider = getAriaProvider();
     const hasSearchKey = hasSearchKeyConfigured();
@@ -775,7 +822,7 @@ export function initAriaRecommends(mountId, role = 'student', getProfile = null)
   let inFlight = false;
 
   async function render() {
-    const enabled  = localStorage.getItem(ARIA_ENABLED_KEY) === 'true';
+    const enabled  = ariaIsOn();
     const key      = getAriaKey();
     const provider = getAriaProvider();
     if (!enabled || !key) { mount.innerHTML = ''; mount.hidden = true; lastSig = null; return; }
@@ -938,6 +985,11 @@ export function initARIA(toastFn) {
   refreshProviderStatus();
   updateAriaGate();
 
+  // The admin policy is fetched asynchronously and can land after this panel is
+  // already wired, so let setAriaAvailability() re-run the gate rather than
+  // leaving a stale unlocked toggle on screen.
+  refreshAriaSettingsPanel = updateAriaGate;
+
   function updateProviderRowVisibility(chosen) {
     ARIA_PROVIDER_CHOICES.forEach(provider => {
       const row = document.querySelector(`.aria-key-row[data-provider="${provider}"]`);
@@ -970,21 +1022,49 @@ export function initARIA(toastFn) {
   // not-allowed cursor, un-clickable) rather than letting someone flip it on
   // to a half-working state. Turning ARIA OFF is never blocked.
   function updateAriaGate() {
-    const ready = !!getAriaProvider() && hasSearchKeyConfigured();
+    // An admin block outranks everything below it: no amount of key-pasting
+    // unlocks the toggle while ARIA is switched off for this role.
+    const blocked = !isAriaAllowed();
+    const ready   = !blocked && !!getAriaProvider() && hasSearchKeyConfigured();
     toggle.disabled = !ready;
     toggle.closest('.toggle')?.classList.toggle('toggle--disabled', !ready);
+    if (blocked) toggle.checked = false;
     if (gateHint) {
-      gateHint.textContent = ready
+      gateHint.textContent = blocked
+        ? 'Turned off for your school by an administrator.'
+        : ready
         ? 'Adds an AI chat button and book recommendations to your library.'
         : 'Locked — add an AI key AND a Web Search key below to unlock ARIA.';
     }
-    if (!ready && toggle.checked) {
+    renderBlockedNote(blocked);
+    // Hide the whole key-setup block while blocked — nothing in it can take
+    // effect, so offering it would just be a dead end.
+    panel.hidden = blocked;
+    if (!ready && localStorage.getItem(ARIA_ENABLED_KEY) === 'true' && !blocked) {
       // A required key was removed after ARIA was already on — turn it back
       // off automatically rather than leaving it running half-configured.
       toggle.checked = false;
       localStorage.setItem(ARIA_ENABLED_KEY, 'false');
       refreshAriaChats();
     }
+  }
+
+  /** The "your administrator turned this off" line under the toggle. Created on
+   *  demand so the static markup in every portal doesn't need to carry it. */
+  function renderBlockedNote(blocked) {
+    // student/teacher portals use .settings-body; the admin portal's panels use
+    // .settings-panel-body. Match either so this can never silently no-op.
+    const body = toggle.closest('.settings-body, .settings-panel-body');
+    let note = body?.querySelector('.aria-blocked-note');
+    if (!blocked) { note?.remove(); return; }
+    if (!body) return;
+    if (!note) {
+      note = document.createElement('div');
+      note.className = 'aria-blocked-note';
+      note.setAttribute('role', 'status');
+      body.appendChild(note);
+    }
+    note.innerHTML = `<i class="bi bi-shield-lock-fill" aria-hidden="true"></i><span>${escHtml(ariaBlockedReason)}</span>`;
   }
 
   function updateSearchKeyUI(provider) {

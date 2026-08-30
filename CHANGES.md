@@ -1,6 +1,71 @@
 # BookWare — Change Log
 
-_Autonomous rebuild session. Updated after each phase._
+---
+
+## Release history
+
+### v2.1 — 2026-08-29
+
+**Joining a class**
+- Class codes can now be shared as a link or a QR code as well as read aloud.
+  Each class card gets **Link & QR**; following the link signs a student in and
+  joins them automatically, with no code to type.
+- Fixed: a student who joined with a class code was denied every book read,
+  checkout and rental request in any library that was not Public. The join
+  wrote only the per-class roster, while the security rules grant library
+  access off the flat roster. Joins now write a PII-free membership marker
+  there too, and existing students are repaired automatically on next sign-in.
+- Fixed: joining a teacher's second class silently did nothing if you were
+  already in their first.
+- Fixed: removing a library left the old row on screen until reload.
+- Removing a student, or the school year ending, now actually revokes their
+  access to that library's books.
+
+**Checking books in and out**
+- The teacher's checkout setting is now two named modes — **Automatic**
+  (students borrow directly, every loan logged) and **Ask me first** (requests
+  route to the Students tab for approval) — instead of one switch whose off
+  state explained nothing.
+- Every book now shows a checkout control in some state, with the reason when
+  it is unavailable, rather than a bare disabled button or nothing at all.
+- Returns: when a student marks a book handed back, the teacher's Currently
+  Checked Out list flags it and sorts it to the top, and the student sees it as
+  awaiting confirmation instead of it vanishing. A return with no open history
+  row is now logged rather than lost.
+
+**ARIA**
+- Admins can switch ARIA off for students and for teachers independently
+  (System Settings → ARIA AI Availability). Saved keys and preferences are left
+  untouched, so switching a role back on restores what they had.
+
+**Onboarding**
+- Added the first-run intro slideshow, which the admin portal's "Replay
+  Onboarding" button had been promising since it was written but which did not
+  exist. Replayable any time from Settings → Getting Started.
+- Both first-run steps now run after the splash screen clears; the reading quiz
+  had been opening behind it.
+
+**Interface**
+- Renamed the Library page cards that described only part of their contents
+  ("Select a Library" over a card that was mostly a book list).
+- Loading placeholders show a spinner instead of bare "Loading…" text.
+- Fixed: collapsed sidebar icons sat flush against the left edge, and the
+  collapse toggle overflowed the rail.
+- Fixed: buttons in the Add a Book search results spilled outside their cards.
+- The teacher's Your Books panel is taller and scrolls internally.
+- Fixed: adding more copies of a book already on the shelf created a second
+  entry instead of incrementing the first, because matching required an exact
+  ISBN or Google volume id. Existing duplicates can be folded together with
+  **Merge duplicates**.
+- Sign Out and the Settings close button no longer depend on the rest of
+  start-up having succeeded, and the teacher portal has Sign Out in the sidebar
+  rather than only inside Settings.
+- Fixed: one failing start-up step abandoned every step after it, leaving the
+  Library tab's panels stuck on "Loading…" until a nav round-trip reran them.
+
+---
+
+_Below: the original autonomous rebuild session log, updated after each phase._
 
 ---
 

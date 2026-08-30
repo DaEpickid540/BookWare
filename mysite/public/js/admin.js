@@ -203,6 +203,52 @@ async function loadSystemSettings() {
   if (toggle) toggle.checked = systemSettings.maintenanceMode ?? false;
   const stat = document.getElementById('statMaintenance');
   if (stat) stat.textContent = systemSettings.maintenanceMode ? 'ON' : 'OFF';
+  renderAriaAvailability();
+}
+
+// ── ARIA availability (students and teachers, independently) ──────────────────
+// Stored on admin/settings, which every portal already reads at load. Unset
+// means ON: a school that has never opened this panel keeps ARIA, and so does
+// one whose settings read fails.
+const ARIA_ROLE_FIELDS = {
+  student: { field: 'ariaStudentsEnabled', toggle: 'ariaStudentsToggle', hint: 'ariaStudentsHint', label: 'Students' },
+  teacher: { field: 'ariaTeachersEnabled', toggle: 'ariaTeachersToggle', hint: 'ariaTeachersHint', label: 'Teachers' },
+};
+
+function renderAriaAvailability() {
+  for (const cfg of Object.values(ARIA_ROLE_FIELDS)) {
+    const on     = systemSettings[cfg.field] !== false;
+    const toggle = document.getElementById(cfg.toggle);
+    const hint   = document.getElementById(cfg.hint);
+    if (toggle) toggle.checked = on;
+    if (hint) {
+      hint.textContent = on
+        ? `On — ${cfg.label.toLowerCase()} can turn ARIA on for themselves`
+        : `Off — hidden and locked for all ${cfg.label.toLowerCase()}`;
+      hint.style.color = on ? 'var(--success)' : 'var(--danger)';
+    }
+  }
+}
+
+async function setAriaRoleEnabled(role, enabled) {
+  const cfg = ARIA_ROLE_FIELDS[role];
+  if (!cfg) return;
+  try {
+    await setDoc(doc(db, 'admin', 'settings'), { [cfg.field]: enabled }, { merge: true });
+    systemSettings[cfg.field] = enabled;
+    renderAriaAvailability();
+    toast(
+      enabled
+        ? `<i class='bi bi-robot'></i> ARIA re-enabled for ${esc(cfg.label.toLowerCase())}`
+        : `ARIA turned off for ${esc(cfg.label.toLowerCase())} — takes effect on their next page load`,
+      enabled ? 'success' : 'info',
+    );
+  } catch (err) {
+    // Put the switch back where it was rather than showing a state we failed
+    // to save.
+    renderAriaAvailability();
+    toast(`Couldn't save that: ${esc(err.message ?? 'unknown error')}`, 'danger');
+  }
 }
 
 async function setMaintenanceMode(enabled) {
@@ -257,7 +303,7 @@ async function loadRecentActivity() {
 async function loadAllUsers() {
   const container = document.getElementById('usersTableContainer');
   if (!container) return;
-  container.innerHTML = `<p class='empty-state'>Loading users…</p>`;
+  container.innerHTML = `<p class='empty-state loading-state'>Loading users…</p>`;
   const snap = await getDocs(collection(db, 'users'));
   allUsers   = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
   renderUsersTable(allUsers);
@@ -288,7 +334,7 @@ function renderUsersTable(users) {
             ? `<button class='btn btn--danger btn--sm' data-action='ban'    data-uid='${esc(u.uid)}'>Ban</button>`
             : `<button class='btn btn--success btn--sm' data-action='unban' data-uid='${esc(u.uid)}'>Unban</button>`}
           ${u.role === 'student' || u.role === 'teacher'
-            ? `<button class='btn btn--ghost btn--sm' data-action='reset-onboarding' data-uid='${esc(u.uid)}' data-role='${esc(u.role)}' title='Replay the welcome tour and reading quiz next time they sign in'>Replay Onboarding</button>`
+            ? `<button class='btn btn--ghost btn--sm' data-action='reset-onboarding' data-uid='${esc(u.uid)}' data-role='${esc(u.role)}' title='Replay the intro slideshow and reading quiz next time they sign in'>Replay Onboarding</button>`
             : ''}
           <button class='btn btn--danger btn--sm' data-action='delete' data-uid='${esc(u.uid)}' style='opacity:0.7'>Delete</button>
         </td>
@@ -308,22 +354,25 @@ function renderUsersTable(users) {
   });
 }
 
-// Clears a user's saved reading profile so the app treats them as brand-new
-// again on their next sign-in: the onboarding reading quiz auto-triggers
-// exactly like it does for a first-time account (see maybeRunOnboardingQuiz()
-// in student.js / teacher.js).
+// Clears the two first-run markers so the app treats this user as brand-new
+// again on their next sign-in: the intro slideshow and then the reading quiz
+// both auto-trigger exactly as they do for a first-time account (see
+// runFirstRunOnboarding() in student.js / teacher.js).
+//
+// This button's tooltip has always promised to replay "the welcome tour and
+// reading quiz"; until welcomeSeenAt existed it could only ever reset the quiz.
 async function resetUserOnboarding(uid, role) {
   const u = allUsers.find(x => x.uid === uid);
   const label = u?.name || u?.email || uid;
   const ok = await appConfirm(
-    `Replay the first-time reading quiz for "${label}"? They'll be prompted to take it again next time they sign in, just like a brand-new account.`,
+    `Replay the intro slideshow and reading quiz for "${label}"? They'll see both again next time they sign in, just like a brand-new account.`,
     'Replay', false
   );
   if (!ok) return;
   try {
     const collectionName = role === 'teacher' ? 'teachers' : 'students';
-    await updateDoc(doc(db, collectionName, uid), { readingProfile: null });
-    toast(`<i class="bi bi-stars"></i> ${esc(label)} will be prompted with the reading quiz again next sign-in.`, 'success');
+    await updateDoc(doc(db, collectionName, uid), { readingProfile: null, welcomeSeenAt: null });
+    toast(`<i class="bi bi-stars"></i> ${esc(label)} will see the intro and reading quiz again next sign-in.`, 'success');
   } catch (err) {
     toast(`Failed to reset onboarding: ${esc(err.message ?? 'unknown error')}`, 'danger');
   }
@@ -381,7 +430,7 @@ async function deleteUserRecord(uid) {
 async function loadAllLibraries() {
   const container = document.getElementById('librariesContainer');
   if (!container) return;
-  container.innerHTML = `<p class='empty-state'>Loading libraries…</p>`;
+  container.innerHTML = `<p class='empty-state loading-state'>Loading libraries…</p>`;
   const snap = await getDocs(collection(db, 'teachers'));
   allLibraries = await Promise.all(snap.docs.map(async d => {
     const t = d.data();
@@ -450,7 +499,7 @@ async function showLibraryDetail(tid, name) {
       <button class='btn btn--ghost btn--sm' id='backToLibraries'><i class='bi bi-arrow-left'></i> All Libraries</button>
       <h2 style='font-family:var(--font-serif);font-size:1.1rem;font-weight:400'>${esc(name)}'s Library</h2>
     </div>
-    <p class='empty-state'>Loading books…</p>`;
+    <p class='empty-state loading-state'>Loading books…</p>`;
   document.getElementById('backToLibraries')?.addEventListener('click', () => renderLibrariesTable(allLibraries));
 
   const snap = await getDocs(collection(db, 'teachers', tid, 'books'));
@@ -489,7 +538,7 @@ function filterLibraries() {
 async function loadAllRentals() {
   const container = document.getElementById('rentalsTableContainer');
   if (!container) return;
-  container.innerHTML = `<p class='empty-state'>Loading rentals…</p>`;
+  container.innerHTML = `<p class='empty-state loading-state'>Loading rentals…</p>`;
 
   // Fetch all teachers, then all history from each
   const teachersSnap = await getDocs(collection(db, 'teachers'));
@@ -584,7 +633,7 @@ function exportRentalsCSV() {
 async function loadBans() {
   const el = document.getElementById('bansList');
   if (!el) return;
-  el.innerHTML = `<p class='empty-state'>Loading bans…</p>`;
+  el.innerHTML = `<p class='empty-state loading-state'>Loading bans…</p>`;
   const snap = await getDocs(query(collection(db, 'users'), where('banned', '==', true)));
   if (snap.empty) { el.innerHTML = `<p class='empty-state'>No active bans.</p>`; allBans = []; return; }
   allBans = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
@@ -732,7 +781,7 @@ function watchPendingRequests() {
 async function loadAccessRequests() {
   const el = document.getElementById('adminRequestsList');
   if (!el) return;
-  el.innerHTML = '<p class="empty-state">Loading…</p>';
+  el.innerHTML = '<p class="empty-state loading-state">Loading…</p>';
   try {
     const snap = await getDocs(query(
       collection(db, 'accessRequests'),
@@ -859,7 +908,7 @@ let _adminLastInviteEmail = '';
 async function loadAdminInvites() {
   const el = document.getElementById('adminInvitesList');
   if (!el) return;
-  el.innerHTML = `<p class='empty-state'>Loading…</p>`;
+  el.innerHTML = `<p class='empty-state loading-state'>Loading…</p>`;
   try {
     const snap = await getDocs(query(collection(db, 'invites'), orderBy('createdAt', 'desc'), limit(200)));
     allInvites = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -1096,6 +1145,8 @@ function setupEventListeners() {
     toast('<i class="bi bi-envelope-fill"></i> Opening email client…', 'info');
   });
   document.getElementById('maintenanceModeToggle')?.addEventListener('change', e => setMaintenanceMode(e.target.checked));
+  document.getElementById('ariaStudentsToggle')?.addEventListener('change', e => setAriaRoleEnabled('student', e.target.checked));
+  document.getElementById('ariaTeachersToggle')?.addEventListener('change', e => setAriaRoleEnabled('teacher', e.target.checked));
 
   // Ban modal
   const overlay   = document.getElementById('banModalOverlay');
@@ -1147,7 +1198,7 @@ function setupEventListeners() {
 async function loadSettingsRequests() {
   const el = document.getElementById('settingsRequestsList');
   if (!el) return;
-  el.innerHTML = '<p class="empty-state">Loading…</p>';
+  el.innerHTML = '<p class="empty-state loading-state">Loading…</p>';
   try {
     const snap = await getDocs(query(
       collection(db, 'accessRequests'),

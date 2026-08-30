@@ -73,6 +73,17 @@
       <h1 class="portal-heading">Welcome back.</h1>
       <p class="portal-subheading">Sign in to your portal below.</p>
 
+      <!-- Shown when someone arrives from a teacher's class QR code or share
+           link. The code is held until they finish signing in — see
+           login-notice.js and consumePendingJoinCode() in student.js. -->
+      <div class="join-notice" id="joinNotice" hidden role="status">
+        <i class="bi bi-qr-code join-notice-icon" aria-hidden="true"></i>
+        <div>
+          <div class="join-notice-title">Class code <span id="joinNoticeCode">—</span> is ready</div>
+          <div class="join-notice-sub">Sign in with <strong>Student</strong> below and we'll add your teacher's library automatically.</div>
+        </div>
+      </div>
+
       <div class="portal-card-grid" role="list">
 
         <!-- Student card -->
@@ -147,7 +158,9 @@
     </footer>
   </div>
 
-  <script defer src="/js/login-notice.js"></script>
+  <!-- Module, not `defer`: it shares the join-link constants with config.js.
+       Modules are deferred by default, so #loginError still exists when it runs. -->
+  <script type="module" src="/js/login-notice.js"></script>
 
   <script type="module" src="/js/auth.js"></script>
   <script defer src="/js/sw-register.js"></script>

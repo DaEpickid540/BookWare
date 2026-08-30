@@ -522,3 +522,52 @@ button, a, input, select, textarea { touch-action: manipulation; }
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── CLASS JOIN NOTICE (arrived via a teacher's QR code / share link) ───────── */
+.join-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  max-width: 560px;
+  margin: -18px auto 30px;
+  padding: 14px 16px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r);
+  background: rgba(231, 76, 60, 0.08);
+  animation: headingFade 0.4s 0.12s ease both;
+}
+.join-notice[hidden] { display: none; }
+.join-notice-icon {
+  color: var(--accent);
+  font-size: 1.25rem;
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+.join-notice-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+.join-notice-title span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+.join-notice-sub {
+  font-size: 0.79rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.join-notice-sub strong { color: var(--text); font-weight: 600; }
+
+/* The card the join link actually wants you to press. */
+.portal-card--suggested {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+@media (max-width: 640px) {
+  .join-notice { margin: -10px auto 22px; }
+}

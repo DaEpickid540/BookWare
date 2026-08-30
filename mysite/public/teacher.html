@@ -71,6 +71,12 @@
         <span class="nav-icon" aria-hidden="true"><i class="bi bi-gear-fill"></i></span>
         <span class="nav-label">Settings</span>
       </button>
+      <!-- Sign Out used to live only inside the Settings modal, which is a poor
+           place for the one control you need when something else is broken. -->
+      <button class="nav-item" id="sidebarSignoutBtn" aria-label="Sign out">
+        <span class="nav-icon" aria-hidden="true"><i class="bi bi-box-arrow-right"></i></span>
+        <span class="nav-label">Sign Out</span>
+      </button>
     </div>
   </aside>
 
@@ -124,16 +130,28 @@
                 </label>
               </div>
               <div id="visibilityDetail" hidden></div>
-              <!-- Checkout approval -->
-              <div class="settings-row" style="border-top:1px solid var(--border);padding-top:10px">
-                <div>
-                  <div class="settings-label">Require Checkout Approval</div>
-                  <div class="settings-hint">Students submit requests; you approve or deny before checkout</div>
+              <!-- Checkout mode. Was a single "Require Checkout Approval"
+                   switch, which never made clear what the OFF state actually
+                   did. Two named modes say it outright. -->
+              <div class="settings-row settings-row--col" style="border-top:1px solid var(--border);padding-top:12px">
+                <div class="settings-label">How students check out books</div>
+                <div class="settings-hint" style="margin-bottom:9px">Applies to every class that uses this library.</div>
+                <div class="mode-picker" role="radiogroup" aria-label="Checkout mode">
+                  <button type="button" class="mode-opt" data-mode="auto" role="radio" aria-checked="false">
+                    <span class="mode-opt-head">
+                      <i class="bi bi-lightning-charge-fill" aria-hidden="true"></i>
+                      <span class="mode-opt-title">Automatic</span>
+                    </span>
+                    <span class="mode-opt-sub">Students borrow whatever is on the shelf themselves. Every loan and return is logged for you.</span>
+                  </button>
+                  <button type="button" class="mode-opt" data-mode="approval" role="radio" aria-checked="false">
+                    <span class="mode-opt-head">
+                      <i class="bi bi-person-check-fill" aria-hidden="true"></i>
+                      <span class="mode-opt-title">Ask me first</span>
+                    </span>
+                    <span class="mode-opt-sub">Requests land on your Students tab. Nothing leaves the shelf until you approve it.</span>
+                  </button>
                 </div>
-                <label class="toggle" aria-label="Require checkout approval">
-                  <input type="checkbox" id="requireApprovalToggle" />
-                  <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
-                </label>
               </div>
               <p class="muted-text small-text" style="margin-top:10px">
                 <strong>Class Only</strong> — students must join via your class code.<br>
@@ -145,18 +163,26 @@
 
           </div>
 
-          <!-- Right: your books list -->
-          <div class="panel-card">
+          <!-- Right: your books list. This is the main working surface of the
+               tab, so it gets a real minimum height (.books-panel) and scrolls
+               internally instead of collapsing to the height of its rows. -->
+          <div class="panel-card books-panel">
             <div class="panel-card-header">
               <div class="section-label" style="margin-bottom:0">Your Books</div>
-              <span class="count-badge" id="libraryCountChip">—</span>
+              <div style="display:flex;align-items:center;gap:8px">
+                <button class="btn btn--xs" id="mergeDuplicatesBtn" hidden
+                        title="Combine books listed more than once into a single entry">
+                  <i class="bi bi-union" aria-hidden="true"></i> Merge duplicates
+                </button>
+                <span class="count-badge" id="libraryCountChip">—</span>
+              </div>
             </div>
             <div class="search-box">
               <i class="bi bi-search search-box-icon" aria-hidden="true"></i>
               <input type="search" id="librarySearchInput" class="search-box-input" placeholder="Search title, author, or ISBN…" aria-label="Search your library" />
             </div>
-            <div id="libraryList" role="list">
-              <p class="empty-state">Loading…</p>
+            <div id="libraryList" class="books-list" role="list">
+              <p class="empty-state loading-state">Loading…</p>
             </div>
           </div>
 
@@ -166,13 +192,13 @@
           <div class="panel-card">
             <div class="section-label">Currently Checked Out</div>
             <div id="checkedOutList" role="list">
-              <p class="empty-state">Loading…</p>
+              <p class="empty-state loading-state">Loading…</p>
             </div>
           </div>
           <div class="panel-card">
             <div class="section-label">Checkout History</div>
             <div id="historyList" role="list">
-              <p class="empty-state">Loading…</p>
+              <p class="empty-state loading-state">Loading…</p>
             </div>
           </div>
         </div>
@@ -214,9 +240,9 @@
         <!-- Classes & access codes -->
         <div class="panel-card">
           <div class="section-label">Classes &amp; Access Codes</div>
-          <p class="muted-text small-text" style="margin-bottom:12px">Each class gets its own code. All classes share the same book library. Students enter their class code to join and access your books.</p>
+          <p class="muted-text small-text" style="margin-bottom:12px">Each class gets its own code. All classes share the same book library. Students can type the code, follow the <strong>Link &amp; QR</strong> share link, or scan the QR code — all three join the same class.</p>
           <div id="classManagerContainer">
-            <p class="empty-state">Loading classes…</p>
+            <p class="empty-state loading-state">Loading classes…</p>
           </div>
         </div>
 
@@ -230,7 +256,7 @@
           </div>
           <p class="muted-text small-text" style="margin-bottom:12px">Students who joined your class with your code. Use the button to remove a student — they can rejoin later if they still have the code.</p>
           <div id="rosterList" role="list">
-            <p class="empty-state">Loading…</p>
+            <p class="empty-state loading-state">Loading…</p>
           </div>
         </div>
 
@@ -304,9 +330,9 @@
 
           <div class="panel-card">
             <div class="section-label">Your Picks</div>
-            <p class="muted-text small-text" style="margin-bottom:12px">Shows as "Teacher Recommends" on the student Library page.</p>
+            <p class="muted-text small-text" style="margin-bottom:12px">Shows as "Recommended by you" on the student Library page.</p>
             <div id="recommendationsList" role="list">
-              <p class="empty-state">Loading…</p>
+              <p class="empty-state loading-state">Loading…</p>
             </div>
           </div>
 
@@ -318,7 +344,7 @@
               <input type="search" id="recSearchInput" class="search-box-input" placeholder="Search to star…" aria-label="Search for book to recommend" />
             </div>
             <div id="recPickerList" role="list">
-              <p class="empty-state">Loading…</p>
+              <p class="empty-state loading-state">Loading…</p>
             </div>
           </div>
 
@@ -364,7 +390,7 @@
           <div class="panel-card">
             <div class="section-label">Past Invites</div>
             <div id="pastInvitesList" role="list">
-              <p class="empty-state">Loading…</p>
+              <p class="empty-state loading-state">Loading…</p>
             </div>
           </div>
 
@@ -392,9 +418,22 @@
               <i class="bi bi-chevron-right settings-caret" aria-hidden="true"></i>
             </summary>
             <div class="settings-body" id="accountInfoSection">
-              <p class="empty-state">Loading…</p>
+              <p class="empty-state loading-state">Loading…</p>
             </div>
           </details>
+
+          <!-- Getting Started -->
+          <div class="settings-section">
+            <div class="settings-section-header">
+              <div>
+                <div class="settings-section-title">Getting Started</div>
+                <div class="settings-section-sub">The intro slideshow, anytime you want it</div>
+              </div>
+              <button type="button" class="btn btn--sm" id="replayIntroBtn">
+                <i class="bi bi-play-circle" aria-hidden="true"></i> Replay intro
+              </button>
+            </div>
+          </div>
 
           <!-- Permissions -->
           <details class="settings-section">
@@ -694,7 +733,7 @@
             <div class="settings-section-header">
               <div>
                 <div class="settings-section-title">About</div>
-                <div class="settings-section-sub">BookWare v2.0 · Mason High School · Sarvin Sukhe</div>
+                <div class="settings-section-sub">BookWare v2.1 · Mason High School · Sarvin Sukhe</div>
               </div>
             </div>
           </div>

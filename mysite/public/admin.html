@@ -134,7 +134,7 @@
           <div class="panel-card">
             <div class="panel-title">Recent Activity</div>
             <div id="activityFeed">
-              <p class="empty-state">Loading activity…</p>
+              <p class="empty-state loading-state">Loading activity…</p>
             </div>
           </div>
         </div>
@@ -199,7 +199,7 @@
         </div>
 
         <div id="usersTableContainer">
-          <p class="empty-state">Loading users…</p>
+          <p class="empty-state loading-state">Loading users…</p>
         </div>
       </section>
 
@@ -226,7 +226,7 @@
         </div>
 
         <div id="librariesContainer">
-          <p class="empty-state">Loading libraries…</p>
+          <p class="empty-state loading-state">Loading libraries…</p>
         </div>
       </section>
 
@@ -271,7 +271,7 @@
         </div>
 
         <div id="rentalsTableContainer">
-          <p class="empty-state">Loading rentals…</p>
+          <p class="empty-state loading-state">Loading rentals…</p>
         </div>
       </section>
 
@@ -288,7 +288,7 @@
         <div class="panel-card">
           <div class="panel-title">Active Bans</div>
           <div id="bansList" role="list">
-            <p class="empty-state">Loading bans…</p>
+            <p class="empty-state loading-state">Loading bans…</p>
           </div>
         </div>
       </section>
@@ -349,7 +349,7 @@
         <div class="panel-card">
           <div class="panel-title"><i class="bi bi-clock-history" aria-hidden="true"></i> All Invites</div>
           <div id="adminInvitesList" role="list">
-            <p class="empty-state">Loading…</p>
+            <p class="empty-state loading-state">Loading…</p>
           </div>
         </div>
       </section>
@@ -389,7 +389,47 @@
                   <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
                 </label>
               </div>
+            </div>
+          </div>
+
+          <!-- ARIA AI panel — the two roles are switched independently, so a
+               school can leave ARIA on for staff while keeping it off for
+               students (or the reverse) without touching anyone's own keys. -->
+          <div class="panel-card">
+            <div class="panel-title"><i class="bi bi-robot" aria-hidden="true"></i> ARIA AI Availability</div>
+            <div class="settings-panel-body">
+              <p class="settings-hint" style="margin-bottom:12px">
+                Turning a role off hides the ARIA chat and recommendations for everyone in that role
+                and locks the toggle in their Settings. Their saved API keys and preference are left
+                untouched, so switching the role back on restores what they had.
+              </p>
+              <div class="settings-row">
+                <div>
+                  <div class="settings-label">ARIA for Students</div>
+                  <div class="settings-hint" id="ariaStudentsHint">—</div>
+                </div>
+                <label class="toggle" aria-label="ARIA for students">
+                  <input type="checkbox" id="ariaStudentsToggle" />
+                  <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+                </label>
+              </div>
               <div class="settings-row" style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px">
+                <div>
+                  <div class="settings-label">ARIA for Teachers</div>
+                  <div class="settings-hint" id="ariaTeachersHint">—</div>
+                </div>
+                <label class="toggle" aria-label="ARIA for teachers">
+                  <input type="checkbox" id="ariaTeachersToggle" />
+                  <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-card">
+            <div class="panel-title"><i class="bi bi-person-badge" aria-hidden="true"></i> Session</div>
+            <div class="settings-panel-body">
+              <div class="settings-row">
                 <div>
                   <div class="settings-label">Signed in as</div>
                   <div class="settings-hint" id="adminEmail">—</div>
@@ -635,7 +675,7 @@
             <div class="panel-title">Firestore Stats</div>
             <table class="data-table" aria-label="Firestore statistics">
               <tbody id="firestoreStats">
-                <tr><td colspan="2" class="empty-state">Loading…</td></tr>
+                <tr><td colspan="2" class="empty-state"><span class="loading-state">Loading…</span></td></tr>
               </tbody>
             </table>
           </div>
@@ -644,7 +684,7 @@
             <div class="panel-title">Auth Breakdown</div>
             <table class="data-table" aria-label="Auth statistics">
               <tbody id="authStats">
-                <tr><td colspan="2" class="empty-state">Loading…</td></tr>
+                <tr><td colspan="2" class="empty-state"><span class="loading-state">Loading…</span></td></tr>
               </tbody>
             </table>
           </div>

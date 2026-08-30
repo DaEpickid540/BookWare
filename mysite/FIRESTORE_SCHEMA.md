@@ -36,6 +36,9 @@ addedTeachers         array<teacherId>      libraries this student joined
 wishlist              array<bookId>
 currentlyReading      array<{bookId,...}>
 readingProfile        map                   quiz answers (genres/length/vibe/format)
+welcomeSeenAt         timestamp | null      first-run intro slideshow shown. Cleared
+                                            (with readingProfile) by the admin
+                                            portal's "Replay Onboarding".
 notifWishlist         boolean
 ```
 
@@ -56,6 +59,7 @@ libraryPublic    boolean     discoverable by non-enrolled students
 requireApproval  boolean     checkouts need teacher approval
 inviteCode       string      legacy single-class code
 readingProfile   map
+welcomeSeenAt    timestamp | null   first-run intro slideshow shown
 currentlyReading {title, author, coverUrl}
 ```
 
@@ -147,11 +151,36 @@ Rental approval queue: `studentId`, `studentName` 🔴, `bookId`, `bookTitle`,
 Teacher's starred picks. No student data.
 
 ### `teachers/{teacherId}/students/{studentId}` 🔴
-Legacy flat roster, superseded by per-class rosters. Same shape. Still written
-by the join path when a code resolves to a teacher rather than a class.
+Two different things share this path.
+
+**1. Membership marker** (the normal case, `membershipOnly: true`)
+```
+studentId       uid
+classId         string    the class whose code they joined with
+joinedAt        timestamp
+joinedVia       "code" | "backfill"
+membershipOnly  true
+```
+No name, no email — deliberately. It exists purely because
+`firestore.rules` decides whether to serve a Class Only library by testing
+`exists(teachers/{tid}/students/{uid})`, and nothing else. Writing only the
+per-class roster (which is what the join used to do) left every code-joining
+student denied every book read, checkout, and rental request.
+
+Written by `addTeacherByCode()` in `student.js`, backfilled for pre-existing
+students by `ensureLibraryAccessMarkers()` on portal load, and deleted by
+`removeStudent()` (teacher.js) and `purgeEndedClassRosters()` (retention.js) —
+so revoking a student, or the school year ending, actually revokes access.
+`loadClasses()` skips these when migrating a legacy roster into a class.
+
+**2. Legacy flat roster** 🔴 (no `membershipOnly` flag)
+Superseded by per-class rosters; same shape as a class roster entry, carrying
+name and email. Still written only when a code resolves to a teacher rather
+than a class.
 
 > ⚠️ **Not covered by the `endDate` cut-off** — it has no parent class to carry
-> a date. Migrate any remaining entries into a class roster.
+> a date. Migrate any remaining entries into a class roster. The membership
+> markers above are exempt from this concern: they hold no personal data.
 
 ## `invites/{token}` 🔴
 ```
@@ -177,8 +206,13 @@ Readable only by the matching email. Deleted when claimed.
 
 ## `admin/settings`
 ```
-maintenanceMode  boolean
-sessionEpoch     timestamp   forces re-login for sessions older than this
+maintenanceMode       boolean
+sessionEpoch          timestamp   forces re-login for sessions older than this
+ariaStudentsEnabled   boolean     school-wide ARIA kill switch for students
+ariaTeachersEnabled   boolean     …and, independently, for teachers.
+                                  UNSET MEANS ENABLED for both — a failed or
+                                  missing read must never silently remove ARIA.
+                                  Applied by setAriaAvailability() in theme.js.
 ```
 Readable by any signed-in user (portals check `maintenanceMode` at load), so it
 must never hold PII. The old `globalBanList` field was removed for this reason.
@@ -199,5 +233,6 @@ Kept in the browser's own storage, never uploaded:
 | `bw-admin-attempts-{uid}` | Failed admin-access attempts |
 | `bw-github-star-shown` | One-time prompt flag |
 | `bw-welcomed`, `bw-pending-role` *(sessionStorage)* | Per-session UI state |
+| `bw-pending-join` | Class code from a `?join=` QR/share link, held across sign-in |
 
 See `public/privacy.html` for the user-facing version of all of this.
