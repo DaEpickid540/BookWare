@@ -97,21 +97,46 @@ function showPage(name) {
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
-/** Run one start-up step in isolation.
+// How long any single start-up read may take before we stop waiting on it.
+// A Firestore read that never settles (rather than failing outright) is the
+// worst case here: nothing throws, so nothing is caught, and the panel sits on
+// "Loading…" forever with no clue why.
+const STEP_TIMEOUT_MS = 12000;
+
+/** Run one start-up step in isolation, with a deadline.
  *
- *  Start-up is a long sequence of independent loads, and running them as a
- *  single chain meant the first failure silently cancelled everything after it.
- *  A step that fails now logs, tells the user which panel is affected, and lets
- *  the rest of the portal carry on loading. Returns the step's value, or null. */
+ *  Start-up is a sequence of independent loads. Running them as one chain meant
+ *  the first failure — or worse, the first read that simply never came back —
+ *  silently cancelled everything after it. A step that fails or stalls now says
+ *  which one it was and lets the rest of the portal carry on.
+ *  Returns the step's value, or null. */
 async function step(label, fn) {
+  let timer;
   try {
-    return await fn();
+    return await Promise.race([
+      fn(),
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(Object.assign(new Error(`timed out after ${STEP_TIMEOUT_MS / 1000}s`), { code: 'bw/step-timeout' })),
+          STEP_TIMEOUT_MS,
+        );
+      }),
+    ]);
   } catch (err) {
     console.error(`[teacher] start-up step "${label}" failed:`, err);
-    toast(`Couldn't load ${esc(label)} (${esc(err?.code ?? err?.message ?? 'unknown error')}).`, 'danger');
+    toast(`Couldn't load ${esc(label)} — ${esc(err?.code ?? err?.message ?? 'unknown error')}. <button class="toast-retry" data-retry="1">Retry</button>`, 'danger');
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
+
+// Any "Retry" offered in a failure toast just reloads — every start-up step is
+// idempotent, and a reload is far more reliable than trying to resume a chain
+// from an unknown partial state.
+document.getElementById('toastContainer')?.addEventListener('click', (e) => {
+  if (e.target.closest('[data-retry]')) window.location.reload();
+});
 
 onAuthStateChanged(auth, async (user) => {
   if (!user) { window.location.href = '/'; return; }
@@ -207,8 +232,11 @@ onAuthStateChanged(auth, async (user) => {
     // tab's panels stuck on "Loading…" until a nav click round-tripped through
     // another tab and back, which reran them: the classic "nothing loads until
     // I visit the Students tab".
+    // Recommendations only badges the book rows, so it must not gate the books
+    // themselves — if it stalls, the library still renders (unbadged) rather
+    // than the whole page waiting on it.
     await step('recommendations', () => loadRecommendations());
-    await step('library',         () => loadLibrary());
+    await step('your books', () => loadLibrary());
     step('visibility toggle', () => initVisibilityToggle());
     step('checkout mode',     () => initCheckoutMode());
     hidePreloader();
@@ -220,8 +248,13 @@ onAuthStateChanged(auth, async (user) => {
     runFirstRunOnboarding();
 
     // The Library page is active by default, so showPage() never fires for it
-    // and these have to be kicked off by hand. loadCheckedOut() reads
-    // `allBooks`, so it waits for loadLibrary() above, but not for reveal.
+    // and these have to be kicked off by hand.
+    //
+    // Deliberately NOT awaited and not chained to each other. These four read
+    // different collections and none needs another's result, so running them
+    // concurrently means one slow or stalled read can't hold the other three
+    // on "Loading…" — which is exactly how the Library tab ended up blank
+    // until a nav round-trip to the Students tab and back re-ran them.
     step('checked-out list', () => loadCheckedOut());
     step('history',          () => loadHistory());
     step('now reading',      () => loadCurrentlyReading());
@@ -1251,9 +1284,29 @@ function renderSkeletonRows(container, count = 5) {
 async function loadLibrary() {
   const listEl  = document.getElementById('libraryList');
   const countEl = document.getElementById('libraryCountChip');
-  if (!listEl || !currentUser) return;
+  if (!listEl) return;
+  if (!currentUser) {
+    // Silent early return before — the panel just sat on its placeholder with
+    // nothing logged and nothing on screen to explain it.
+    console.warn('[teacher] loadLibrary called before sign-in resolved');
+    return;
+  }
   renderSkeletonRows(listEl, 6);
-  const snap = await getDocs(collection(db, 'teachers', currentUser.uid, 'books'));
+
+  let snap;
+  try {
+    snap = await readWithDeadline(getDocs(collection(db, 'teachers', currentUser.uid, 'books')));
+  } catch (err) {
+    // The skeleton rows are the whole problem here: unhandled, this rejection
+    // left six shimmering placeholders on screen permanently, which reads as
+    // "still loading" rather than "this failed". Your Books then appeared to
+    // work only after adding a book — because that path calls loadLibrary()
+    // again, and the second call succeeded.
+    console.error('[teacher] could not load your books:', err);
+    renderPanelError(listEl, 'your books', err);
+    throw err;   // let step() surface it in a toast too
+  }
+
   allBooks   = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   if (countEl) countEl.textContent = `${allBooks.length} book${allBooks.length !== 1 ? 's' : ''}`;
   // Offer the cleanup only when there is actually something to clean up.
@@ -1394,10 +1447,60 @@ async function validateReturn(bookId, bookTitle) {
 }
 
 // ── Students: Checked Out ─────────────────────────────────────────────────────
+/** Give a single read a deadline of its own.
+ *
+ *  step() puts a deadline on the start-up CHAIN, which is enough to stop one
+ *  stalled read freezing the whole portal — but the stalled call itself never
+ *  settles, so the panel waiting on it never reaches its own catch and keeps
+ *  its placeholder forever. Each panel therefore races its own read too, so it
+ *  can render a failure state instead of shimmering indefinitely. */
+function readWithDeadline(promise, ms = STEP_TIMEOUT_MS) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(Object.assign(new Error('the server did not respond'), { code: 'bw/timeout' })),
+        ms,
+      );
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+/** Panel-level failure state with a way out, so no panel can sit on "Loading…"
+ *  forever with nothing to click. */
+function renderPanelError(el, what, err) {
+  if (!el) return;
+  el.innerHTML = `
+    <p class='empty-state' style='color:var(--danger)'>
+      <i class='bi bi-exclamation-triangle-fill' aria-hidden='true'></i>
+      Couldn't load ${esc(what)} — ${esc(err?.code ?? err?.message ?? 'unknown error')}.
+    </p>`;
+  const btn = document.createElement('button');
+  btn.className = 'btn btn--sm';
+  btn.innerHTML = `<i class='bi bi-arrow-clockwise' aria-hidden='true'></i> Retry`;
+  btn.addEventListener('click', () => window.location.reload());
+  el.appendChild(btn);
+}
+
 async function loadCheckedOut() {
   const el = document.getElementById('checkedOutList');
   if (!el) return;
   el.innerHTML = `<p class='empty-state loading-state'>Loading…</p>`;
+
+  // Read the shelf directly when loadLibrary() hasn't populated allBooks —
+  // it runs as its own start-up step and may have failed or still be in
+  // flight. Depending on another step's side effect is what made this panel
+  // show "No books currently out" (or nothing at all) on a slow load.
+  if (!allBooks.length && currentUser) {
+    try {
+      const snap = await readWithDeadline(getDocs(collection(db, 'teachers', currentUser.uid, 'books')));
+      allBooks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (err) {
+      renderPanelError(el, 'checked-out books', err);
+      return;
+    }
+  }
   // Include multi-copy books with only some copies out (status stays 'available'
   // until every copy is gone, so filtering on status alone hid partial checkouts).
   const checkedOut = allBooks.filter(b => (b.checkedOutCount ?? 0) > 0 || b.status === 'checked_out');
@@ -1462,7 +1565,20 @@ function loadHistory() {
   if (!el) return;
   if (historyUnsubscribe) { historyUnsubscribe(); historyUnsubscribe = null; }
   el.innerHTML = `<p class='empty-state loading-state'>Loading…</p>`;
+
+  // Watchdog. onSnapshot has two failure modes: it errors (handled below), or
+  // it simply never fires — no data, no error, no timeout of its own. The
+  // second one leaves this panel on "Loading…" indefinitely, which is exactly
+  // what a teacher was staring at. Give it a deadline and something to click.
+  let settled = false;
+  const watchdog = setTimeout(() => {
+    if (settled) return;
+    renderPanelError(el, 'checkout history', { message: 'the server did not respond' });
+  }, STEP_TIMEOUT_MS);
+
   historyUnsubscribe = onSnapshot(collection(db, 'teachers', currentUser.uid, 'history'), snap => {
+    settled = true;
+    clearTimeout(watchdog);
     if (snap.empty) { el.innerHTML = `<p class='empty-state'>No history yet.</p>`; return; }
     const entries = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0));
     el.innerHTML = '';
@@ -1481,7 +1597,12 @@ function loadHistory() {
         </div>`;
       el.appendChild(row);
     });
-  }, err => { console.error('[teacher] History listener:', err); el.innerHTML = `<p class='empty-state'>Could not load history.</p>`; });
+  }, err => {
+    settled = true;
+    clearTimeout(watchdog);
+    console.error('[teacher] History listener:', err);
+    renderPanelError(el, 'checkout history', err);
+  });
 }
 
 // ── Export .MD ────────────────────────────────────────────────────────────────

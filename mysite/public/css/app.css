@@ -2814,3 +2814,17 @@ button, .btn, .nav-item, a, label, summary, input, select, textarea {
   border-radius: var(--r-full);
   padding: 2px 8px;
 }
+
+/* Retry affordance inside a failure toast (see step() in teacher.js). */
+.toast-retry {
+  margin-left: 8px;
+  padding: 2px 9px;
+  border-radius: var(--r-full);
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+.toast-retry:hover { background: rgba(255,255,255,0.12); }
