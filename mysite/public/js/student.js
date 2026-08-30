@@ -239,7 +239,6 @@ onAuthStateChanged(auth, async (user) => {
     populateSettingsInfo();
     renderWishlist();
     await loadTeachers();
-    await renderNotifications();
 
     // Welcome toast (once per session)
     if (!sessionStorage.getItem("bw-welcomed")) {
@@ -269,6 +268,8 @@ onAuthStateChanged(auth, async (user) => {
       } catch (_) {}
     }
     hidePreloader();
+    // Sequential per-wishlist-item lookups — not essential to first paint.
+    renderNotifications();
   } catch (err) {
     console.error("[student] Init failed:", err);
     document.documentElement.style.visibility = "visible";
@@ -819,7 +820,11 @@ async function setSelectedTeacher(tid, name) {
     _selectedTeacherData = null;
   }
   await loadTeacherBooks(tid);
-  await renderTeacherExtras(tid, name);
+  // Fire-and-forget: these are sidebar cards (recs + now-reading), not the
+  // book list itself, so a caller waiting on this function — including the
+  // initial portal load, which reveals the page right after it resolves —
+  // shouldn't sit through their several sequential reads too.
+  renderTeacherExtras(tid, name);
 }
 
 // ── Teacher extras (recs + now reading) ───────────────────────────────────────

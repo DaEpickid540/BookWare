@@ -163,29 +163,35 @@ onAuthStateChanged(auth, async (user) => {
     // already-loaded portal so it never blocks the rest of the page).
     maybeRunOnboardingQuiz();
 
-    // Retention sweep BEFORE the roster loads, so expired student data is gone
-    // rather than briefly rendered. Opportunistic — see retention.js.
-    const purged = await runRetentionSweep(db, currentUser.uid);
+    // The splash screen was waiting on EVERYTHING — retention sweep, classes,
+    // currently-reading, checked-out, history — before revealing anything,
+    // which just relocated the "loading very slowly" complaint from a blank
+    // page to a stuck spinner. Only the default-visible Library list needs to
+    // be ready before reveal (renderLibraryList() reads `recommendations` to
+    // badge recommended books, so that pair has to stay sequential). Every
+    // other panel already has its own "Loading…" placeholder, so it can
+    // finish after reveal same as it would on any other tab switch.
+    await loadRecommendations();
+    await loadLibrary();
+    initVisibilityToggle();
+    initApprovalToggle();
+    hidePreloader();
 
-    // renderLibraryList() reads `recommendations` to badge recommended books,
-    // so that pair must stay sequential — but neither depends on the class
-    // roster or the currently-reading doc, so those load concurrently instead
-    // of stacking four round trips end to end.
-    await Promise.all([
-      (async () => { await loadRecommendations(); await loadLibrary(); })(),
-      loadStudentCode(),
-      loadCurrentlyReading(),
-    ]);
     // Checked-out/history now live on the Library page, which is active by
     // default — showPage() only loads them on a nav click, which never fires
     // for the page that's already showing. loadCheckedOut() reads `allBooks`,
-    // so it has to wait for loadLibrary() above.
+    // so it has to wait for loadLibrary() above, but not for reveal.
     loadCheckedOut();
     loadHistory();
-    initVisibilityToggle();
-    initApprovalToggle();
+    loadCurrentlyReading();
     checkBiweeklyNotification();
-    hidePreloader();
+
+    // Retention sweep BEFORE the roster loads, so expired student data is gone
+    // rather than briefly rendered. Opportunistic — see retention.js. Neither
+    // of these blocks first paint any more; requireSchoolYearEndDates() reads
+    // allClasses, so it has to wait for loadStudentCode() in this same chain.
+    const purged = await runRetentionSweep(db, currentUser.uid);
+    await loadStudentCode();
 
     if (purged) {
       const bits = [];
@@ -1005,12 +1011,21 @@ async function loadCheckedOut() {
   // until every copy is gone, so filtering on status alone hid partial checkouts).
   const checkedOut = allBooks.filter(b => (b.checkedOutCount ?? 0) > 0 || b.status === 'checked_out');
   if (checkedOut.length === 0) { el.innerHTML = `<p class='empty-state'>No books currently out.</p>`; return; }
+
+  // Look up every borrower's name concurrently — a sequential await per book
+  // here meant a teacher with a dozen books out waited a dozen round trips
+  // just to see who has what.
+  const names = await Promise.all(checkedOut.map(async book => {
+    if (!book.checkedOutBy) return 'Unknown';
+    try {
+      const s = await getDoc(doc(db, 'students', book.checkedOutBy));
+      return s.exists() ? (s.data().name ?? 'Unknown') : 'Unknown';
+    } catch (_) { return 'Unknown'; }
+  }));
+
   el.innerHTML = '';
-  for (const book of checkedOut) {
-    let studentName = 'Unknown';
-    if (book.checkedOutBy) {
-      try { const s = await getDoc(doc(db, 'students', book.checkedOutBy)); if (s.exists()) studentName = s.data().name ?? studentName; } catch (_) {}
-    }
+  checkedOut.forEach((book, i) => {
+    const studentName = names[i];
     const dueDate  = book.dueDate?.toDate?.() ?? null;
     const isOverdue = dueDate && dueDate < new Date();
     const row = document.createElement('div');
@@ -1028,7 +1043,7 @@ async function loadCheckedOut() {
       </div>`;
     row.querySelector('[data-action="return"]')?.addEventListener('click', e => validateReturn(e.currentTarget.dataset.id, e.currentTarget.dataset.title));
     el.appendChild(row);
-  }
+  });
 }
 
 // ── Students: History (real-time) ─────────────────────────────────────────────
