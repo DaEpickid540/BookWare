@@ -146,3 +146,29 @@ export async function lookupById(id) {
   const data = await safeFetch(`${GBOOKS}/${encodeURIComponent(id)}`, 'Google byId');
   return data ? parseGoogle(data) : null;
 }
+
+// ── Cover image fallback ─────────────────────────────────────────────────────
+/** Swap any <img class="book-cover"> that fails to load for the same
+ *  placeholder tile used when a book has no cover at all.
+ *
+ *  Covers legitimately 404: books.js requests Open Library covers with
+ *  `?default=false`, which is a 404 rather than a blank placeholder image when
+ *  that book has no art. Without this the browser paints its own broken-image
+ *  icon, which reads as "the app is broken" rather than "this book has no
+ *  cover". Registered once in the capture phase because `error` events from
+ *  <img> do not bubble — that single listener covers every cover rendered
+ *  anywhere in the app, including markup added later. */
+export function initCoverFallback() {
+  document.addEventListener('error', (e) => {
+    const img = e.target;
+    if (!(img instanceof HTMLImageElement)) return;
+    if (!img.classList.contains('book-cover') || img.dataset.coverFailed) return;
+    img.dataset.coverFailed = '1';
+    const ph = document.createElement('div');
+    ph.className = 'book-cover-ph';
+    ph.innerHTML = '<i class="bi bi-book-fill"></i>';
+    const inline = img.getAttribute('style');
+    if (inline) ph.setAttribute('style', inline);
+    img.replaceWith(ph);
+  }, true);
+}

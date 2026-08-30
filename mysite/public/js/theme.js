@@ -192,6 +192,11 @@ export function openSettingsModal() {
   }
 }
 
+export function closeSettingsModal() {
+  const overlay = document.getElementById('settingsPage');
+  if (overlay) overlay.hidden = true;
+}
+
 export function initSettingsModal() {
   const overlay = document.getElementById('settingsPage');
   if (!overlay) return;

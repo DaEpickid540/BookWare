@@ -1,8 +1,8 @@
 // student.js — BookWare Student Portal
 import { auth, db } from "./firebase.js";
 import { shouldForceLogout } from "./config.js";
-import { searchBooks } from "./books.js";
-import { initTheme, initARIA, applyPreset, initAriaChat, initAriaRecommends, refreshAriaChats, initSettingsModal, openSettingsModal, initStaySignedIn } from "./theme.js";
+import { searchBooks, initCoverFallback } from "./books.js";
+import { initTheme, initARIA, applyPreset, initAriaChat, initAriaRecommends, refreshAriaChats, initSettingsModal, openSettingsModal, closeSettingsModal, initStaySignedIn } from "./theme.js";
 import { runReadingQuiz } from "./quiz.js";
 import { hidePreloader } from "./preloader.js";
 import {
@@ -228,6 +228,7 @@ onAuthStateChanged(auth, async (user) => {
 
     // Init UI
     populateTopBar();
+    initCoverFallback();
     initTheme();
     initARIA(toast);
     initAriaChat('ariaChatMount', 'student', () => studentData?.readingProfile);
@@ -527,6 +528,20 @@ async function addTeacherByCode() {
   );
   renderAddedTeachersList();
   await loadTeachers();
+
+  // Actually open the library they just joined. Without this the join only
+  // refreshed the chip row — the code is entered from inside the Settings
+  // modal, so the student was left looking at Settings with the book list
+  // still on "Select a library above to browse books", and nothing appeared
+  // to have happened at all.
+  let teacherName = "Library";
+  try {
+    const tSnap = await getDoc(doc(db, "teachers", teacherId));
+    if (tSnap.exists()) teacherName = tSnap.data().name || teacherName;
+  } catch (_) {}
+  closeSettingsModal();
+  showPage("library");
+  await setSelectedTeacher(teacherId, teacherName);
 }
 
 async function renderAddedTeachersList() {
@@ -666,43 +681,70 @@ async function loadTeachers() {
   addedTeacherIds.forEach((id) => ids.add(id));
 
   if (ids.size === 0) {
-    teacherListEl.innerHTML = "";
-    const cta = document.createElement("div");
-    cta.className = "no-library-cta";
-    cta.innerHTML = `
-      <div class='no-library-icon'><i class='bi bi-collection-fill'></i></div>
-      <div class='no-library-title'>No libraries linked yet</div>
-      <div class='no-library-sub'>Ask your teacher for their class code, then add it in Settings.</div>
-      <button class='btn btn--primary' id='ctaAddLibraryBtn'>Add a Library Code</button>`;
-    teacherListEl.appendChild(cta);
-    document
-      .getElementById("ctaAddLibraryBtn")
-      ?.addEventListener("click", () => {
-        showPage("settings");
-        setTimeout(() => {
-          document
-            .getElementById("teacherCodeInput")
-            ?.scrollIntoView({ behavior: "smooth", block: "center" });
-          document.getElementById("teacherCodeInput")?.focus();
-        }, 120);
-      });
+    renderNoLibraryCta(teacherListEl);
     await renderAllLibraries();
     return;
   }
 
+  // Fetch the linked teacher docs concurrently rather than one round trip at a
+  // time, and keep any read failure attached to its own id instead of letting
+  // one rejection abandon the whole list.
+  const fetched = await Promise.all(
+    [...ids].map(async (tid) => {
+      try {
+        const snap = await getDoc(doc(db, "teachers", tid));
+        return { tid, data: snap.exists() ? snap.data() : null, err: null };
+      } catch (err) {
+        console.error("[student] could not read teacher", tid, err.code ?? err);
+        return { tid, data: null, err };
+      }
+    }),
+  );
+
   teacherListEl.innerHTML = "";
-  for (const tid of ids) {
-    const snap = await getDoc(doc(db, "teachers", tid));
-    if (!snap.exists()) continue;
-    const t = snap.data();
+  for (const { tid, data } of fetched) {
+    if (!data) continue;
+    const name = data.name || data.email || "Library";
     const btn = document.createElement("button");
     btn.className = "library-chip";
     btn.dataset.tid = tid;
-    btn.textContent = t.name;
-    btn.addEventListener("click", () => setSelectedTeacher(tid, t.name));
+    btn.textContent = name;
+    btn.addEventListener("click", () => setSelectedTeacher(tid, name));
     teacherListEl.appendChild(btn);
   }
+
+  // Every linked library failed to resolve — a deleted teacher account, or a
+  // read that errored. Previously this silently left an empty box under the
+  // "Select a Library" heading with nothing to click and no explanation.
+  if (!teacherListEl.childElementCount) {
+    const unreadable = fetched.some((f) => f.err);
+    renderNoLibraryCta(teacherListEl, unreadable
+      ? "Your libraries couldn't be loaded just now. Check your connection and refresh."
+      : "The libraries you joined are no longer available. Ask your teacher for a current class code.");
+  }
   await renderAllLibraries();
+}
+
+/** The empty state for the library selector. Shared so that "you have joined
+ *  nothing" and "nothing you joined could be loaded" can never diverge into one
+ *  of them rendering a blank panel. */
+function renderNoLibraryCta(el, subtitle) {
+  el.innerHTML = "";
+  const cta = document.createElement("div");
+  cta.className = "no-library-cta";
+  cta.innerHTML = `
+    <div class='no-library-icon'><i class='bi bi-collection-fill'></i></div>
+    <div class='no-library-title'>No libraries linked yet</div>
+    <div class='no-library-sub'>${esc(subtitle ?? "Ask your teacher for their class code, then add it in Settings.")}</div>
+    <button class='btn btn--primary' id='ctaAddLibraryBtn'>Add a Library Code</button>`;
+  el.appendChild(cta);
+  document.getElementById("ctaAddLibraryBtn")?.addEventListener("click", () => {
+    showPage("settings");
+    setTimeout(() => {
+      document.getElementById("teacherCodeInput")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      document.getElementById("teacherCodeInput")?.focus();
+    }, 120);
+  });
 }
 
 // ── All Libraries discovery ───────────────────────────────────────────────────

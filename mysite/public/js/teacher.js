@@ -1,7 +1,7 @@
 // teacher.js — BookWare Teacher Portal
 import { auth, db } from './firebase.js';
 import { ADMIN_EMAILS, isTeacherEmail as isEmailAllowed, shouldForceLogout } from './config.js';
-import { lookupISBN, searchBooks } from './books.js';
+import { lookupISBN, searchBooks, initCoverFallback } from './books.js';
 import { initTheme, initARIA, initAriaChat, initAriaRecommends, refreshAriaChats, initSettingsModal, openSettingsModal, initStaySignedIn } from './theme.js';
 import { runReadingQuiz } from './quiz.js';
 import { setQrImage } from './qr.js';
@@ -144,6 +144,7 @@ onAuthStateChanged(auth, async (user) => {
     }
 
     populateTopBar();
+    initCoverFallback();
     if (!sessionStorage.getItem('bw-welcomed')) {
       const first = (currentUser.displayName ?? '').split(' ')[0] || 'there';
       setTimeout(() => toast(`Welcome back, ${esc(first)} <i class='bi bi-hand-wave-fill'></i>`, 'success'), 800);
