@@ -18,6 +18,17 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Make [hidden] actually hide things.
+   The UA rule `[hidden] { display: none }` loses to ANY author `display`
+   declaration on the same element, no matter how specific. `.signin-stuck` sets
+   `display: flex`, so the "Sign-in seems to be stuck — Reload Page" panel was
+   painted the instant the sign-in overlay appeared, before anything had gone
+   wrong: people saw it mid-sign-in, hit Reload, and killed their own in-flight
+   popup. Every time.
+   app.css and admin.css have carried this guard for a while; index.css never
+   got it. */
+[hidden] { display: none !important; }
+
 body {
   font-family: var(--font-sans);
   background: var(--bg);

@@ -31,6 +31,22 @@ const REDIRECT_FALLBACK_CODES = new Set([
 
 const PENDING_ROLE_KEY = "bw-pending-role";
 
+// How many times this tab has auto-reloaded itself out of a stuck sign-in.
+// Capped, so a failure that recurs on every load can't reload forever.
+const RELOAD_COUNT_KEY = "bw-signin-reloads";
+
+/** Forget that this tab is mid-redirect.
+ *
+ *  PENDING_ROLE_KEY used to be cleared ONLY on a successful redirect result.
+ *  Any other outcome — the user backing out of Google, a network drop, the
+ *  20-second timeout — left it set for the life of the tab. Every subsequent
+ *  load then took the "returning from redirect" branch, threw up the sign-in
+ *  overlay before the user had touched anything, and on timeout showed the
+ *  stuck screen, which reloaded, which did it all again. */
+function clearPendingSignIn() {
+  try { sessionStorage.removeItem(PENDING_ROLE_KEY); } catch (_) {}
+}
+
 // How long to wait on a sign-in step before treating it as stuck/interrupted
 // rather than leaving the spinner spinning forever. Generous enough for a
 // slow network or 2FA prompt, short enough that a genuine hang isn't mistaken
@@ -166,11 +182,28 @@ function withTimeout(promise, ms = AUTH_TIMEOUT_MS) {
 // a visible way out instead of an indefinite spinner.
 function showStuckState() {
   clearTimeout(reloadTimer);
+  clearInterval(reloadTimer);
   spinnerEl?.setAttribute("hidden", "");
   labelEl?.setAttribute("hidden", "");
   stuckEl?.removeAttribute("hidden");
   overlay?.classList.add("visible");
   overlay?.removeAttribute("hidden");
+
+  // Whatever went wrong, this tab must not still believe it is mid-redirect —
+  // that belief is what makes the failure repeat on the next load.
+  clearPendingSignIn();
+
+  // Reload at most once. Auto-reloading on a failure that recurs every load is
+  // an infinite loop the user cannot click their way out of: the page reloads
+  // itself every 8 seconds forever, and the portal buttons are never reachable.
+  const reloads = Number(sessionStorage.getItem(RELOAD_COUNT_KEY) ?? "0");
+  if (reloads >= 1) {
+    if (reloadCountdownEl?.parentElement) {
+      reloadCountdownEl.parentElement.textContent =
+        "Reloading didn't help. Close this tab and open BookWare again, or try a different browser.";
+    }
+    return;
+  }
 
   let secondsLeft = AUTO_RELOAD_SECONDS;
   if (reloadCountdownEl) reloadCountdownEl.textContent = String(secondsLeft);
@@ -179,12 +212,17 @@ function showStuckState() {
     if (reloadCountdownEl) reloadCountdownEl.textContent = String(Math.max(secondsLeft, 0));
     if (secondsLeft <= 0) {
       clearInterval(reloadTimer);
+      sessionStorage.setItem(RELOAD_COUNT_KEY, String(reloads + 1));
       window.location.reload();
     }
   }, 1000);
 }
 
-reloadBtn?.addEventListener("click", () => window.location.reload());
+reloadBtn?.addEventListener("click", () => {
+  const reloads = Number(sessionStorage.getItem(RELOAD_COUNT_KEY) ?? "0");
+  sessionStorage.setItem(RELOAD_COUNT_KEY, String(reloads + 1));
+  window.location.reload();
+});
 
 async function ensureUserDoc(user, role) {
   const ref = doc(db, "users", user.uid);
@@ -403,6 +441,9 @@ function reportAuthError(err) {
 
 // ─── Core login (popup with redirect fallback) ─────────────────────────────────
 async function login(role, cardEl) {
+  // A deliberate new attempt resets the auto-reload budget, so the one-shot
+  // reload above stays available for a genuinely stuck sign-in later.
+  try { sessionStorage.removeItem(RELOAD_COUNT_KEY); } catch (_) {}
   showLoading(cardEl);
   try {
     const provider = new GoogleAuthProvider();
@@ -437,21 +478,26 @@ async function login(role, cardEl) {
   // show the spinner (and, if this hangs, the stuck-state recovery UI) only
   // in that case. An ordinary page visit shouldn't show either.
   const returningFromRedirect = !!sessionStorage.getItem(PENDING_ROLE_KEY);
+  const role = sessionStorage.getItem(PENDING_ROLE_KEY) || "student";
   if (returningFromRedirect) showLoading(null);
 
   let result;
   try {
     result = await withTimeout(getRedirectResult(auth));
   } catch (err) {
+    // Clear the pending role on EVERY outcome, not just success. Leaving it set
+    // is what turned one interrupted redirect into a tab that could never sign
+    // in again — see clearPendingSignIn().
+    clearPendingSignIn();
     if (returningFromRedirect) reportAuthError(err);
     else console.warn("[auth] getRedirectResult check failed:", err);
     hideLoading(null);
     return;
   }
+
+  clearPendingSignIn();
   if (!result?.user) { hideLoading(null); return; }
 
-  const role = sessionStorage.getItem(PENDING_ROLE_KEY) || "student";
-  sessionStorage.removeItem(PENDING_ROLE_KEY);
   try {
     await completeLogin(result.user, role);
   } catch (err) {
