@@ -411,6 +411,43 @@ async function requireSchoolYearEndDates() {
   };
 }
 
+// ── Class-code mapping ────────────────────────────────────────────────────────
+/** Make sure classCodes/{code} points at this class, and report whether it
+ *  ACTUALLY does afterwards.
+ *
+ *  A student resolves a join code by reading classCodes/{code} directly, so if
+ *  that document is missing the code is dead no matter how correct it looks on
+ *  the teacher's screen. Writes here can fail for reasons the teacher UI has no
+ *  other way to notice (a rules regression being the obvious one), so this
+ *  always finishes with a read and returns the verified truth rather than
+ *  assuming the write landed. Callers surface `live: false` in the UI. */
+async function ensureClassCodeMapping(inviteCode, classId, createdAt) {
+  if (!inviteCode) return { live: false, error: 'no code' };
+  const ref = doc(db, 'classCodes', inviteCode);
+  try {
+    const existing = await getDoc(ref);
+    if (!existing.exists()) {
+      await setDoc(ref, {
+        teacherId: currentUser.uid,
+        classId,
+        createdAt: createdAt ?? serverTimestamp(),
+      });
+    } else if (existing.data().classId !== classId || existing.data().teacherId !== currentUser.uid) {
+      // Code collision, or a stale mapping left by an older class. Point it here.
+      await setDoc(ref, { teacherId: currentUser.uid, classId, createdAt: serverTimestamp() });
+    }
+    const check = await getDoc(ref);
+    const live = check.exists() &&
+      check.data().classId === classId &&
+      check.data().teacherId === currentUser.uid;
+    return { live, error: live ? null : 'mapping did not stick' };
+  } catch (err) {
+    const code = err.code ?? err.message ?? 'unknown error';
+    console.error(`[teacher] class code "${inviteCode}" could not be registered:`, code, err);
+    return { live: false, error: code };
+  }
+}
+
 // ── Multi-class system ────────────────────────────────────────────────────────
 async function loadClasses() {
   const snap = await getDocs(collection(db, 'teachers', currentUser.uid, 'classes'));
@@ -418,29 +455,24 @@ async function loadClasses() {
     const tSnap     = await getDoc(doc(db, 'teachers', currentUser.uid));
     const legacyCode = tSnap.data()?.inviteCode ?? genCode();
     const classRef  = await addDoc(collection(db, 'teachers', currentUser.uid, 'classes'), { name: 'Period 1', inviteCode: legacyCode, createdAt: serverTimestamp() });
-    await setDoc(doc(db, 'classCodes', legacyCode), { teacherId: currentUser.uid, classId: classRef.id, createdAt: serverTimestamp() });
+    const res       = await ensureClassCodeMapping(legacyCode, classRef.id, null);
     const oldRoster = await getDocs(collection(db, 'teachers', currentUser.uid, 'students'));
     for (const s of oldRoster.docs) await setDoc(doc(db, 'teachers', currentUser.uid, 'classes', classRef.id, 'students', s.id), s.data());
-    allClasses = [{ id: classRef.id, name: 'Period 1', inviteCode: legacyCode, studentCount: oldRoster.size }];
+    allClasses = [{ id: classRef.id, name: 'Period 1', inviteCode: legacyCode, studentCount: oldRoster.size, codeLive: res.live, codeError: res.error }];
   } else {
     allClasses = await Promise.all(snap.docs.map(async d => {
       const data = d.data();
 
-      // One-time backfill: classes created before the classCodes collection
-      // existed have a code that only ever lived on the class doc itself,
-      // which a student has no permission to search by. codeMapped marks it
-      // done so this write happens once per class, not on every load.
-      if (!data.codeMapped && data.inviteCode) {
-        try {
-          await setDoc(doc(db, 'classCodes', data.inviteCode), { teacherId: currentUser.uid, classId: d.id, createdAt: data.createdAt ?? serverTimestamp() });
-          await updateDoc(d.ref, { codeMapped: true });
-          data.codeMapped = true;
-        } catch (_) {}
-      }
+      // Register this class's code mapping if it's missing, then READ IT BACK.
+      // The read-back is the whole point: it verifies what a student would
+      // actually find, instead of trusting that our own write succeeded. A
+      // silently-denied write here is exactly how every code in the app came
+      // to be unresolvable while the teacher UI looked perfectly healthy.
+      const { live, error } = await ensureClassCodeMapping(data.inviteCode, d.id, data.createdAt);
 
       // An expired class's roster is no longer readable by the teacher (by
       // design — see firestore.rules). Skip the count rather than throwing.
-      if (isClassExpired(data.endDate)) return { id: d.id, ...data, studentCount: 0 };
+      if (isClassExpired(data.endDate)) return { id: d.id, ...data, studentCount: 0, codeLive: live, codeError: error };
       // A count aggregation reads none of the roster documents themselves —
       // much cheaper than getDocs().size once a class has more than a
       // handful of students, and this runs for every class on every load.
@@ -449,7 +481,7 @@ async function loadClasses() {
         const countSnap = await getCountFromServer(collection(db, 'teachers', currentUser.uid, 'classes', d.id, 'students'));
         studentCount = countSnap.data().count;
       } catch (_) {}
-      return { id: d.id, ...data, studentCount };
+      return { id: d.id, ...data, studentCount, codeLive: live, codeError: error };
     }));
     allClasses.sort((a, b) => (a.createdAt?.seconds ?? 0) - (b.createdAt?.seconds ?? 0));
   }
@@ -489,7 +521,25 @@ function renderClassManager() {
           <button class='btn btn--sm' data-action='copy-code' data-cid='${esc(cls.id)}'>Copy</button>
           <button class='btn btn--sm' data-action='refresh-code' data-cid='${esc(cls.id)}'><i class='bi bi-arrow-clockwise'></i> New</button>
         </div>
-      </div>`;
+      </div>
+      ${cls.codeLive === false ? `
+        <div class='class-code-dead' role='alert'>
+          <i class='bi bi-exclamation-triangle-fill' aria-hidden='true'></i>
+          <span>
+            <strong>Students can't join with this code yet.</strong>
+            It isn't registered for lookup${cls.codeError ? ` — <code>${esc(cls.codeError)}</code>` : ''}.
+          </span>
+          <button class='btn btn--xs' data-action='fix-code' data-cid='${esc(cls.id)}'>Retry</button>
+        </div>` : ''}`;
+    card.querySelector('[data-action="fix-code"]')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      const res = await ensureClassCodeMapping(cls.inviteCode, cls.id, cls.createdAt);
+      cls.codeLive = res.live; cls.codeError = res.error;
+      if (res.live) toast(`<i class='bi bi-check2'></i> Code ${esc(cls.inviteCode)} is live — students can join now`, 'success');
+      else toast(`Still failing: ${esc(res.error ?? 'unknown')}`, 'danger');
+      renderClassManager();
+    });
     card.querySelector('[data-action="rename"]')?.addEventListener('click', () => renameClass(cls.id, cls.name));
     card.querySelector('[data-action="delete-class"]')?.addEventListener('click', () => deleteClass(cls.id, cls.name));
     card.querySelector('[data-action="copy-code"]')?.addEventListener('click', () => {
@@ -532,10 +582,13 @@ async function createClass() {
   const code  = genCode();
   const stamp = Timestamp.fromDate(endOfSchoolDay(endDate));
   const ref  = await addDoc(collection(db, 'teachers', currentUser.uid, 'classes'), { name, inviteCode: code, endDate: stamp, createdAt: serverTimestamp() });
-  await setDoc(doc(db, 'classCodes', code), { teacherId: currentUser.uid, classId: ref.id, createdAt: serverTimestamp() });
-  allClasses.push({ id: ref.id, name, inviteCode: code, endDate: stamp, studentCount: 0, createdAt: { seconds: Date.now() / 1000 } });
+  const res  = await ensureClassCodeMapping(code, ref.id, null);
+  allClasses.push({ id: ref.id, name, inviteCode: code, endDate: stamp, studentCount: 0, createdAt: { seconds: Date.now() / 1000 }, codeLive: res.live, codeError: res.error });
   renderClassManager();
-  toast(`<i class='bi bi-check2'></i> "${esc(name)}" created — code: ${esc(code)}`, 'success');
+  toast(res.live
+    ? `<i class='bi bi-check2'></i> "${esc(name)}" created — code: ${esc(code)}`
+    : `"${esc(name)}" created, but its code isn't usable yet (${esc(res.error ?? 'unknown')}). See the warning on the class.`,
+    res.live ? 'success' : 'danger');
 }
 
 async function editClassEndDate(classId, className, current) {
@@ -573,10 +626,19 @@ async function refreshClassCode(classId, className) {
   const cls     = allClasses.find(c => c.id === classId);
   const oldCode = cls?.inviteCode;
   const code    = genCode();
-  await setDoc(doc(db, 'classCodes', code), { teacherId: currentUser.uid, classId, createdAt: serverTimestamp() });
+
+  // Register the new code FIRST and confirm it took. Handing the teacher a code
+  // that was never registered is precisely the failure this whole path exists
+  // to avoid, so don't put it on screen until it's verified resolvable.
+  const res = await ensureClassCodeMapping(code, classId, null);
+  if (!res.live) {
+    toast(`Couldn't create a new code (${esc(res.error ?? 'unknown')}). The old code still works.`, 'danger');
+    return;
+  }
+
   await updateDoc(doc(db, 'teachers', currentUser.uid, 'classes', classId), { inviteCode: code });
   if (oldCode) { try { await deleteDoc(doc(db, 'classCodes', oldCode)); } catch (_) {} }
-  if (cls) cls.inviteCode = code;
+  if (cls) { cls.inviteCode = code; cls.codeLive = true; cls.codeError = null; }
   renderClassManager();
   toast(`<i class='bi bi-check2'></i> New code for ${esc(className)} — existing students unaffected`, 'success');
 }

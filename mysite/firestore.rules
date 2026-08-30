@@ -296,11 +296,27 @@ service cloud.firestore {
     match /classCodes/{code} {
       allow get: if isSignedIn();
       allow list: if false;
-      allow create: if isSignedIn() && isTeacher() &&
+      // MUST permit role:"admin" as well as role:"teacher". The teacher portal
+      // admits both (see the role check in teacher.js), so an owner whose
+      // account is in the hardcoded admin allowlist runs the whole teacher UI
+      // with role "admin" — for whom isTeacher() is false. Requiring isTeacher()
+      // alone silently denied those owners the right to register their own
+      // class codes, leaving every code they handed out unresolvable and every
+      // student join failing as "Code not found". Every other write rule in
+      // this file already carries the `|| isAdmin()` arm; this one didn't.
+      allow create: if isSignedIn() &&
+        (isTeacher() || isAdmin()) &&
         request.resource.data.teacherId == uid();
       allow delete: if isSignedIn() &&
         (isAdmin() || (isTeacher() && resource.data.teacherId == uid()));
-      allow update: if false; // codes are replaced (new doc), never edited
+      // Re-pointing a mapping you already own at a different class of yours —
+      // the repair path when a stale mapping survives a deleted/recreated
+      // class. Both the existing and incoming doc must be yours, so this can
+      // never be used to hijack another teacher's code.
+      allow update: if isSignedIn() &&
+        (isTeacher() || isAdmin()) &&
+        resource.data.teacherId == uid() &&
+        request.resource.data.teacherId == uid();
     }
 
     // ── invites/{token} ────────────────────────────────────────────────────────

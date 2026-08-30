@@ -70,9 +70,6 @@ endDate         timestamp   ⏳ LAST DAY OF SCHOOL — 23:59:59 local on that da
                             class's roster to the teacher once request.time
                             passes it.
 rosterPurgedAt  timestamp   set when the roster was actually erased
-codeMapped      boolean     true once this class's classCodes entry has been
-                            backfilled (classes created before that collection
-                            existed didn't have one yet)
 archived        boolean
 createdAt       timestamp
 ```
@@ -101,10 +98,19 @@ createdAt  timestamp
 ```
 Readable by any signed-in user via `get` (never `list` — the collection can't
 be enumerated), so a student can resolve a code without knowing which teacher
-issued it, without exposing every class code in the app to every user. Written
-and deleted alongside `classes/{classId}.inviteCode` by `createClass()`,
-`refreshClassCode()`, `deleteClass()`, and a one-time backfill in
-`loadClasses()` for classes that predate this collection.
+issued it, without exposing every class code in the app to every user.
+
+**Writes must permit `role: "admin"` as well as `role: "teacher"`** — the
+teacher portal admits both, so an owner on the admin allowlist runs it with
+role `admin`. Requiring `isTeacher()` alone silently blocked those owners from
+registering their codes, which made every code they issued unresolvable.
+
+Kept in sync by `ensureClassCodeMapping()` in `teacher.js`, called from
+`createClass()`, `refreshClassCode()`, `deleteClass()`, and every
+`loadClasses()`. That helper always **writes then reads back**, and reports
+whether the mapping is actually live rather than assuming the write landed; a
+class whose code isn't resolvable renders a red warning with the failing error
+code and a Retry button, so this can never fail invisibly again.
 
 ### `teachers/{teacherId}/books/{bookId}`
 ```

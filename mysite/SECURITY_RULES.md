@@ -36,7 +36,7 @@
 | `teachers/{uid}/requests` | teacher-self, admin, or the requesting student | student-create (own, `pending`); teacher/admin approve-deny |
 | `teachers/{uid}/classes` | signed-in (join codes) | teacher/admin |
 | `teachers/{uid}/classes/{cid}/students` (roster) | the student themselves, admins, **and the teacher only until the class's `endDate`** | teacher/admin create (roster create additionally requires `classNotEnded()`, admin exempt); teacher, self, or admin delete |
-| `classCodes/{code}` | single-doc `get` only, any signed-in user; **`list` is denied outright** (no enumeration) | teacher-create for their own `teacherId` only; owning teacher or admin delete; never updated |
+| `classCodes/{code}` | single-doc `get` only, any signed-in user; **`list` is denied outright** (no enumeration) | teacher **or admin** create/update, own `teacherId` only; owning teacher or admin delete |
 | `invites/{token}` | single-doc `get` is public (pre-login claim page); `list` is teacher/admin only | teacher-with-`canInvite`/admin create; creator can revoke; claim flow marks used |
 | `accessRequests/{uid}` | requester or admin | requester-create (own, `pending`, can't self-approve); admin approve/deny |
 | `pendingUsers/{emailKey}` | **only the owning email** (can't enumerate) | admin only |
@@ -68,16 +68,33 @@ already holds it, but the collection can't be enumerated to harvest every
 class code and teacher ID in the app the way the old collectionGroup rule
 allowed.
 
-Every place a code is created or destroyed keeps this in sync: `createClass()`,
-`refreshClassCode()` (old code deleted, new one written), `deleteClass()`, and
-the legacy-flat-roster migration in `loadClasses()`. Classes created before
-this fix existed are backfilled once, lazily, on the owning teacher's next
-load — see the `codeMapped` flag in `loadClasses()`.
+Every place a code is created or destroyed keeps this in sync through one
+helper, `ensureClassCodeMapping()` in `teacher.js`: `createClass()`,
+`refreshClassCode()`, `deleteClass()`, and every `loadClasses()`. That helper
+always **writes then reads back**, returning whether the mapping is genuinely
+live rather than assuming the write landed — and a class whose code isn't
+resolvable renders a red warning carrying the failing error code, plus a Retry
+button. A dead code is now impossible to miss on the teacher's own screen.
 
-Verified against the real ruleset with `@firebase/rules-unit-testing`
-(ownership enforcement, enumeration blocking, expired-class handling, legacy
-fallback) before this was deployed; see git history for the test script if
-this needs re-checking.
+### ⚠️ The teacher portal runs as `admin` too
+
+`teacher.js` admits both `role: "teacher"` and `role: "admin"` — an owner whose
+email is on the hardcoded admin allowlist uses the entire teacher UI with role
+`admin`, for whom **`isTeacher()` is false**. Every rule covering something the
+teacher portal writes must therefore carry an `|| isAdmin()` arm. Every other
+rule in this file does; `classCodes` create originally did not, and the result
+was that the owner's own class codes were never registered — students got
+"Code not found" for every code, while the teacher's screen looked healthy.
+
+**When testing rules, exercise both roles.** A suite covering only
+`role: "teacher"` passes cleanly against a ruleset that is broken in production
+for exactly the account that owns the deployment. That is not hypothetical:
+it is what happened here, twice.
+
+Verified with 15 checks against a real emulator running the deployed rules,
+across *both* roles — ownership enforcement on create/update/delete,
+enumeration blocking, expired-class handling, stale-mapping repair, and the
+legacy teacher-level code fallback.
 
 ## Data-retention rules
 
