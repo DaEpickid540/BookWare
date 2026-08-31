@@ -130,6 +130,38 @@ const _safeReveal = setTimeout(() => {
   document.documentElement.style.visibility = "visible";
 }, 5000);
 
+// How long any single start-up read may take before we stop waiting on it and
+// try again. A Firestore read that never SETTLES (as opposed to failing) has no
+// error to catch: the whole auth handler — role check, studentData, and every
+// loader downstream of it — just hangs, and the portal shows nothing until an
+// unrelated click fires its own fresh reads. A cold connection routinely makes
+// the first read of a session slow while every read after it is instant, so
+// retry a couple of times before giving up.
+const READ_DEADLINE_MS = 12000;
+async function readCritical(promiseFactory, tries = 3) {
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    let timer;
+    try {
+      return await Promise.race([
+        promiseFactory(),
+        new Promise((_, reject) => {
+          timer = setTimeout(
+            () => reject(Object.assign(new Error("the server did not respond"), { code: "bw/timeout" })),
+            READ_DEADLINE_MS,
+          );
+        }),
+      ]);
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[student] critical start-up read attempt ${i + 1}/${tries} failed:`, err?.code ?? err?.message ?? err);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastErr;
+}
+
 onAuthStateChanged(auth, async (user) => {
   clearTimeout(_safeReveal);
   if (!user) {
@@ -142,7 +174,9 @@ onAuthStateChanged(auth, async (user) => {
     // Maintenance + admin force-logout check. The same document also carries
     // the school-wide ARIA policy, so read it once and use it for both.
     try {
-      const settingsSnap = await getDoc(doc(db, "admin", "settings"));
+      // One attempt with a deadline — this read is optional (its failure leaves
+      // maintenance/ARIA at their safe defaults), it just must not hang.
+      const settingsSnap = await readCritical(() => getDoc(doc(db, "admin", "settings")), 1);
       const settings = settingsSnap.exists() ? settingsSnap.data() : {};
       if (settings.maintenanceMode === true) {
         await signOut(auth);
@@ -163,7 +197,7 @@ onAuthStateChanged(auth, async (user) => {
     } catch (_) {}
 
     const userRef = doc(db, "users", user.uid);
-    let userSnap = await getDoc(userRef);
+    let userSnap = await readCritical(() => getDoc(userRef));
 
     if (!userSnap.exists()) {
       await setDoc(userRef, {
@@ -215,7 +249,7 @@ onAuthStateChanged(auth, async (user) => {
 
     // Load / create student doc
     const sRef = doc(db, "students", user.uid);
-    let sSnap = await getDoc(sRef);
+    let sSnap = await readCritical(() => getDoc(sRef));
     if (!sSnap.exists()) {
       await setDoc(sRef, {
         name: user.displayName ?? "",

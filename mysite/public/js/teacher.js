@@ -149,7 +149,7 @@ onAuthStateChanged(auth, async (user) => {
     // policy. Admins are exempt from the gates but NOT from the ARIA policy, so
     // the read itself happens for everyone and only the gating is conditional.
     try {
-      const s        = await getDoc(doc(db, 'admin', 'settings'));
+      const s        = await readWithDeadline(getDoc(doc(db, 'admin', 'settings')));
       const settings = s.exists() ? s.data() : {};
       if (!ADMIN_EMAILS.includes(user.email?.toLowerCase())) {
         if (settings.maintenanceMode === true) {
@@ -172,12 +172,12 @@ onAuthStateChanged(auth, async (user) => {
       );
     } catch (_) {}
 
-    const userSnap = await getDoc(doc(db, 'users', user.uid));
+    const userSnap = await readCritical(() => getDoc(doc(db, 'users', user.uid)));
     const userRole = userSnap.exists() ? userSnap.data().role : null;
     if (!userSnap.exists() || (userRole !== 'teacher' && userRole !== 'admin')) { await signOut(auth); window.location.href = '/'; return; }
 
     currentUser   = user;
-    const tSnap   = await getDoc(doc(db, 'teachers', user.uid));
+    const tSnap   = await readCritical(() => getDoc(doc(db, 'teachers', user.uid)));
     if (!tSnap.exists()) { hidePreloader(); toast('Teacher record not found. Ask an admin or another teacher for an invite link.', 'danger'); return; }
     teacherData   = tSnap.data();
 
@@ -283,7 +283,7 @@ onAuthStateChanged(auth, async (user) => {
   } catch (err) {
     console.error('[teacher] Init failed:', err);
     hidePreloader();
-    toast(`Failed to load teacher portal: ${err.message ?? 'unknown error'}. Try refreshing.`, 'danger');
+    toast(`Failed to load the portal — ${esc(err.code ?? err.message ?? 'unknown error')}. <button class="toast-retry" data-retry="1">Retry</button>`, 'danger');
   }
 });
 
@@ -1465,6 +1465,31 @@ function readWithDeadline(promise, ms = STEP_TIMEOUT_MS) {
       );
     }),
   ]).finally(() => clearTimeout(timer));
+}
+
+/** A start-up read the portal genuinely can't continue without — the role
+ *  check and the teacher document. readWithDeadline() turns a stalled read into
+ *  a rejection; this retries that a few times before giving up.
+ *
+ *  These reads sit ABOVE the step()-isolated chain, so nothing was guarding
+ *  them: a single one that never settled (a cold Firestore connection routinely
+ *  makes the FIRST read of a session slow while every read after it is instant)
+ *  hung the whole handler. renderSettings(), initTheme() and every step() loader
+ *  are downstream of here, so none of them ran — Account info, Your Books, Now
+ *  Reading and the rest all sat on "Loading…" until a Students-tab click fired
+ *  its own fresh reads. That is the "nothing loads until I open the Students
+ *  tab" report. Accept a slow first read; refuse to wait forever. */
+async function readCritical(promiseFactory, tries = 3) {
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await readWithDeadline(promiseFactory());
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[teacher] critical start-up read attempt ${i + 1}/${tries} failed:`, err?.code ?? err?.message ?? err);
+    }
+  }
+  throw lastErr;
 }
 
 /** Panel-level failure state with a way out, so no panel can sit on "Loading…"
