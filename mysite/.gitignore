@@ -10,6 +10,11 @@ firebase-debug.*.log*
 # Firebase cache
 .firebase/
 
+# Firebase Agent Skills (local tooling, not app code)
+.agents/
+.claude/
+skills-lock.json
+
 # Firebase config
 
 # Uncomment this if you'd like others to create their own Firebase project.
