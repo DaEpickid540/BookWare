@@ -133,3 +133,19 @@ firebase emulators:exec --only firestore --project school-suite-652d8 "echo ok"
 - Escape every interpolated value with `esc()` before it reaches `innerHTML`.
 - Comments explain *why*, especially where the code looks odd because of a bug
   it is deliberately avoiding. Don't strip those.
+
+## App version number
+
+There is no build-time versioning in this repo — no `package.json`, no CI
+stamp. The only version indicator is a hardcoded string in the Settings panel
+footer, in **both** `mysite/public/teacher.html` and `mysite/public/student.html`:
+
+```html
+<div class="settings-section-sub">BookWare v2.2 · Mason High School · Sarvin Sukhe</div>
+```
+
+**Bump this (in both files, they must match) whenever you ship a change large
+enough that the user would want to know it went out** — a new feature, a fix to
+a reported bug, a rebuild of a portal's data layer. Skip it for pure docs,
+comments, CI/config-only changes, or a change too small to matter to the user.
+It is cosmetic and manual; nothing else derives from it or checks it.
