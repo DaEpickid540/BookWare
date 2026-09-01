@@ -132,10 +132,19 @@ service cloud.firestore {
         (uid() == studentId || isTeacher() || isAdmin());
 
       allow create: if isSignedIn() && uid() == studentId && allowedEmail();
+      // A teacher may touch ONLY the loan-tracking fields on a student record.
+      // The previous bare `isTeacher()` let any teacher rewrite any student's
+      // whole profile — name, reading profile, wishlist, teacher list — which
+      // no teacher-portal code has ever needed. These three fields are the
+      // complete set the portal writes: see checkoutToStudent(), returnLoan()
+      // and removeStudentFromClass() in teacher-api.js.
       allow update: if (isSignedIn() && uid() == studentId && notBanned() &&
          !request.resource.data.diff(resource.data).affectedKeys()
            .hasAny(["banned", "banExpiry", "banReason"])) ||
-        isTeacher() || isAdmin();
+        (isTeacher() &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(["currentBook", "currentBookTeacherId", "addedTeachers"])) ||
+        isAdmin();
 
       allow delete: if isAdmin();
 
@@ -190,8 +199,20 @@ service cloud.firestore {
         allow read: if isSignedIn() &&
           (uid() == teacherId || isAdmin() ||
            (isStudent() && resource.data.studentId == uid()));
-        allow create: if isSignedIn() && isStudent() && notBanned();
-        allow update: if (isSignedIn() && uid() == teacherId && isTeacher()) || isAdmin();
+        // The OWNING TEACHER must be able to write history rows, not just
+        // students. Two teacher-side paths create them: approving a checkout
+        // request, and reconstructing a return for a loan whose row was never
+        // written. Both were denied by the student-only rule that used to be
+        // here — and because the denial landed AFTER the book counter and the
+        // student record had already been updated, approving a request checked
+        // the book out and then reported "Approval failed" to the teacher.
+        // That is why approvals looked broken while books left the shelf.
+        allow create: if isSignedIn() && (
+          (isStudent() && notBanned()) ||
+          (uid() == teacherId && (isTeacher() || isAdmin())) ||
+          isAdmin()
+        );
+        allow update: if (isSignedIn() && uid() == teacherId && (isTeacher() || isAdmin())) || isAdmin();
         // The owning teacher may delete their own checkout records. Required by
         // the 2-year retention purge in retention.js — without this, expired
         // student borrowing records could never actually be removed, since

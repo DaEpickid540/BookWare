@@ -1,4 +1,45 @@
 {
-  "indexes": [],
+  "//": "Composite indexes. Firestore auto-indexes SINGLE fields; any query combining two or more filters needs an entry here or it fails at runtime with 'failed-precondition' and the panel using it stays permanently empty. Every entry below is required by a query that exists in the app today — the file used to be empty while five such queries were live. Deploy with: firebase deploy --only firestore:indexes",
+
+  "indexes": [
+    {
+      "//": "teacher.js listActiveBans() — the Students tab's active-ban list.",
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "bannedBy", "order": "ASCENDING" },
+        { "fieldPath": "banned", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "//": "admin.js loadRecentActivity() — recent bans feed on the admin dashboard.",
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "banned", "order": "ASCENDING" },
+        { "fieldPath": "bannedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "//": "admin.js loadAccessRequests() — the teacher-access approval queue.",
+      "collectionGroup": "accessRequests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "requestedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "//": "student.js submitRentalRequest() — the duplicate-request guard on teachers/{uid}/requests.",
+      "collectionGroup": "requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "studentId", "order": "ASCENDING" },
+        { "fieldPath": "bookId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    }
+  ],
+
   "fieldOverrides": []
 }

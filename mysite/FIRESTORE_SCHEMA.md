@@ -8,6 +8,10 @@ Every collection BookWare writes, with the fields it actually stores.
 
 Anything not marked has no personal data in it.
 
+For how the teacher portal *uses* these collections — the invariants, the rules
+contract, and which queries need which index — see
+[TEACHER_BACKEND.md](TEACHER_BACKEND.md).
+
 ---
 
 ## `users/{uid}` 🔴
@@ -130,16 +134,28 @@ dueDate          timestamp | null
 ```
 
 ### `teachers/{teacherId}/history/{entryId}` 🔴 ⏳
-The borrowing record — a student education record.
+The borrowing ledger — **one row per loan**, and a student education record.
+
+This is the authoritative answer to "who has a copy of this book". The book
+document has a single `checkedOutBy` field but can have several copies, so it
+can only ever name one borrower; the teacher portal reads loans from here
+instead. An open loan is a row with `dateReturned == null`.
 
 ```
 bookId, bookTitle, author   string
+coverUrl      string            denormalised so the list renders without
+                                reading every book document
 studentId     uid | null     🔴 null once redacted
 studentName   string         🔴 "[deleted]" once redacted
 dateOut       timestamp
-dateReturned  timestamp | null   null = still checked out
-redactedAt    timestamp          set when the student was erased
+dueDate       timestamp | null  14 days after dateOut
+dateReturned  timestamp | null  null = still checked out
+returnedBy    uid | null        the teacher who confirmed the return
+reconstructed true              synthesised to close a loan that had no row
+redactedAt    timestamp         set when the student was erased
 ```
+Written by the student on self-serve checkout, and by the teacher on approval
+and on return — `firestore.rules` allows both.
 ⏳ **Deleted `HISTORY_RETENTION_DAYS` (730 = 2 years) after `dateOut`, and only
 once `dateReturned` is set.** An open loan is a live record and is never purged.
 
