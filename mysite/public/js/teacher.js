@@ -1,43 +1,60 @@
-// teacher.js — BookWare Teacher Portal
-import { auth, db } from './firebase.js';
-import { ADMIN_EMAILS, isTeacherEmail as isEmailAllowed, shouldForceLogout, buildJoinUrl } from './config.js';
+// teacher.js — BookWare Teacher Portal (UI layer).
+//
+// This file renders and wires the portal. It does NOT talk to Firestore: every
+// read and write goes through teacher-api.js. If you find yourself importing
+// firebase-firestore here, the logic belongs in teacher-api.js instead.
+//
+// See ../TEACHER_BACKEND.md for the data model, and ../../CLAUDE.md for how the
+// two halves fit together.
+
+import { auth } from './firebase.js';
+import { ADMIN_EMAILS, shouldForceLogout, buildJoinUrl, isTeacherEmail as isEmailAllowed } from './config.js';
 import { lookupISBN, searchBooks, initCoverFallback } from './books.js';
-import { initTheme, initARIA, initAriaChat, initAriaRecommends, refreshAriaChats, initSettingsModal, openSettingsModal, closeSettingsModal, initStaySignedIn, setAriaAvailability } from './theme.js';
+import {
+  initTheme, initARIA, initAriaChat, initAriaRecommends, refreshAriaChats,
+  initSettingsModal, openSettingsModal, closeSettingsModal, initStaySignedIn, setAriaAvailability,
+} from './theme.js';
 import { runReadingQuiz } from './quiz.js';
 import { runWelcomeTour } from './welcome.js';
 import { setQrImage } from './qr.js';
 import { hidePreloader } from './preloader.js';
-import {
-  runRetentionSweep, eraseStudentFromTeacher, isClassExpired,
-  endOfSchoolDay, HISTORY_RETENTION_DAYS,
-} from './retention.js';
+import { HISTORY_RETENTION_DAYS } from './retention.js';
+import * as api from './teacher-api.js';
 import {
   signOut, onAuthStateChanged,
   setPersistence, browserLocalPersistence, browserSessionPersistence,
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-import {
-  doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc,
-  collection, query, where, onSnapshot, serverTimestamp, Timestamp, arrayRemove,
-  getCountFromServer,
-} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let currentUser          = null;
-let teacherData          = null;
+// Everything here is a cache of what the API last returned. It is never the
+// source of truth, and nothing is written to it that wasn't read back from a
+// successful call.
+let me                   = null;   // { uid, email, role, teacher }
 let allBooks             = [];
+let allClasses           = [];
+let openLoans            = [];     // history rows with dateReturned == null
 let recommendations      = [];
 let bookSearchResults    = [];
 let recGoogleResults     = [];
 let readingSearchResults = [];
 let recGoogleDebounce    = null;
-let historyUnsubscribe   = null;
-let allClasses           = [];
+let stopHistoryWatch     = null;
+
+const teacherData = () => me?.teacher ?? null;
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 function esc(s) {
   return String(s ?? '')
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/** One escaped, human-readable line for any error the API can throw. */
+function describeError(err) {
+  if (!err) return 'unknown error';
+  const msg  = err.message ?? String(err);
+  const hint = err.hint ? ` — ${err.hint}` : '';
+  return esc(`${msg}${hint}`);
 }
 
 function toast(msg, type = 'info') {
@@ -47,22 +64,76 @@ function toast(msg, type = 'info') {
   el.className = `toast ${type}`;
   el.innerHTML = msg;
   c.appendChild(el);
-  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity 0.3s'; setTimeout(() => el.remove(), 300); }, 4200);
+  setTimeout(() => {
+    el.style.opacity = '0';
+    el.style.transition = 'opacity 0.3s';
+    setTimeout(() => el.remove(), 300);
+  }, 4200);
+}
+
+/** Report a failed action. Errors from the API already carry the explanation;
+ *  this just puts it somewhere the teacher will see it. */
+function toastError(err, type = 'danger') {
+  toast(describeError(err), type);
 }
 
 function fmtDate(ts) {
   if (!ts) return '—';
   const d = ts.toDate ? ts.toDate() : new Date(ts);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function genCode() {
-  // Cryptographically-random 6-char code from an unambiguous alphabet
-  // (no 0/O/1/I/L) so codes are hard to guess and easy to read aloud.
-  const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-  const bytes = crypto.getRandomValues(new Uint8Array(6));
-  return Array.from(bytes, b => alphabet[b % alphabet.length]).join('');
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** Panel-level failure state with a way out, so no panel can sit on "Loading…"
+ *  forever with nothing to click. */
+function renderPanelError(el, what, err) {
+  if (!el) return;
+  el.innerHTML = `
+    <p class='empty-state' style='color:var(--danger)'>
+      <i class='bi bi-exclamation-triangle-fill' aria-hidden='true'></i>
+      Couldn't load ${esc(what)} — ${describeError(err)}
+    </p>`;
+  const btn = document.createElement('button');
+  btn.className = 'btn btn--sm';
+  btn.innerHTML = `<i class='bi bi-arrow-clockwise' aria-hidden='true'></i> Retry`;
+  btn.addEventListener('click', () => window.location.reload());
+  el.appendChild(btn);
 }
+
+function renderSkeletonRows(container, count = 5) {
+  container.innerHTML = Array.from({ length: count }, () => `
+    <div class='skeleton-book-row'>
+      <div class='skeleton skeleton-book-cover'></div>
+      <div class='skeleton-book-info'>
+        <div class='skeleton skeleton-line-title'></div>
+        <div class='skeleton skeleton-line-author'></div>
+        <div class='skeleton skeleton-line-badge'></div>
+      </div>
+    </div>`).join('');
+}
+
+/** Run one start-up step in isolation.
+ *
+ *  Start-up is a sequence of independent loads. Run as one chain, the first
+ *  failure silently cancelled everything after it — which is what left the
+ *  Library tab's panels on "Loading…" until a nav round-trip re-ran them. A
+ *  step that fails now names itself and lets the rest of the portal carry on. */
+async function step(label, fn) {
+  try {
+    return await fn();
+  } catch (err) {
+    console.error(`[teacher] start-up step "${label}" failed:`, err);
+    toast(`Couldn't load ${esc(label)} — ${describeError(err)} <button class="toast-retry" data-retry="1">Retry</button>`, 'danger');
+    return null;
+  }
+}
+
+// Any "Retry" offered in a failure toast just reloads — every start-up step is
+// idempotent, and a reload is more reliable than resuming from a partial state.
+document.getElementById('toastContainer')?.addEventListener('click', (e) => {
+  if (e.target.closest('[data-retry]')) window.location.reload();
+});
 
 // ── Sidebar + routing ─────────────────────────────────────────────────────────
 document.getElementById('sidebarToggle')?.addEventListener('click', () => {
@@ -71,7 +142,10 @@ document.getElementById('sidebarToggle')?.addEventListener('click', () => {
   document.getElementById('sidebarToggle')?.setAttribute('aria-expanded', String(!collapsed));
 });
 
-const PAGE_TITLES = { library: 'Library', students: 'Students', reading: 'Now Reading', recommendations: 'Recommendations', invites: 'Invite Teachers', settings: 'Settings' };
+const PAGE_TITLES = {
+  library: 'Library', students: 'Students', reading: 'Now Reading',
+  recommendations: 'Recommendations', invites: 'Invite Teachers', settings: 'Settings',
+};
 
 document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
   btn.addEventListener('click', () => showPage(btn.dataset.page));
@@ -82,283 +156,170 @@ function showPage(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => { n.classList.remove('active'); n.removeAttribute('aria-current'); });
   document.getElementById(name + 'Page')?.classList.add('active');
-  // Mark ALL matching nav buttons (sidebar + bottom nav) as active
   document.querySelectorAll(`[data-page="${name}"]`).forEach(btn => {
     btn.classList.add('active');
     btn.setAttribute('aria-current', 'page');
   });
   const pt = document.getElementById('pageTitle');
   if (pt) pt.textContent = PAGE_TITLES[name] ?? name;
-  if (name === 'library')         { loadCheckedOut(); loadHistory(); }
+
+  if (name === 'library')         { loadCheckedOut(); startHistoryWatch(); }
   if (name === 'students')        { loadActiveBans(); loadRoster(); loadPendingRequests(); }
   if (name === 'recommendations') { renderRecommendationsList(); renderRecPicker(); renderRecReadingDisplay(); }
   if (name === 'invites')         { loadPastInvites(); }
   if (name === 'reading')         { renderReadingPicker(); renderReadingDisplay(); renderReadingPreview(); }
 }
 
-// ── Auth ──────────────────────────────────────────────────────────────────────
-// How long any single start-up read may take before we stop waiting on it.
-// A Firestore read that never settles (rather than failing outright) is the
-// worst case here: nothing throws, so nothing is caught, and the panel sits on
-// "Loading…" forever with no clue why.
-const STEP_TIMEOUT_MS = 12000;
+// ═══════════════════════════════════════════════════════════════════════════
+// Auth + start-up
+// ═══════════════════════════════════════════════════════════════════════════
 
-/** Run one start-up step in isolation, with a deadline.
- *
- *  Start-up is a sequence of independent loads. Running them as one chain meant
- *  the first failure — or worse, the first read that simply never came back —
- *  silently cancelled everything after it. A step that fails or stalls now says
- *  which one it was and lets the rest of the portal carry on.
- *  Returns the step's value, or null. */
-async function step(label, fn) {
-  let timer;
-  try {
-    return await Promise.race([
-      fn(),
-      new Promise((_, reject) => {
-        timer = setTimeout(
-          () => reject(Object.assign(new Error(`timed out after ${STEP_TIMEOUT_MS / 1000}s`), { code: 'bw/step-timeout' })),
-          STEP_TIMEOUT_MS,
-        );
-      }),
-    ]);
-  } catch (err) {
-    console.error(`[teacher] start-up step "${label}" failed:`, err);
-    toast(`Couldn't load ${esc(label)} — ${esc(err?.code ?? err?.message ?? 'unknown error')}. <button class="toast-retry" data-retry="1">Retry</button>`, 'danger');
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-// Any "Retry" offered in a failure toast just reloads — every start-up step is
-// idempotent, and a reload is far more reliable than trying to resume a chain
-// from an unknown partial state.
-document.getElementById('toastContainer')?.addEventListener('click', (e) => {
-  if (e.target.closest('[data-retry]')) window.location.reload();
-});
-
-onAuthStateChanged(auth, async (user) => {
-  if (!user) { window.location.href = '/'; return; }
-  document.documentElement.style.visibility = 'visible';
-
-  try {
-    if (!isEmailAllowed(user.email)) { await signOut(auth); window.location.href = '/'; return; }
-
-    // admin/settings carries both the access gates and the school-wide ARIA
-    // policy. Admins are exempt from the gates but NOT from the ARIA policy, so
-    // the read itself happens for everyone and only the gating is conditional.
-    try {
-      const s        = await readWithDeadline(getDoc(doc(db, 'admin', 'settings')));
-      const settings = s.exists() ? s.data() : {};
-      if (!ADMIN_EMAILS.includes(user.email?.toLowerCase())) {
-        if (settings.maintenanceMode === true) {
-          await signOut(auth);
-          alert('BookWare is currently under maintenance. Please check back soon.');
-          window.location.href = '/';
-          return;
-        }
-        if (await shouldForceLogout(s, user)) {
-          await signOut(auth);
-          window.location.href = '/';
-          return;
-        }
-      }
-      // Unset means allowed, so a school that never touched the switch — or a
-      // read that fails below — keeps ARIA rather than losing it silently.
-      setAriaAvailability(
-        settings.ariaTeachersEnabled !== false,
-        'ARIA has been turned off for teachers by a school administrator.',
-      );
-    } catch (_) {}
-
-    const userSnap = await readCritical(() => getDoc(doc(db, 'users', user.uid)));
-    const userRole = userSnap.exists() ? userSnap.data().role : null;
-    if (!userSnap.exists() || (userRole !== 'teacher' && userRole !== 'admin')) { await signOut(auth); window.location.href = '/'; return; }
-
-    currentUser   = user;
-    let tSnap     = await readCritical(() => getDoc(doc(db, 'teachers', user.uid)));
-    if (!tSnap.exists()) {
-      // An owner on the admin allowlist runs the teacher portal too (see
-      // FIRESTORE_SCHEMA.md — "the teacher portal admits both" roles). But the
-      // admin sign-in path in auth.js only ever writes users/{uid} + heads to
-      // admin.html; it never creates teachers/{uid}. So an admin who opens the
-      // teacher portal used to dead-end HERE on "Teacher record not found" with
-      // every panel blank and nothing in the console — it's a plain return, not
-      // an error. Bootstrap the record for them (firestore.rules already allows
-      // an admin to create their own teacher doc) instead of stranding them.
-      const isAdminUser = userRole === 'admin' || ADMIN_EMAILS.includes(user.email?.toLowerCase());
-      if (!isAdminUser) {
-        hidePreloader();
-        toast('Teacher record not found. Ask an admin or another teacher for an invite link.', 'danger');
-        return;
-      }
-      try {
-        await setDoc(doc(db, 'teachers', user.uid), {
-          name:            user.displayName ?? user.email ?? '',
-          email:           user.email ?? '',
-          createdAt:       serverTimestamp(),
-          canInvite:       true,
-          libraryPublic:   false,
-          requireApproval: false,
-        });
-        tSnap = await getDoc(doc(db, 'teachers', user.uid));
-      } catch (err) {
-        console.error('[teacher] could not create teacher record for admin:', err);
-        hidePreloader();
-        toast(`Couldn't create your teacher record — ${esc(err.code ?? err.message ?? 'unknown error')}. <button class="toast-retry" data-retry="1">Retry</button>`, 'danger');
-        return;
-      }
-      toast(`<i class='bi bi-check2'></i> Teacher workspace created for ${esc(user.email ?? 'your account')}.`, 'success');
-    }
-    teacherData   = tSnap.data();
-
-    // Backfill for accounts created before canInvite existed on the schema —
-    // every teacher is meant to be able to invite (see settings badge below),
-    // but legacy docs never got the field, so the invites/{token} create rule
-    // (which defaults missing canInvite to false) silently blocks their
-    // "Generate & Copy Link" button.
-    if (teacherData.canInvite !== true) {
-      try {
-        await updateDoc(doc(db, 'teachers', user.uid), { canInvite: true });
-        teacherData.canInvite = true;
-      } catch (err) {
-        console.warn('[teacher] failed to backfill canInvite:', err);
-      }
-    }
-
-    populateTopBar();
-    initCoverFallback();
-    if (!sessionStorage.getItem('bw-welcomed')) {
-      const first = (currentUser.displayName ?? '').split(' ')[0] || 'there';
-      setTimeout(() => toast(`Welcome back, ${esc(first)} <i class='bi bi-hand-wave-fill'></i>`, 'success'), 800);
-      sessionStorage.setItem('bw-welcomed', '1');
-    }
-    renderSettings();
-    initTheme();
-    initARIA(toast);
-    initAriaChat('ariaChatMount', 'teacher', () => teacherData?.readingProfile);
-    initAriaRecommends('ariaRecommendsMount', 'teacher', () => teacherData?.readingProfile);
-    initStaySignedIn((stay) => setPersistence(auth, stay ? browserLocalPersistence : browserSessionPersistence));
-    initSettingsModal();
-    setupRetakeQuiz();
-    setupReplayIntro();
-    setupSignout();
-
-    // The splash screen was waiting on EVERYTHING — retention sweep, classes,
-    // currently-reading, checked-out, history — before revealing anything,
-    // which just relocated the "loading very slowly" complaint from a blank
-    // page to a stuck spinner. Only the default-visible Library list needs to
-    // be ready before reveal (renderLibraryList() reads `recommendations` to
-    // badge recommended books, so that pair has to stay sequential). Every
-    // other panel already has its own "Loading…" placeholder, so it can
-    // finish after reveal same as it would on any other tab switch.
-    // Only the default-visible Library list needs to be ready before reveal
-    // (renderLibraryList() reads `recommendations` to badge recommended books,
-    // so that pair has to stay sequential). Everything else has its own
-    // placeholder and can finish after reveal.
-    //
-    // Each step below is isolated with step(). They used to run as one
-    // unbroken chain, so a single failure anywhere — a denied read, a missing
-    // element — abandoned every step after it. That is what left the Library
-    // tab's panels stuck on "Loading…" until a nav click round-tripped through
-    // another tab and back, which reran them: the classic "nothing loads until
-    // I visit the Students tab".
-    // Recommendations only badges the book rows, so it must not gate the books
-    // themselves — if it stalls, the library still renders (unbadged) rather
-    // than the whole page waiting on it.
-    await step('recommendations', () => loadRecommendations());
-    await step('your books', () => loadLibrary());
-    step('visibility toggle', () => initVisibilityToggle());
-    step('checkout mode',     () => initCheckoutMode());
-    hidePreloader();
-
-    // First-run intro slideshow, then the reading-preferences quiz. Both run
-    // AFTER hidePreloader(): opening a modal while the full-screen splash is
-    // still up is how an intro ends up looking like it never fires at all.
-    // Fire-and-forget — they pop up over the already-loaded portal.
-    runFirstRunOnboarding();
-
-    // The Library page is active by default, so showPage() never fires for it
-    // and these have to be kicked off by hand.
-    //
-    // Deliberately NOT awaited and not chained to each other. These four read
-    // different collections and none needs another's result, so running them
-    // concurrently means one slow or stalled read can't hold the other three
-    // on "Loading…" — which is exactly how the Library tab ended up blank
-    // until a nav round-trip to the Students tab and back re-ran them.
-    step('checked-out list', () => loadCheckedOut());
-    step('history',          () => loadHistory());
-    step('now reading',      () => loadCurrentlyReading());
-    step('biweekly check-in', () => checkBiweeklyNotification());
-
-    // Classes drive the Students tab AND the class-code cards. They used to sit
-    // behind the retention sweep, which walks every class and years of history
-    // — so on a big library the codes stayed on "Loading classes…" for as long
-    // as that took. The sweep is opportunistic housekeeping; it can go last.
-    await step('classes', () => loadStudentCode());
-
-    // Retention sweep. Opportunistic — see retention.js.
-    const purged = await step('retention sweep', () => runRetentionSweep(db, currentUser.uid));
-    if (purged) {
-      const bits = [];
-      if (purged.students) bits.push(`${purged.students} student record${purged.students !== 1 ? 's' : ''} from ${purged.classes} ended class${purged.classes !== 1 ? 'es' : ''}`);
-      if (purged.history)  bits.push(`${purged.history} checkout record${purged.history !== 1 ? 's' : ''} over ${Math.round(HISTORY_RETENTION_DAYS / 365)} years old`);
-      toast(`<i class='bi bi-shield-check'></i> Auto-deleted ${bits.join(' and ')}.`, 'info');
-      // The sweep can delete roster entries, so the counts on screen are stale.
-      await step('roster refresh', () => loadStudentCode());
-    }
-
-    // Any class still missing a last day of school blocks class management.
-    await step('school-year prompt', () => requireSchoolYearEndDates());
-
-  } catch (err) {
-    console.error('[teacher] Init failed:', err);
-    hidePreloader();
-    toast(`Failed to load the portal — ${esc(err.code ?? err.message ?? 'unknown error')}. <button class="toast-retry" data-retry="1">Retry</button>`, 'danger');
-  }
-});
-
-// Bound at module scope, NOT inside the auth handler.
-//
-// Signing out needs nothing but the auth object, yet it used to be wired
-// partway down the start-up chain — so any step that threw above it (or the
-// "Teacher record not found" early return, which bails before this point)
-// left the user on a page whose Sign Out button did nothing at all. The way
-// out of the app must never depend on the app having finished loading.
+// Bound at module scope, NOT inside the auth handler. The way out of the app
+// must never depend on the app having finished loading — wired further down
+// the chain, any step that threw above it left Sign Out doing nothing at all.
 document.getElementById('signoutBar')?.addEventListener('click', () => signOut(auth));
 document.getElementById('sidebarSignoutBtn')?.addEventListener('click', () => signOut(auth));
 
+onAuthStateChanged(auth, async (user) => {
+  if (!user) { api.closeTeacherSession(); window.location.href = '/'; return; }
+  document.documentElement.style.visibility = 'visible';
+
+  if (!isEmailAllowed(user.email)) { await signOut(auth); window.location.href = '/'; return; }
+
+  // ── Gates ──
+  // admin/settings carries both the access gates and the school-wide ARIA
+  // policy. Admins are exempt from the gates but not from the ARIA policy, so
+  // the read happens for everyone and only the gating is conditional. This
+  // never throws — a school that never touched these settings gets defaults.
+  const { snap: settingsSnap, settings } = await api.readAdminSettings();
+  const isAllowlistedAdmin = ADMIN_EMAILS.includes(user.email?.toLowerCase());
+  if (!isAllowlistedAdmin) {
+    if (settings.maintenanceMode === true) {
+      await signOut(auth);
+      alert('BookWare is currently under maintenance. Please check back soon.');
+      window.location.href = '/';
+      return;
+    }
+    if (settingsSnap && shouldForceLogout(settingsSnap, user)) {
+      await signOut(auth);
+      window.location.href = '/';
+      return;
+    }
+  }
+  setAriaAvailability(
+    settings.ariaTeachersEnabled !== false,
+    'ARIA has been turned off for teachers by a school administrator.',
+  );
+
+  // ── Session ──
+  try {
+    const opened = await api.openTeacherSession(user);
+    me = api.currentSession();
+    if (opened.created) {
+      toast(`<i class='bi bi-check2'></i> Teacher workspace created for ${esc(user.email ?? 'your account')}.`, 'success');
+    }
+  } catch (err) {
+    hidePreloader();
+    if (err.code === 'bw/not-a-teacher') { await signOut(auth); window.location.href = '/'; return; }
+    toastError(err);
+    return;
+  }
+
+  // ── Chrome that needs nothing but the session ──
+  populateTopBar();
+  initCoverFallback();
+  renderSettings();
+  initTheme();
+  initARIA(toast);
+  initAriaChat('ariaChatMount', 'teacher', () => teacherData()?.readingProfile);
+  initAriaRecommends('ariaRecommendsMount', 'teacher', () => teacherData()?.readingProfile);
+  initStaySignedIn((stay) => setPersistence(auth, stay ? browserLocalPersistence : browserSessionPersistence));
+  initSettingsModal();
+  initVisibilityToggle();
+  initCheckoutMode();
+  setupRetakeQuiz();
+  setupReplayIntro();
+  setupSignout();
+
+  if (!sessionStorage.getItem('bw-welcomed')) {
+    const first = (user.displayName ?? '').split(' ')[0] || 'there';
+    setTimeout(() => toast(`Welcome back, ${esc(first)} <i class='bi bi-hand-wave-fill'></i>`, 'success'), 800);
+    sessionStorage.setItem('bw-welcomed', '1');
+  }
+
+  // ── Data ──
+  // Only the default-visible Library list has to be ready before the splash
+  // comes down; renderLibraryList() badges recommended books, so that pair
+  // stays sequential. Everything else has its own placeholder and finishes
+  // afterwards — waiting on all of it just moved the complaint from a blank
+  // page to a stuck spinner.
+  await step('recommendations', () => loadRecommendations());
+  await step('your books', () => loadLibrary());
+  hidePreloader();
+
+  // Fire-and-forget over the already-loaded portal. Opening a modal while the
+  // splash is still up is how an intro ends up looking like it never fired.
+  runFirstRunOnboarding();
+
+  // The Library page is active by default, so showPage() never fires for it.
+  // Deliberately not awaited and not chained: these read different collections
+  // and none needs another's result, so one slow read can't hold the rest on
+  // "Loading…".
+  // The check-in banner lists the open loans, so it is chained behind them
+  // rather than raced against them.
+  step('checked-out books', () => loadCheckedOut().then(checkBiweeklyNotification));
+  step('checkout history',  () => startHistoryWatch());
+  step('now reading',       () => loadCurrentlyReading());
+
+  // Classes drive the Students tab and the class-code cards. They used to sit
+  // behind the retention sweep, so on a big library the codes stayed on
+  // "Loading classes…" for as long as that took. The sweep goes last.
+  await step('classes', () => loadClasses());
+
+  const purged = await api.runRetention();
+  if (purged) {
+    const bits = [];
+    if (purged.students) bits.push(`${plural(purged.students, 'student record')} from ${plural(purged.classes, 'ended class', 'ended classes')}`);
+    if (purged.history)  bits.push(`${plural(purged.history, 'checkout record')} over ${Math.round(HISTORY_RETENTION_DAYS / 365)} years old`);
+    toast(`<i class='bi bi-shield-check'></i> Auto-deleted ${bits.join(' and ')}.`, 'info');
+    await step('classes', () => loadClasses());
+  }
+
+  await step('school-year prompt', () => requireSchoolYearEndDates());
+});
+
 function setupSignout() {
   const hint = document.getElementById('signoutEmail');
-  if (hint && currentUser) hint.textContent = currentUser.email;
+  if (hint && me) hint.textContent = me.email;
 }
 
-// ── First-run onboarding: intro slideshow, then the reading quiz ──────────────
-/** Runs both first-run steps in order, skipping whichever this teacher has
- *  already seen. Deliberately not awaited by the caller. */
+function populateTopBar() {
+  const av      = document.getElementById('userAvatar');
+  const nameEl  = document.getElementById('userDisplayName');
+  const display = auth.currentUser?.displayName ?? me?.email ?? '?';
+  const initials = display.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  if (av)     av.textContent     = initials;
+  if (nameEl) nameEl.textContent = display.split(' ')[0];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// First-run onboarding
+// ═══════════════════════════════════════════════════════════════════════════
+
 async function runFirstRunOnboarding() {
   await maybeRunWelcomeTour();
   await maybeRunOnboardingQuiz();
 }
 
-/** The intro slideshow. Shown once per account; "seen" lives on the teacher
- *  doc so it follows them across devices and so the admin portal's "Replay
- *  Onboarding" button can genuinely bring it back. */
 async function maybeRunWelcomeTour() {
-  if (teacherData?.welcomeSeenAt) return;
+  if (teacherData()?.welcomeSeenAt) return;
   await showWelcomeTour();
 }
 
 async function showWelcomeTour() {
   await runWelcomeTour('teacher');
-  try {
-    await updateDoc(doc(db, 'teachers', currentUser.uid), { welcomeSeenAt: serverTimestamp() });
-    teacherData.welcomeSeenAt = new Date();
-  } catch (err) {
-    // Worst case the tour shows once more — not worth a visible error.
-    console.warn('[teacher] could not record welcome tour as seen:', err);
-  }
+  // Worst case the tour shows once more — not worth a visible error.
+  try { await api.markWelcomeSeen(); } catch (err) { console.warn('[teacher] could not record the tour as seen:', err); }
 }
 
 function setupReplayIntro() {
@@ -370,24 +331,16 @@ function setupReplayIntro() {
   });
 }
 
-// ── Reading-preferences quiz (first run + retake) ─────────────────────────────
 async function maybeRunOnboardingQuiz() {
-  if (teacherData?.readingProfile) return; // already taken (or skipped) before
+  if (teacherData()?.readingProfile) return;   // already taken (or skipped)
   await runQuizFlow({ isFirstRun: true });
-}
-
-async function retakeReadingQuiz() {
-  await runQuizFlow({ isFirstRun: false });
 }
 
 async function runQuizFlow({ isFirstRun }) {
   try {
     const answers = await runReadingQuiz('teacher');
-    const profile = answers
-      ? { ...answers, completedAt: serverTimestamp() }
-      : { skipped: true, skippedAt: serverTimestamp() };
-    await updateDoc(doc(db, 'teachers', currentUser.uid), { readingProfile: profile });
-    teacherData.readingProfile = profile;
+    const profile = answers ? { ...answers, completedAt: new Date() } : { skipped: true, skippedAt: new Date() };
+    await api.setReadingProfile(profile);
     if (answers) {
       toast(`<i class="bi bi-stars"></i> Thanks! ARIA now knows what to recommend for you and your shelves.`, 'success');
       refreshAriaChats();
@@ -395,39 +348,35 @@ async function runQuizFlow({ isFirstRun }) {
       toast('No worries — you can take the quiz anytime from here.', 'info');
     }
   } catch (err) {
-    console.error('[teacher] Reading quiz failed:', err);
+    console.error('[teacher] reading quiz failed:', err);
+    toastError(err);
   }
 }
 
 function setupRetakeQuiz() {
   const btn = document.getElementById('retakeQuizBtn');
-  if (!btn) return;
-  btn.addEventListener('click', () => {
+  btn?.addEventListener('click', () => {
     btn.disabled = true;
-    retakeReadingQuiz().finally(() => { btn.disabled = false; });
+    runQuizFlow({ isFirstRun: false }).finally(() => { btn.disabled = false; });
   });
 }
 
-function populateTopBar() {
-  const av     = document.getElementById('userAvatar');
-  const nameEl = document.getElementById('userDisplayName');
-  const display  = currentUser.displayName ?? currentUser.email ?? '?';
-  const initials = display.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-  if (av)     av.textContent     = initials;
-  if (nameEl) nameEl.textContent = display.split(' ')[0];
-}
+// ═══════════════════════════════════════════════════════════════════════════
+// Settings panel
+// ═══════════════════════════════════════════════════════════════════════════
 
 function renderSettings() {
-  const email = currentUser?.email ?? '—';
+  const t     = teacherData();
+  const email = me?.email ?? '—';
   const sub   = document.getElementById('settingsEmailSub');
   if (sub) sub.textContent = email;
 
   const acct = document.getElementById('accountInfoSection');
-  if (acct && teacherData) {
+  if (acct && t) {
     acct.innerHTML = `
       <div class='settings-row' style='border-top:none'>
         <div class='settings-label'>Name</div>
-        <span class='muted-text small-text'>${esc(teacherData.name ?? '—')}</span>
+        <span class='muted-text small-text'>${esc(t.name ?? '—')}</span>
       </div>
       <div class='settings-row'>
         <div class='settings-label'>Email</div>
@@ -435,7 +384,7 @@ function renderSettings() {
       </div>
       <div class='settings-row'>
         <div class='settings-label'>Member Since</div>
-        <span class='muted-text small-text'>${fmtDate(teacherData.createdAt)}</span>
+        <span class='muted-text small-text'>${fmtDate(t.createdAt)}</span>
       </div>`;
   }
 
@@ -457,15 +406,12 @@ function renderRetentionBadges() {
     const dated = allClasses.filter(c => c.endDate);
     if (!allClasses.length) {
       rosterEl.textContent = 'No classes yet';
+      rosterEl.style.color = '';
     } else if (!dated.length) {
       rosterEl.textContent = 'No date set';
       rosterEl.style.color = 'var(--danger)';
     } else {
-      // Soonest upcoming deletion is the one worth surfacing.
-      const next = dated
-        .map(c => endOfSchoolDay(c.endDate))
-        .filter(Boolean)
-        .sort((a, b) => a - b)[0];
+      const next = dated.map(c => api.endOfDay(c.endDate)).filter(Boolean).sort((a, b) => a - b)[0];
       rosterEl.textContent = `Next: ${fmtDate(next)}`;
       rosterEl.style.color = 'var(--success)';
     }
@@ -477,10 +423,12 @@ function renderRetentionBadges() {
   }
 }
 
-// ── School-year end date (data-retention control) ─────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// School-year end date (the data-retention control)
+// ═══════════════════════════════════════════════════════════════════════════
 // Every class must carry a last day of school. On that date the roster (student
-// names + emails) is deleted automatically and firestore.rules stops serving it,
-// so a teacher keeps no student data past the year they taught them.
+// names + emails) is deleted and firestore.rules stops serving it, so a teacher
+// keeps no student data past the year they taught them.
 
 /** Default suggestion: next June 4th (typical Mason last day). */
 function defaultEndDate() {
@@ -489,15 +437,16 @@ function defaultEndDate() {
   return `${year}-06-04`;
 }
 
-/** Format a stored endDate as a YYYY-MM-DD value for <input type="date">. */
+/** A stored endDate as a YYYY-MM-DD value for <input type="date">. */
 function endDateInputValue(endDate) {
-  const d = endOfSchoolDay(endDate);
+  const d = api.endOfDay(endDate);
   if (!d) return '';
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Block the portal until every class has a last day of school. Resolves once
- *  all classes have one (or immediately, if they already do). */
+const todayISO = () => new Date().toISOString().slice(0, 10);
+
+/** Prompt for a last day of school on every class that lacks one. */
 async function requireSchoolYearEndDates() {
   const modal = document.getElementById('schoolYearModal');
   const list  = document.getElementById('schoolYearClassList');
@@ -506,9 +455,8 @@ async function requireSchoolYearEndDates() {
   const hint  = document.getElementById('schoolYearHint');
   if (!modal || !list || !save) return;
 
-  // Asked once already this session — don't trap the teacher out of every
-  // other feature (invites, ARIA, reading, etc.) on every page. The roster
-  // itself stays flagged in Settings until a date is actually set.
+  // Asked once already this session — don't trap the teacher out of every other
+  // feature on every page. The roster stays flagged in Settings regardless.
   if (sessionStorage.getItem('bw-schoolyear-dismissed')) return;
 
   const missing = allClasses.filter(c => !c.endDate);
@@ -519,12 +467,12 @@ async function requireSchoolYearEndDates() {
     modal.hidden = true;
   };
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   list.innerHTML = missing.map(c => `
     <div class='settings-row'>
       <div>
         <div class='settings-label'>${esc(c.name)}</div>
-        <div class='settings-hint'>${c.studentCount ?? 0} student${(c.studentCount ?? 0) !== 1 ? 's' : ''}</div>
+        <div class='settings-hint'>${plural(c.studentCount ?? 0, 'student')}</div>
       </div>
       <input type='date' class='text-input school-year-input' style='max-width:190px'
              data-cid='${esc(c.id)}' min='${today}' value='${defaultEndDate()}'
@@ -534,164 +482,93 @@ async function requireSchoolYearEndDates() {
 
   save.onclick = async () => {
     const inputs = [...list.querySelectorAll('.school-year-input')];
-    if (inputs.some(i => !i.value)) {
-      if (hint) { hint.textContent = 'Pick a date for every class.'; hint.style.color = 'var(--danger)'; }
-      return;
-    }
-    if (inputs.some(i => i.value < today)) {
-      if (hint) { hint.textContent = 'The last day of school can\'t be in the past.'; hint.style.color = 'var(--danger)'; }
-      return;
-    }
+    const fail = (m) => { if (hint) { hint.textContent = m; hint.style.color = 'var(--danger)'; } };
+    if (inputs.some(i => !i.value))          return fail('Pick a date for every class.');
+    if (inputs.some(i => i.value < today))   return fail("The last day of school can't be in the past.");
+
     save.disabled = true;
     if (hint) { hint.textContent = 'Saving…'; hint.style.color = ''; }
     try {
       for (const input of inputs) {
-        const cid = input.dataset.cid;
-        // Stored as a Timestamp at 23:59:59 on the last school day so
-        // firestore.rules can compare it directly against request.time.
-        const stamp = Timestamp.fromDate(endOfSchoolDay(input.value));
-        await updateDoc(doc(db, 'teachers', currentUser.uid, 'classes', cid), { endDate: stamp });
-        const cls = allClasses.find(c => c.id === cid);
+        const stamp = await api.setClassEndDate(input.dataset.cid, input.value);
+        const cls = allClasses.find(c => c.id === input.dataset.cid);
         if (cls) cls.endDate = stamp;
       }
       modal.hidden = true;
       renderClassManager();
       toast(`<i class='bi bi-shield-check'></i> Last day of school saved — rosters auto-delete then.`, 'success');
     } catch (err) {
-      if (hint) { hint.textContent = `Save failed: ${err.message ?? 'unknown'}`; hint.style.color = 'var(--danger)'; }
+      fail(`Save failed: ${describeError(err)}`);
     } finally {
       save.disabled = false;
     }
   };
 }
 
-// ── Class-code mapping ────────────────────────────────────────────────────────
-/** Make sure classCodes/{code} points at this class, and report whether it
- *  ACTUALLY does afterwards.
- *
- *  A student resolves a join code by reading classCodes/{code} directly, so if
- *  that document is missing the code is dead no matter how correct it looks on
- *  the teacher's screen. Writes here can fail for reasons the teacher UI has no
- *  other way to notice (a rules regression being the obvious one), so this
- *  always finishes with a read and returns the verified truth rather than
- *  assuming the write landed. Callers surface `live: false` in the UI. */
-async function ensureClassCodeMapping(inviteCode, classId, createdAt) {
-  if (!inviteCode) return { live: false, error: 'no code' };
-  const ref = doc(db, 'classCodes', inviteCode);
-  try {
-    const existing = await getDoc(ref);
-    if (!existing.exists()) {
-      await setDoc(ref, {
-        teacherId: currentUser.uid,
-        classId,
-        createdAt: createdAt ?? serverTimestamp(),
-      });
-    } else if (existing.data().classId !== classId || existing.data().teacherId !== currentUser.uid) {
-      // Code collision, or a stale mapping left by an older class. Point it here.
-      await setDoc(ref, { teacherId: currentUser.uid, classId, createdAt: serverTimestamp() });
-    }
-    const check = await getDoc(ref);
-    const live = check.exists() &&
-      check.data().classId === classId &&
-      check.data().teacherId === currentUser.uid;
-    return { live, error: live ? null : 'mapping did not stick' };
-  } catch (err) {
-    const code = err.code ?? err.message ?? 'unknown error';
-    console.error(`[teacher] class code "${inviteCode}" could not be registered:`, code, err);
-    return { live: false, error: code };
-  }
-}
+// ═══════════════════════════════════════════════════════════════════════════
+// Classes
+// ═══════════════════════════════════════════════════════════════════════════
 
-// ── Multi-class system ────────────────────────────────────────────────────────
 async function loadClasses() {
-  const snap = await getDocs(collection(db, 'teachers', currentUser.uid, 'classes'));
-  if (snap.empty) {
-    const tSnap     = await getDoc(doc(db, 'teachers', currentUser.uid));
-    const legacyCode = tSnap.data()?.inviteCode ?? genCode();
-    const classRef  = await addDoc(collection(db, 'teachers', currentUser.uid, 'classes'), { name: 'Period 1', inviteCode: legacyCode, createdAt: serverTimestamp() });
-    const res       = await ensureClassCodeMapping(legacyCode, classRef.id, null);
-    // Only genuine legacy roster entries migrate. Docs flagged membershipOnly
-    // are the PII-free access markers written alongside a class-code join (see
-    // student.js) — copying those in would seed the new roster with nameless
-    // "Unknown" students.
-    const oldRoster = await getDocs(collection(db, 'teachers', currentUser.uid, 'students'));
-    const legacyEntries = oldRoster.docs.filter(d => d.data().membershipOnly !== true);
-    for (const s of legacyEntries) await setDoc(doc(db, 'teachers', currentUser.uid, 'classes', classRef.id, 'students', s.id), s.data());
-    allClasses = [{ id: classRef.id, name: 'Period 1', inviteCode: legacyCode, studentCount: legacyEntries.length, codeLive: res.live, codeError: res.error }];
-  } else {
-    allClasses = await Promise.all(snap.docs.map(async d => {
-      const data = d.data();
-
-      // Register this class's code mapping if it's missing, then READ IT BACK.
-      // The read-back is the whole point: it verifies what a student would
-      // actually find, instead of trusting that our own write succeeded. A
-      // silently-denied write here is exactly how every code in the app came
-      // to be unresolvable while the teacher UI looked perfectly healthy.
-      const { live, error } = await ensureClassCodeMapping(data.inviteCode, d.id, data.createdAt);
-
-      // An expired class's roster is no longer readable by the teacher (by
-      // design — see firestore.rules). Skip the count rather than throwing.
-      if (isClassExpired(data.endDate)) return { id: d.id, ...data, studentCount: 0, codeLive: live, codeError: error };
-      // A count aggregation reads none of the roster documents themselves —
-      // much cheaper than getDocs().size once a class has more than a
-      // handful of students, and this runs for every class on every load.
-      let studentCount = 0;
-      try {
-        const countSnap = await getCountFromServer(collection(db, 'teachers', currentUser.uid, 'classes', d.id, 'students'));
-        studentCount = countSnap.data().count;
-      } catch (_) {}
-      return { id: d.id, ...data, studentCount, codeLive: live, codeError: error };
-    }));
-    allClasses.sort((a, b) => (a.createdAt?.seconds ?? 0) - (b.createdAt?.seconds ?? 0));
+  const container = document.getElementById('classManagerContainer');
+  if (container && !container.children.length) {
+    container.innerHTML = `<p class='empty-state loading-state'>Loading classes…</p>`;
+  }
+  try {
+    allClasses = await api.listClasses();
+  } catch (err) {
+    if (container) renderPanelError(container, 'your classes', err);
+    throw err;
   }
   renderClassManager();
+  refreshVisibilityStats();
 }
-
-async function loadStudentCode() { await loadClasses(); }
 
 function renderClassManager() {
   const container = document.getElementById('classManagerContainer');
   if (!container) return;
   container.innerHTML = '';
+
   allClasses.forEach(cls => {
     const card = document.createElement('div');
     card.className = 'class-card';
     const endLabel = cls.endDate
       ? `Roster auto-deletes ${esc(endDateInputValue(cls.endDate))}`
       : '<span style="color:var(--danger)">No last day of school set</span>';
+
     card.innerHTML = `
       <div class='class-card-header'>
         <div>
           <div class='class-card-name'>${esc(cls.name)}</div>
-          <div class='class-card-meta'>${cls.studentCount} student${cls.studentCount !== 1 ? 's' : ''}</div>
+          <div class='class-card-meta'>${plural(cls.studentCount ?? 0, 'student')}</div>
           <div class='class-card-meta' style='display:flex;align-items:center;gap:6px;margin-top:2px'>
             <i class='bi bi-shield-lock-fill' aria-hidden='true'></i> ${endLabel}
-            <button class='btn btn--xs' data-action='end-date' data-cid='${esc(cls.id)}'>Change</button>
+            <button class='btn btn--xs' data-action='end-date'>Change</button>
           </div>
         </div>
         <div style='display:flex;gap:6px;align-items:center'>
-          <button class='btn btn--xs' data-action='rename' data-cid='${esc(cls.id)}'><i class='bi bi-pencil-fill'></i> Rename</button>
-          <button class='btn btn--xs danger' data-action='delete-class' data-cid='${esc(cls.id)}' data-name='${esc(cls.name)}'><i class='bi bi-trash3-fill'></i></button>
+          <button class='btn btn--xs' data-action='rename'><i class='bi bi-pencil-fill'></i> Rename</button>
+          <button class='btn btn--xs danger' data-action='delete-class'><i class='bi bi-trash3-fill'></i></button>
         </div>
       </div>
       <div class='code-box'>
-        <span class='code-val'>${esc(cls.inviteCode)}</span>
+        <span class='code-val'>${esc(cls.inviteCode ?? '—')}</span>
         <div class='code-box-btns'>
-          <button class='btn btn--sm' data-action='copy-code' data-cid='${esc(cls.id)}'>Copy</button>
-          <button class='btn btn--sm' data-action='share' data-cid='${esc(cls.id)}'><i class='bi bi-qr-code'></i> Link &amp; QR</button>
-          <button class='btn btn--sm' data-action='refresh-code' data-cid='${esc(cls.id)}'><i class='bi bi-arrow-clockwise'></i> New</button>
+          <button class='btn btn--sm' data-action='copy-code'>Copy</button>
+          <button class='btn btn--sm' data-action='share'><i class='bi bi-qr-code'></i> Link &amp; QR</button>
+          <button class='btn btn--sm' data-action='refresh-code'><i class='bi bi-arrow-clockwise'></i> New</button>
         </div>
       </div>
-      <!-- Same code, two easier ways to hand it out: a link students can tap
-           and a QR they can scan. Both land on "/?join=CODE", which fills the
-           code in for them (see consumePendingJoinCode in student.js). -->
+      <!-- Same code, two easier ways to hand it out: a link students can tap and
+           a QR they can scan. Both land on "/?join=CODE", which fills the code
+           in for them (see consumePendingJoinCode in student.js). -->
       <div class='join-share' hidden>
         <div class='join-share-url' data-join-url></div>
         <div class='join-share-body'>
           <img class='join-share-qr' alt='QR code to join ${esc(cls.name)}' src='' />
           <div class='join-share-actions'>
-            <button class='btn btn--sm' data-action='copy-link' data-cid='${esc(cls.id)}'><i class='bi bi-clipboard'></i> Copy link</button>
-            <button class='btn btn--sm' data-action='email-link' data-cid='${esc(cls.id)}'><i class='bi bi-envelope-fill'></i> Share by email</button>
+            <button class='btn btn--sm' data-action='copy-link'><i class='bi bi-clipboard'></i> Copy link</button>
+            <button class='btn btn--sm' data-action='email-link'><i class='bi bi-envelope-fill'></i> Share by email</button>
             <p class='join-share-hint'>Project the QR code, or send the link. Students who follow it sign in and join <strong>${esc(cls.name)}</strong> automatically — no typing the code.</p>
           </div>
         </div>
@@ -703,55 +580,44 @@ function renderClassManager() {
             <strong>Students can't join with this code yet.</strong>
             It isn't registered for lookup${cls.codeError ? ` — <code>${esc(cls.codeError)}</code>` : ''}.
           </span>
-          <button class='btn btn--xs' data-action='fix-code' data-cid='${esc(cls.id)}'>Retry</button>
+          <button class='btn btn--xs' data-action='fix-code'>Retry</button>
         </div>` : ''}`;
-    card.querySelector('[data-action="fix-code"]')?.addEventListener('click', async (e) => {
-      const btn = e.currentTarget;
-      btn.disabled = true;
-      const res = await ensureClassCodeMapping(cls.inviteCode, cls.id, cls.createdAt);
-      cls.codeLive = res.live; cls.codeError = res.error;
-      if (res.live) toast(`<i class='bi bi-check2'></i> Code ${esc(cls.inviteCode)} is live — students can join now`, 'success');
-      else toast(`Still failing: ${esc(res.error ?? 'unknown')}`, 'danger');
+
+    const on = (action, handler) => card.querySelector(`[data-action="${action}"]`)?.addEventListener('click', handler);
+    const joinUrl = cls.inviteCode ? buildJoinUrl(cls.inviteCode) : '';
+
+    on('fix-code', async (e) => {
+      e.currentTarget.disabled = true;
+      const res = await api.ensureClassCodeMapping(cls.inviteCode, cls.id, { createdAt: cls.createdAt });
+      cls.codeLive = res.live; cls.codeError = res.error; cls.inviteCode = res.code;
+      toast(res.live
+        ? `<i class='bi bi-check2'></i> Code ${esc(res.code)} is live — students can join now`
+        : `Still failing: ${esc(res.error ?? 'unknown')}`, res.live ? 'success' : 'danger');
       renderClassManager();
     });
-    card.querySelector('[data-action="rename"]')?.addEventListener('click', () => renameClass(cls.id, cls.name));
-    card.querySelector('[data-action="delete-class"]')?.addEventListener('click', () => deleteClass(cls.id, cls.name));
-    card.querySelector('[data-action="copy-code"]')?.addEventListener('click', () => {
-      navigator.clipboard.writeText(cls.inviteCode).then(() => toast(`<i class='bi bi-check2'></i> Code for ${esc(cls.name)} copied`, 'success'));
-    });
+    on('rename',       () => renameClass(cls));
+    on('delete-class', () => deleteClass(cls));
+    on('end-date',     () => editClassEndDate(cls));
+    on('refresh-code', () => refreshClassCode(cls));
+    on('copy-code',    () => copyText(cls.inviteCode, `Code for ${cls.name} copied`));
+    on('copy-link',    () => copyText(joinUrl, `Join link for ${cls.name} copied`));
+    on('email-link',   () => shareJoinLinkByEmail(cls, joinUrl));
 
-    // ── Join link + QR ───────────────────────────────────────────────────────
-    const joinUrl   = buildJoinUrl(cls.inviteCode);
-    const shareBox  = card.querySelector('.join-share');
-    const shareQr   = shareBox?.querySelector('.join-share-qr');
+    const shareBox   = card.querySelector('.join-share');
+    const shareQr    = shareBox?.querySelector('.join-share-qr');
     const shareUrlEl = shareBox?.querySelector('[data-join-url]');
     if (shareUrlEl) shareUrlEl.textContent = joinUrl;
-    card.querySelector('[data-action="share"]')?.addEventListener('click', () => {
+    on('share', () => {
       if (!shareBox) return;
       shareBox.hidden = !shareBox.hidden;
-      // Generate the QR lazily — the library is a ~40 KB lazy import, and most
-      // page loads never open a single one of these panels.
+      // Generate the QR lazily — the library is a ~40 KB import and most page
+      // loads never open one of these panels.
       if (!shareBox.hidden && shareQr && !shareQr.dataset.qrReady) setQrImage(shareQr, joinUrl, 240);
     });
-    card.querySelector('[data-action="copy-link"]')?.addEventListener('click', () => {
-      navigator.clipboard.writeText(joinUrl)
-        .then(() => toast(`<i class='bi bi-check2'></i> Join link for ${esc(cls.name)} copied`, 'success'))
-        .catch(() => toast(`Copy failed — link: ${esc(joinUrl)}`, 'info'));
-    });
-    card.querySelector('[data-action="email-link"]')?.addEventListener('click', () => {
-      const subject = encodeURIComponent(`Join our BookWare class library — ${cls.name}`);
-      const body    = encodeURIComponent(
-        `Hi,\n\nUse this link to join our classroom library on BookWare:\n${joinUrl}\n\n` +
-        `Sign in with your school Google account and you'll be added to ${cls.name} automatically.\n\n` +
-        `If the link doesn't work, sign in at ${window.location.origin} and enter the class code ${cls.inviteCode} under Settings → Teacher Libraries.\n\n` +
-        `— ${teacherData?.name ?? 'Your teacher'}`
-      );
-      window.open(`mailto:?subject=${subject}&body=${body}`);
-    });
-    card.querySelector('[data-action="refresh-code"]')?.addEventListener('click', () => refreshClassCode(cls.id, cls.name));
-    card.querySelector('[data-action="end-date"]')?.addEventListener('click', () => editClassEndDate(cls.id, cls.name, cls.endDate));
+
     container.appendChild(card);
   });
+
   const addBtn = document.createElement('button');
   addBtn.className = 'btn btn--ghost btn--sm';
   addBtn.style.marginTop = '10px';
@@ -759,9 +625,39 @@ function renderClassManager() {
   addBtn.addEventListener('click', createClass);
   container.appendChild(addBtn);
 
-  // Settings renders before classes are loaded, so refresh the retention
-  // summary whenever the class list changes.
+  // Settings renders before classes load, so refresh the retention summary
+  // whenever the class list changes.
   renderRetentionBadges();
+}
+
+function copyText(text, successMsg) {
+  if (!text) return;
+  navigator.clipboard.writeText(text)
+    .then(() => toast(`<i class='bi bi-check2'></i> ${esc(successMsg)}`, 'success'))
+    .catch(() => toast(`Copy failed — here it is: ${esc(text)}`, 'info'));
+}
+
+function shareJoinLinkByEmail(cls, joinUrl) {
+  const subject = encodeURIComponent(`Join our BookWare class library — ${cls.name}`);
+  const body = encodeURIComponent(
+    `Hi,\n\nUse this link to join our classroom library on BookWare:\n${joinUrl}\n\n` +
+    `Sign in with your school Google account and you'll be added to ${cls.name} automatically.\n\n` +
+    `If the link doesn't work, sign in at ${window.location.origin} and enter the class code ${cls.inviteCode} under Settings → Teacher Libraries.\n\n` +
+    `— ${teacherData()?.name ?? 'Your teacher'}`,
+  );
+  window.open(`mailto:?subject=${subject}&body=${body}`);
+}
+
+/** Ask for a date in YYYY-MM-DD, validating before it reaches the API. */
+function promptForEndDate(message, initial) {
+  const val = prompt(message, initial)?.trim();
+  if (!val) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(val) || !api.endOfDay(val)) {
+    toast('Date must look like 2027-06-04.', 'danger');
+    return null;
+  }
+  if (val < todayISO()) { toast('That date is in the past.', 'danger'); return null; }
+  return val;
 }
 
 async function createClass() {
@@ -769,154 +665,141 @@ async function createClass() {
   if (!name) return;
 
   // Required: a class cannot exist without a deletion date for its roster.
-  const today   = new Date().toISOString().slice(0, 10);
-  const endDate = prompt(
+  const endDate = promptForEndDate(
     `Last day of school for "${name}" (YYYY-MM-DD).\n\n` +
     `On this date the roster — student names and emails — is deleted automatically ` +
     `and you lose access to it.`,
-    defaultEndDate()
-  )?.trim();
+    defaultEndDate(),
+  );
   if (!endDate) { toast('Class not created — a last day of school is required.', 'danger'); return; }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate) || !endOfSchoolDay(endDate)) {
-    toast('Class not created — date must look like 2027-06-04.', 'danger'); return;
-  }
-  if (endDate < today) { toast('Class not created — that date is in the past.', 'danger'); return; }
 
-  const code  = genCode();
-  const stamp = Timestamp.fromDate(endOfSchoolDay(endDate));
-  const ref  = await addDoc(collection(db, 'teachers', currentUser.uid, 'classes'), { name, inviteCode: code, endDate: stamp, createdAt: serverTimestamp() });
-  const res  = await ensureClassCodeMapping(code, ref.id, null);
-  allClasses.push({ id: ref.id, name, inviteCode: code, endDate: stamp, studentCount: 0, createdAt: { seconds: Date.now() / 1000 }, codeLive: res.live, codeError: res.error });
-  renderClassManager();
-  toast(res.live
-    ? `<i class='bi bi-check2'></i> "${esc(name)}" created — code: ${esc(code)}`
-    : `"${esc(name)}" created, but its code isn't usable yet (${esc(res.error ?? 'unknown')}). See the warning on the class.`,
-    res.live ? 'success' : 'danger');
+  try {
+    const cls = await api.createClass({ name, endDate });
+    allClasses.push(cls);
+    renderClassManager();
+    toast(cls.codeLive
+      ? `<i class='bi bi-check2'></i> "${esc(name)}" created — code: ${esc(cls.inviteCode)}`
+      : `"${esc(name)}" created, but its code isn't usable yet (${esc(cls.codeError ?? 'unknown')}). See the warning on the class.`,
+      cls.codeLive ? 'success' : 'danger');
+  } catch (err) { toastError(err); }
 }
 
-async function editClassEndDate(classId, className, current) {
-  const today = new Date().toISOString().slice(0, 10);
-  const val = prompt(
-    `Last day of school for "${className}" (YYYY-MM-DD).\n\n` +
+async function renameClass(cls) {
+  const name = prompt('New name:', cls.name)?.trim();
+  if (!name || name === cls.name) return;
+  try {
+    await api.renameClass(cls.id, name);
+    cls.name = name;
+    renderClassManager();
+    if (document.getElementById('studentsPage')?.classList.contains('active')) loadRoster();
+    toast(`<i class='bi bi-check2'></i> Renamed to "${esc(name)}"`, 'success');
+  } catch (err) { toastError(err); }
+}
+
+async function editClassEndDate(cls) {
+  const val = promptForEndDate(
+    `Last day of school for "${cls.name}" (YYYY-MM-DD).\n\n` +
     `The roster is deleted automatically on this date.`,
-    endDateInputValue(current) || defaultEndDate()
-  )?.trim();
+    endDateInputValue(cls.endDate) || defaultEndDate(),
+  );
   if (!val) return;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(val) || !endOfSchoolDay(val)) {
-    toast('Date must look like 2027-06-04.', 'danger'); return;
-  }
-  if (val < today) { toast('That date is in the past.', 'danger'); return; }
-  const stamp = Timestamp.fromDate(endOfSchoolDay(val));
-  await updateDoc(doc(db, 'teachers', currentUser.uid, 'classes', classId), { endDate: stamp });
-  const cls = allClasses.find(c => c.id === classId);
-  if (cls) cls.endDate = stamp;
-  renderClassManager();
-  toast(`<i class='bi bi-check2'></i> Roster for "${esc(className)}" now deletes on ${esc(val)}`, 'success');
+  try {
+    cls.endDate = await api.setClassEndDate(cls.id, val);
+    renderClassManager();
+    toast(`<i class='bi bi-check2'></i> Roster for "${esc(cls.name)}" now deletes on ${esc(val)}`, 'success');
+  } catch (err) { toastError(err); }
 }
 
-async function renameClass(classId, oldName) {
-  const name = prompt('New name:', oldName)?.trim();
-  if (!name || name === oldName) return;
-  await updateDoc(doc(db, 'teachers', currentUser.uid, 'classes', classId), { name });
-  const cls = allClasses.find(c => c.id === classId);
-  if (cls) cls.name = name;
-  renderClassManager();
-  if (document.getElementById('studentsPage')?.classList.contains('active')) loadRoster();
-  toast(`<i class='bi bi-check2'></i> Renamed to "${esc(name)}"`, 'success');
+async function refreshClassCode(cls) {
+  try {
+    const oldCode = cls.inviteCode;
+    cls.inviteCode = await api.rotateClassCode(cls.id, oldCode);
+    cls.codeLive = true;
+    cls.codeError = null;
+    renderClassManager();
+    toast(`<i class='bi bi-check2'></i> New code for ${esc(cls.name)} — existing students unaffected`, 'success');
+  } catch (err) { toastError(err); }
 }
 
-async function refreshClassCode(classId, className) {
-  const cls     = allClasses.find(c => c.id === classId);
-  const oldCode = cls?.inviteCode;
-  const code    = genCode();
-
-  // Register the new code FIRST and confirm it took. Handing the teacher a code
-  // that was never registered is precisely the failure this whole path exists
-  // to avoid, so don't put it on screen until it's verified resolvable.
-  const res = await ensureClassCodeMapping(code, classId, null);
-  if (!res.live) {
-    toast(`Couldn't create a new code (${esc(res.error ?? 'unknown')}). The old code still works.`, 'danger');
-    return;
-  }
-
-  await updateDoc(doc(db, 'teachers', currentUser.uid, 'classes', classId), { inviteCode: code });
-  if (oldCode) { try { await deleteDoc(doc(db, 'classCodes', oldCode)); } catch (_) {} }
-  if (cls) { cls.inviteCode = code; cls.codeLive = true; cls.codeError = null; }
-  renderClassManager();
-  toast(`<i class='bi bi-check2'></i> New code for ${esc(className)} — existing students unaffected`, 'success');
+async function deleteClass(cls) {
+  const count = cls.studentCount ?? 0;
+  const msg = count > 0
+    ? `"${cls.name}" has ${plural(count, 'student')}.\n\nDeleting removes the roster but keeps the shared library. Students can rejoin via another class code.\n\nContinue?`
+    : `Delete class "${cls.name}"? This cannot be undone.`;
+  if (!confirm(msg)) return;
+  try {
+    await api.deleteClass(cls.id, cls.inviteCode);
+    allClasses = allClasses.filter(c => c.id !== cls.id);
+    renderClassManager();
+    toast(`<i class='bi bi-check2'></i> "${esc(cls.name)}" deleted`, 'success');
+  } catch (err) { toastError(err); }
 }
 
-async function deleteClass(classId, className) {
-  const roster = await getDocs(collection(db, 'teachers', currentUser.uid, 'classes', classId, 'students'));
-  const confirmMsg = roster.size > 0
-    ? `"${className}" has ${roster.size} student${roster.size !== 1 ? 's' : ''}.\n\nDeleting removes the roster but keeps the shared library. Students can rejoin via another class code.\n\nContinue?`
-    : `Delete class "${className}"? This cannot be undone.`;
-  if (!confirm(confirmMsg)) return;
-  for (const s of roster.docs) await deleteDoc(doc(db, 'teachers', currentUser.uid, 'classes', classId, 'students', s.id));
-  const cls = allClasses.find(c => c.id === classId);
-  if (cls?.inviteCode) { try { await deleteDoc(doc(db, 'classCodes', cls.inviteCode)); } catch (_) {} }
-  await deleteDoc(doc(db, 'teachers', currentUser.uid, 'classes', classId));
-  allClasses = allClasses.filter(c => c.id !== classId);
-  renderClassManager();
-  toast(`<i class='bi bi-check2'></i> "${esc(className)}" deleted`, 'success');
-}
+// ═══════════════════════════════════════════════════════════════════════════
+// Library visibility + checkout mode
+// ═══════════════════════════════════════════════════════════════════════════
 
-// ── Library visibility ────────────────────────────────────────────────────────
 function initVisibilityToggle() {
   const toggle = document.getElementById('libraryPublicToggle');
   if (!toggle) return;
-  const isPublic = teacherData?.libraryPublic ?? false;
+  const isPublic = teacherData()?.libraryPublic === true;
   toggle.checked = isPublic;
   updateVisUI(isPublic);
+
   toggle.addEventListener('change', async () => {
     const nowPublic = toggle.checked;
-    updateVisUI(nowPublic);
-    await updateDoc(doc(db, 'teachers', currentUser.uid), { libraryPublic: nowPublic });
+    updateVisUI(nowPublic);                       // optimistic
+    try {
+      await api.setLibraryPublic(nowPublic);
+    } catch (err) {
+      toggle.checked = !nowPublic;                // revert on failure — the old
+      updateVisUI(!nowPublic);                    // code left the switch lying
+      toastError(err);
+      return;
+    }
     toast(nowPublic
       ? `<i class='bi bi-collection-fill'></i> Library is now <strong>Public</strong>`
       : `<i class='bi bi-lock-fill'></i> Library is now <strong>Class Only</strong>`, 'success');
   });
 }
 
-async function updateVisUI(isPublic) {
+/** Re-render the public-library stats line from whatever is currently loaded.
+ *  The toggle is wired before any data arrives — without this the line reads
+ *  "0 enrolled students, 0 books" until the next reload. */
+function refreshVisibilityStats() {
+  if (document.getElementById('libraryPublicToggle')?.checked) updateVisUI(true);
+}
+
+function updateVisUI(isPublic) {
   const hint   = document.getElementById('visibilityHint');
   const detail = document.getElementById('visibilityDetail');
   if (hint) hint.textContent = isPublic ? 'Public — any Mason student can discover' : 'Class Only';
   if (!detail) return;
   if (!isPublic) { detail.hidden = true; return; }
+
+  // Counts come from data already loaded — no extra reads. The old version
+  // re-read every class roster in full just to render this line.
   detail.hidden = false;
-  detail.innerHTML = `<span class='muted-text small-text loading-state'>Loading stats…</span>`;
-  try {
-    let enrolled = 0;
-    for (const cls of allClasses) {
-      const r = await getDocs(collection(db, 'teachers', currentUser.uid, 'classes', cls.id, 'students'));
-      enrolled += r.size;
-    }
-    const books = allBooks.length;
-    const out   = allBooks.filter(b => (b.checkedOutCount ?? 0) > 0 || b.status === 'checked_out').length;
-    detail.innerHTML = `
-      <div style='display:flex;gap:16px;flex-wrap:wrap;font-size:0.72rem;color:var(--text-3);padding:10px 12px;background:var(--bg-inset);border-radius:var(--r-sm)'>
-        <span><strong style='color:var(--text)'>${enrolled}</strong> enrolled student${enrolled !== 1 ? 's' : ''}</span>
-        <span><strong style='color:var(--text)'>${books}</strong> book${books !== 1 ? 's' : ''}</span>
-        <span><strong style='color:var(--accent)'>${out}</strong> checked out</span>
-      </div>
-      <p class='muted-text small-text' style='margin-top:8px'><i class='bi bi-info-circle'></i> Discoverable to all Mason students — checkout still requires a class code.</p>`;
-  } catch (_) {
-    detail.innerHTML = `<p class='empty-state'><i class='bi bi-exclamation-triangle-fill'></i> Could not load stats.</p>`;
-  }
+  const enrolled = allClasses.reduce((n, c) => n + (c.studentCount ?? 0), 0);
+  const books    = allBooks.length;
+  const out      = allBooks.filter(b => api.outCount(b) > 0).length;
+  detail.innerHTML = `
+    <div style='display:flex;gap:16px;flex-wrap:wrap;font-size:0.72rem;color:var(--text-3);padding:10px 12px;background:var(--bg-inset);border-radius:var(--r-sm)'>
+      <span><strong style='color:var(--text)'>${enrolled}</strong> enrolled student${enrolled !== 1 ? 's' : ''}</span>
+      <span><strong style='color:var(--text)'>${books}</strong> book${books !== 1 ? 's' : ''}</span>
+      <span><strong style='color:var(--accent)'>${out}</strong> checked out</span>
+    </div>
+    <p class='muted-text small-text' style='margin-top:8px'><i class='bi bi-info-circle'></i> Discoverable to all Mason students — checkout still requires a class code.</p>`;
 }
 
-// ── Checkout mode ─────────────────────────────────────────────────────────────
 // Two named modes rather than one "Require Checkout Approval" switch whose off
-// state said nothing about what students could actually do. Still stored as the
-// same `requireApproval` boolean, so existing libraries keep their setting and
-// the student portal needs no migration.
+// state said nothing about what students could actually do. Stored as the same
+// `requireApproval` boolean, so existing libraries keep their setting.
 //
-//   Automatic  (requireApproval false) — the student's Check Out button runs
-//              the checkout transaction directly (requestCheckout in
-//              student.js) and writes the history row that logs the loan.
-//   Ask me first (true) — the button submits to teachers/{uid}/requests and
-//              approveRequest() below performs the checkout and the logging.
+//   Automatic     (false) — the student's Check Out button runs the checkout
+//                 transaction directly (requestCheckout in student.js).
+//   Ask me first  (true)  — the button files a request; approveRequest() below
+//                 performs the checkout and writes the loan record.
 function initCheckoutMode() {
   const picker = document.querySelector('.mode-picker');
   if (!picker) return;
@@ -928,19 +811,18 @@ function initCheckoutMode() {
       btn.setAttribute('aria-checked', String(isOn));
     });
   };
-  paint(teacherData?.requireApproval === true);
+  paint(teacherData()?.requireApproval === true);
 
   picker.querySelectorAll('.mode-opt').forEach(btn => {
     btn.addEventListener('click', async () => {
       const wantApproval = btn.dataset.mode === 'approval';
-      if ((teacherData?.requireApproval === true) === wantApproval) return;
-      paint(wantApproval);   // optimistic, reverted below if the write fails
+      if ((teacherData()?.requireApproval === true) === wantApproval) return;
+      paint(wantApproval);                        // optimistic
       try {
-        await updateDoc(doc(db, 'teachers', currentUser.uid), { requireApproval: wantApproval });
-        teacherData.requireApproval = wantApproval;
+        await api.setRequireApproval(wantApproval);
       } catch (err) {
-        paint(teacherData?.requireApproval === true);
-        toast(`Couldn't change that (${esc(err.code ?? err.message ?? 'unknown error')}).`, 'danger');
+        paint(teacherData()?.requireApproval === true);
+        toastError(err);
         return;
       }
       toast(wantApproval
@@ -952,106 +834,88 @@ function initCheckoutMode() {
   });
 }
 
-// ── Pending checkout requests ─────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// Pending checkout requests
+// ═══════════════════════════════════════════════════════════════════════════
+
 async function loadPendingRequests() {
-  const card     = document.getElementById('pendingRequestsCard');
-  const listEl   = document.getElementById('pendingRequestsList');
-  const countEl  = document.getElementById('pendingRequestsCount');
+  const card    = document.getElementById('pendingRequestsCard');
+  const listEl  = document.getElementById('pendingRequestsList');
+  const countEl = document.getElementById('pendingRequestsCount');
   if (!card || !listEl) return;
 
-  const snap     = await getDocs(
-    query(collection(db, 'teachers', currentUser.uid, 'requests'), where('status', '==', 'pending'))
-  );
-
-  if (snap.empty) {
-    card.hidden = true;
+  let requests;
+  try {
+    requests = await api.listPendingRequests();
+  } catch (err) {
+    card.hidden = false;
+    renderPanelError(listEl, 'checkout requests', err);
     return;
   }
 
+  if (!requests.length) { card.hidden = true; return; }
   card.hidden = false;
-  if (countEl) countEl.textContent = `${snap.size} pending`;
+  if (countEl) countEl.textContent = `${requests.length} pending`;
   listEl.innerHTML = '';
 
-  for (const d of snap.docs) {
-    const req  = { id: d.id, ...d.data() };
+  requests.forEach(req => {
     const book = allBooks.find(b => b.id === req.bookId);
-    const row  = document.createElement('div');
+    const cover = book?.coverUrl || req.coverUrl || '';
+    const row = document.createElement('div');
     row.className = 'request-card';
     row.setAttribute('role', 'listitem');
     row.innerHTML = `
-      ${(book?.coverUrl || req.coverUrl) ? `<img src='${esc(book?.coverUrl ?? req.coverUrl)}' class='book-cover' alt='' loading='lazy'>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
+      ${cover ? `<img src='${esc(cover)}' class='book-cover' alt='' loading='lazy'>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
       <div class='book-info' style='flex:1;min-width:0'>
         <div class='book-title'>${esc(req.bookTitle)}</div>
         <div class='book-author'>Requested by <strong>${esc(req.studentName)}</strong> · ${fmtDate(req.requestedAt)}</div>
       </div>
       <div style='display:flex;gap:6px;flex-shrink:0'>
-        <button class='btn btn--xs success' data-action='approve' data-reqid='${esc(req.id)}' data-bookid='${esc(req.bookId)}' data-studentid='${esc(req.studentId)}' data-booktitle='${esc(req.bookTitle)}'>
-          <i class='bi bi-check2'></i> Approve
-        </button>
-        <button class='btn btn--xs danger' data-action='deny' data-reqid='${esc(req.id)}'>
-          <i class='bi bi-x'></i> Deny
-        </button>
+        <button class='btn btn--xs success' data-action='approve'><i class='bi bi-check2'></i> Approve</button>
+        <button class='btn btn--xs danger'  data-action='deny'><i class='bi bi-x'></i> Deny</button>
       </div>`;
-    row.querySelector('[data-action="approve"]')?.addEventListener('click', e => {
-      const { reqid, bookid, studentid, booktitle } = e.currentTarget.dataset;
-      approveRequest(reqid, bookid, studentid, booktitle);
+
+    row.querySelector('[data-action="approve"]')?.addEventListener('click', async (e) => {
+      e.currentTarget.disabled = true;
+      try {
+        await api.approveRequest({ requestId: req.id, bookId: req.bookId, studentId: req.studentId });
+        toast(`<i class='bi bi-check2'></i> Approved — "${esc(req.bookTitle)}" checked out`, 'success');
+      } catch (err) {
+        e.currentTarget.disabled = false;
+        toastError(err);
+        return;
+      }
+      await refreshAfterLoanChange();
+      loadPendingRequests();
     });
-    row.querySelector('[data-action="deny"]')?.addEventListener('click', e => {
-      denyRequest(e.currentTarget.dataset.reqid);
+
+    row.querySelector('[data-action="deny"]')?.addEventListener('click', async (e) => {
+      e.currentTarget.disabled = true;
+      try {
+        await api.denyRequest(req.id);
+        toast('Request denied.', 'info');
+        loadPendingRequests();
+      } catch (err) {
+        e.currentTarget.disabled = false;
+        toastError(err);
+      }
     });
+
     listEl.appendChild(row);
-  }
-}
-
-async function approveRequest(reqId, bookId, studentId, bookTitle) {
-  const bookRef    = doc(db, 'teachers', currentUser.uid, 'books', bookId);
-  const studentRef = doc(db, 'students', studentId);
-  const reqRef     = doc(db, 'teachers', currentUser.uid, 'requests', reqId);
-
-  try {
-    const [bSnap, sSnap] = await Promise.all([getDoc(bookRef), getDoc(studentRef)]);
-    if (!bSnap.exists())  { toast('Book not found.', 'danger'); return; }
-    if (!sSnap.exists())  { toast('Student not found.', 'danger'); return; }
-    if (sSnap.data().currentBook) { toast('Student already has a book checked out.', 'danger'); return; }
-
-    const bData  = bSnap.data();
-    const copies = bData.copies ?? 1;
-    const out    = bData.checkedOutCount ?? (bData.status === 'checked_out' ? 1 : 0);
-    if (out >= copies) { toast('All copies are checked out.', 'danger'); return; }
-
-    const dueDate  = new Date();
-    dueDate.setDate(dueDate.getDate() + 14);
-    const newCount = out + 1;
-
-    await Promise.all([
-      updateDoc(bookRef, { checkedOutCount: newCount, status: newCount >= copies ? 'checked_out' : 'available', checkedOutBy: studentId, checkedOutAt: serverTimestamp(), dueDate: Timestamp.fromDate(dueDate) }),
-      updateDoc(studentRef, { currentBook: bookId, currentBookTeacherId: currentUser.uid }),
-      updateDoc(reqRef, { status: 'approved', respondedAt: serverTimestamp() }),
-    ]);
-    await addDoc(collection(db, 'teachers', currentUser.uid, 'history'), {
-      bookId, bookTitle, author: bData.author ?? '',
-      studentId, studentName: sSnap.data().name ?? '',
-      dateOut: serverTimestamp(), dateReturned: null,
-    });
-    toast(`<i class='bi bi-check2'></i> Approved — "${esc(bookTitle)}" checked out`, 'success');
-  } catch (err) {
-    toast(`Approval failed: ${esc(err.message ?? 'unknown')}`, 'danger');
-    return;
-  }
-  await loadLibrary();
-  loadPendingRequests();
-  loadCheckedOut(); loadHistory();
-}
-
-async function denyRequest(reqId) {
-  await updateDoc(doc(db, 'teachers', currentUser.uid, 'requests', reqId), {
-    status: 'denied', respondedAt: serverTimestamp(),
   });
-  toast('Request denied.', 'info');
-  loadPendingRequests();
 }
 
-// ── Book search + add library ─────────────────────────────────────────────────
+/** Everything that has to be re-read after a checkout or a return. The history
+ *  panel is a live listener, so it updates itself. */
+async function refreshAfterLoanChange() {
+  await loadLibrary();
+  await loadCheckedOut();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Book search + adding to the library
+// ═══════════════════════════════════════════════════════════════════════════
+
 document.getElementById('lookupIsbnBtn')?.addEventListener('click', runBookSearch);
 document.getElementById('isbnInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') runBookSearch(); });
 
@@ -1060,61 +924,34 @@ async function runBookSearch() {
   const resultEl = document.getElementById('isbnResult');
   const btn      = document.getElementById('lookupIsbnBtn');
   if (!input || !resultEl || !btn) return;
+
   const q = input.value.trim();
-  if (!q) { resultEl.innerHTML = `<p class='muted-text small-text' style='margin-top:8px'>Type a title, author, or ISBN to search.</p>`; return; }
+  if (!q) {
+    resultEl.innerHTML = `<p class='muted-text small-text' style='margin-top:8px'>Type a title, author, or ISBN to search.</p>`;
+    return;
+  }
   resultEl.innerHTML = `<p class='muted-text small-text' style='margin-top:8px'>Searching…</p>`;
   btn.disabled = true;
+
   let results = [];
   try {
     const isIsbn = /^[\d\-]{9,17}$/.test(q.replace(/\s/g, ''));
-    if (isIsbn) {
-      const single = await lookupISBN(q);
-      results = single ? [single] : [];
-    } else {
-      results = await searchBooks(q, 8);
-    }
+    results = isIsbn ? [await lookupISBN(q)].filter(Boolean) : await searchBooks(q, 8);
   } catch (err) {
-    resultEl.innerHTML = `<p class='muted-text small-text' style='margin-top:8px;color:var(--danger)'>Search error. Check console.</p>`;
-    btn.disabled = false; return;
+    console.error('[teacher] book search failed:', err);
+    resultEl.innerHTML = `<p class='muted-text small-text' style='margin-top:8px;color:var(--danger)'>Search failed — ${esc(err?.message ?? 'try again')}.</p>`;
+    return;
+  } finally {
+    btn.disabled = false;
   }
-  btn.disabled = false;
-  if (!results?.length) { resultEl.innerHTML = `<p class='muted-text small-text' style='margin-top:8px'>No results for "${esc(q)}". Try different keywords.</p>`; bookSearchResults = []; return; }
+
+  if (!results.length) {
+    resultEl.innerHTML = `<p class='muted-text small-text' style='margin-top:8px'>No results for "${esc(q)}". Try different keywords.</p>`;
+    bookSearchResults = [];
+    return;
+  }
   bookSearchResults = results;
   renderBookSearchResults(results);
-}
-
-/** Normalize a title/author for duplicate detection: case, punctuation, leading
- *  article and spacing all vary between editions of the same book.
- *  "The Hobbit!" and "hobbit, the" both become "hobbit". */
-function normBookKey(s) {
-  return String(s ?? '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .replace(/^(the|a|an) +/, '')
-    .replace(/ +(the|a|an)$/, '')
-    .trim();
-}
-
-/** Find a book already in this library that is the same book as `book`.
- *
- *  Matching on ISBN or Google's sourceId ALONE (which is what this did) is far
- *  too strict: every printing and edition carries its own ISBN, and a repeat
- *  search can hand back a different Google volume id for the same title. The
- *  result was that adding more copies of a book you already own silently
- *  created a second entry for it, splitting the copy count across two rows.
- *
- *  Title + author is the identity a teacher actually means, so it is the final
- *  fallback — ISBN and sourceId still win when present, since they are exact. */
-function findExistingBook(book, books = allBooks) {
-  if (!book) return null;
-  const byIsbn = book.isbn && books.find(b => b.isbn && b.isbn === book.isbn);
-  if (byIsbn) return byIsbn;
-  const bySource = book.sourceId && books.find(b => b.sourceId && b.sourceId === book.sourceId);
-  if (bySource) return bySource;
-  const t = normBookKey(book.title);
-  if (!t) return null;
-  const a = normBookKey(book.author);
-  return books.find(b => normBookKey(b.title) === t && normBookKey(b.author) === a) ?? null;
 }
 
 function renderBookSearchResults(results) {
@@ -1122,8 +959,9 @@ function renderBookSearchResults(results) {
   resultEl.innerHTML = '';
   const grid = document.createElement('div');
   grid.className = 'book-search-grid';
+
   results.forEach((book, i) => {
-    const existing      = findExistingBook(book);
+    const existing       = api.findExistingBook(book, allBooks);
     const existingCopies = existing?.copies ?? 0;
     const card = document.createElement('div');
     card.className = 'book-search-card';
@@ -1138,236 +976,129 @@ function renderBookSearchResults(results) {
           <button class='btn btn--xs stepper-dec'>−</button>
           <span class='stepper-val'>1</span>
           <button class='btn btn--xs stepper-inc'>+</button>
-          <button class='btn btn--primary btn--sm stepper-add' data-existing='${esc(existing?.id ?? '')}'>
-            ${existing ? 'Add Copies' : 'Add to Library'}
-          </button>
+          <button class='btn btn--primary btn--sm stepper-add'>${existing ? 'Add Copies' : 'Add to Library'}</button>
         </div>
       </div>`;
+
     let qty = 1;
-    const dec    = card.querySelector('.stepper-dec');
-    const inc    = card.querySelector('.stepper-inc');
     const valEl  = card.querySelector('.stepper-val');
     const addBtn = card.querySelector('.stepper-add');
-    dec.addEventListener('click', () => { if (qty > 1)  { qty--; valEl.textContent = qty; } });
-    inc.addEventListener('click', () => { if (qty < 20) { qty++; valEl.textContent = qty; } });
-    addBtn.addEventListener('click', () => addCopiesToLibrary(i, qty, existing?.id ?? null));
+    card.querySelector('.stepper-dec').addEventListener('click', () => { if (qty > 1)  { qty--; valEl.textContent = qty; } });
+    card.querySelector('.stepper-inc').addEventListener('click', () => { if (qty < 20) { qty++; valEl.textContent = qty; } });
+    addBtn.addEventListener('click', () => { addBtn.disabled = true; addCopiesToLibrary(i, qty).finally(() => { addBtn.disabled = false; }); });
     grid.appendChild(card);
   });
+
   resultEl.appendChild(grid);
 }
 
-async function addCopiesToLibrary(idx, qty = 1, existingDocId = null) {
+async function addCopiesToLibrary(idx, qty = 1) {
   const book = bookSearchResults[idx];
-  if (!book || !currentUser?.uid) return;
-  // Re-check against the CURRENT library rather than trusting the id captured
+  if (!book) return;
+
+  // Re-check against the CURRENT library rather than trusting the match made
   // when these results were rendered. The search panel can sit on screen while
-  // the library changes underneath it (another add, a delete, a second tab),
-  // and a stale "no match" there is exactly what created a duplicate entry.
-  const existing = (existingDocId && allBooks.find(b => b.id === existingDocId)) || findExistingBook(book);
-  existingDocId = existing?.id ?? null;
+  // the library changes underneath it, and a stale "no match" there is exactly
+  // what created a duplicate entry.
+  const existing = api.findExistingBook(book, allBooks);
+
   try {
-    if (existingDocId) {
-      const currentCopies = existing?.copies ?? 1;
-      await updateDoc(doc(db, 'teachers', currentUser.uid, 'books', existingDocId), { copies: currentCopies + qty });
-    } else {
-      await addDoc(collection(db, 'teachers', currentUser.uid, 'books'), {
-        title: book.title ?? '', author: book.author ?? '', isbn: book.isbn ?? '',
-        coverUrl: book.cover ?? '', description: book.description ?? '',
-        sourceId: book.sourceId ?? '', status: 'available',
-        copies: qty, checkedOutCount: 0, checkedOutBy: null, checkedOutAt: null,
-        wishlist: [], addedAt: serverTimestamp(),
-      });
-    }
-  } catch (err) {
-    toast(`Failed to add book: ${esc(err.message ?? 'unknown')}`, 'danger'); return;
+    if (existing) await api.adjustCopies(existing.id, qty);
+    else          await api.addBook(book, qty);
+  } catch (err) { toastError(err); return; }
+
+  const qtyLabel = plural(qty, 'copy', 'copies');
+  const resultEl = document.getElementById('isbnResult');
+  if (resultEl) {
+    resultEl.innerHTML = `<p class='muted-text small-text' style='margin-top:8px;color:var(--success)'><i class='bi bi-check2'></i> ${existing ? `Added ${qtyLabel} of` : 'Added'} "${esc(book.title)}" to your library.</p>`;
   }
-  const qtyLabel = qty === 1 ? '1 copy' : `${qty} copies`;
-  document.getElementById('isbnResult').innerHTML = `<p class='muted-text small-text' style='margin-top:8px;color:var(--success)'><i class='bi bi-check2'></i> ${existingDocId ? `Added ${qtyLabel} of` : 'Added'} "${esc(book.title)}" to your library.</p>`;
-  document.getElementById('isbnInput').value = '';
+  const input = document.getElementById('isbnInput');
+  if (input) input.value = '';
   bookSearchResults = [];
+
   await loadLibrary();
   toast(`<i class='bi bi-check2'></i> "${esc(book.title)}" — ${qtyLabel} added`, 'success');
 }
 
-async function addSingleCopy(bookId, bookTitle) {
-  const book = allBooks.find(b => b.id === bookId);
-  if (!book) return;
-  const current = book.copies ?? 1;
-  await updateDoc(doc(db, 'teachers', currentUser.uid, 'books', bookId), { copies: current + 1 });
-  book.copies = current + 1;
-  renderLibraryList(allBooks);
-  toast(`<i class='bi bi-check2'></i> "${esc(bookTitle)}" — now ${current + 1} cop${current + 1 !== 1 ? 'ies' : 'y'}`, 'success');
-}
-
-// Remove a single copy — e.g. a copy got damaged/lost.
-async function removeSingleCopy(bookId, bookTitle) {
-  const book = allBooks.find(b => b.id === bookId);
-  if (!book) return;
-  const current = book.copies ?? 1;
-  const out     = book.checkedOutCount ?? (book.status === 'checked_out' ? 1 : 0);
-
-  if (current <= 1) {
-    toast(`Only one copy left — use Delete to remove "${esc(bookTitle)}" entirely.`, 'info');
-    return;
-  }
-  if (current - 1 < out) {
-    toast(`Can't reduce below the ${out} copy(ies) currently checked out. Have them returned first.`, 'danger');
-    return;
-  }
-  if (!confirm(`Remove one copy of "${bookTitle}"?\n\n${current} → ${current - 1} copies. Use this when a copy is damaged or lost.`)) return;
-
-  const next = current - 1;
-  await updateDoc(doc(db, 'teachers', currentUser.uid, 'books', bookId), {
-    copies: next,
-    // keep status consistent if it was fully checked out
-    status: out >= next ? 'checked_out' : 'available',
-  });
-  book.copies = next;
-  renderLibraryList(allBooks);
-  toast(`<i class='bi bi-check2'></i> "${esc(bookTitle)}" — now ${next} cop${next !== 1 ? 'ies' : 'y'}`, 'success');
-}
-
-// ── Duplicate cleanup ─────────────────────────────────────────────────────────
-/** Books already in the library that are the same title+author as another.
- *  Returns one array per duplicated book, each with 2+ entries. */
-function findDuplicateGroups(books = allBooks) {
-  const groups = new Map();
-  for (const b of books) {
-    const t = normBookKey(b.title);
-    if (!t) continue;
-    const key = `${t}|${normBookKey(b.author)}`;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(b);
-  }
-  return [...groups.values()].filter(g => g.length > 1);
-}
-
-/** Fold duplicate entries into one, summing their copy counts.
- *
- *  Only offered because the old add path could create them; the fix above stops
- *  new ones appearing. A group where TWO entries have copies checked out is
- *  skipped rather than merged: each entry carries its own borrower and its own
- *  history rows keyed by document id, so collapsing both would strand one
- *  student's loan. */
-async function mergeDuplicateBooks() {
-  const groups = findDuplicateGroups();
+document.getElementById('mergeDuplicatesBtn')?.addEventListener('click', async (e) => {
+  const groups = api.findDuplicateGroups(allBooks);
   if (!groups.length) { toast('No duplicate books found.', 'info'); return; }
-
   const extra = groups.reduce((n, g) => n + g.length - 1, 0);
   if (!confirm(
     `${groups.length} book${groups.length !== 1 ? 's are' : ' is'} listed more than once.\n\n` +
     `Merge them into one entry each? Copy counts are added together, so nothing is lost — ` +
-    `${extra} duplicate entr${extra !== 1 ? 'ies' : 'y'} will be removed.`
+    `${plural(extra, 'duplicate entry', 'duplicate entries')} will be removed.`
   )) return;
 
-  let merged = 0, skipped = 0;
-  for (const group of groups) {
-    const withLoans = group.filter(b => (b.checkedOutCount ?? 0) > 0);
-    if (withLoans.length > 1) { skipped++; continue; }
-
-    // Keep the entry that has the active loan; otherwise the one with the most
-    // copies, so the surviving row is the one the teacher recognises.
-    const keeper = withLoans[0] ?? [...group].sort((a, b) => (b.copies ?? 1) - (a.copies ?? 1))[0];
-    const others = group.filter(b => b.id !== keeper.id);
-    const copies = group.reduce((n, b) => n + (b.copies ?? 1), 0);
-    const out    = keeper.checkedOutCount ?? 0;
-    try {
-      await updateDoc(doc(db, 'teachers', currentUser.uid, 'books', keeper.id), {
-        copies,
-        status:   out >= copies ? 'checked_out' : 'available',
-        // Fill in anything the keeper happens to be missing from its twins.
-        coverUrl: keeper.coverUrl || others.find(b => b.coverUrl)?.coverUrl || '',
-        isbn:     keeper.isbn     || others.find(b => b.isbn)?.isbn         || '',
-      });
-      for (const o of others) await deleteDoc(doc(db, 'teachers', currentUser.uid, 'books', o.id));
-      merged += others.length;
-    } catch (err) {
-      console.error('[teacher] merge failed for', keeper.title, err);
-      skipped++;
-    }
+  e.currentTarget.disabled = true;
+  try {
+    const { merged, skipped } = await api.mergeDuplicateBooks(allBooks);
+    await loadLibrary();
+    await loadCheckedOut();
+    toast(skipped
+      ? `<i class='bi bi-check2'></i> Merged ${plural(merged, 'duplicate entry', 'duplicate entries')}. ${skipped} skipped — those have copies checked out on more than one entry.`
+      : `<i class='bi bi-check2'></i> Merged ${plural(merged, 'duplicate entry', 'duplicate entries')}.`,
+      merged ? 'success' : 'info');
+  } catch (err) {
+    toastError(err);
+  } finally {
+    e.currentTarget.disabled = false;
   }
+});
 
-  await loadLibrary();
-  loadCheckedOut();
-  toast(
-    skipped
-      ? `<i class='bi bi-check2'></i> Merged ${merged} duplicate entr${merged !== 1 ? 'ies' : 'y'}. ${skipped} skipped — those have copies checked out on more than one entry.`
-      : `<i class='bi bi-check2'></i> Merged ${merged} duplicate entr${merged !== 1 ? 'ies' : 'y'}.`,
-    merged ? 'success' : 'info',
-  );
-}
+// ═══════════════════════════════════════════════════════════════════════════
+// Library list
+// ═══════════════════════════════════════════════════════════════════════════
 
-document.getElementById('mergeDuplicatesBtn')?.addEventListener('click', () => mergeDuplicateBooks());
-
-// ── Skeleton helpers ──────────────────────────────────────────────────────────
-function renderSkeletonRows(container, count = 5) {
-  container.innerHTML = Array.from({ length: count }, () => `
-    <div class='skeleton-book-row'>
-      <div class='skeleton skeleton-book-cover'></div>
-      <div class='skeleton-book-info'>
-        <div class='skeleton skeleton-line-title'></div>
-        <div class='skeleton skeleton-line-author'></div>
-        <div class='skeleton skeleton-line-badge'></div>
-      </div>
-    </div>`).join('');
-}
-
-// ── Load library ──────────────────────────────────────────────────────────────
 async function loadLibrary() {
   const listEl  = document.getElementById('libraryList');
   const countEl = document.getElementById('libraryCountChip');
   if (!listEl) return;
-  if (!currentUser) {
-    // Silent early return before — the panel just sat on its placeholder with
-    // nothing logged and nothing on screen to explain it.
-    console.warn('[teacher] loadLibrary called before sign-in resolved');
-    return;
-  }
   renderSkeletonRows(listEl, 6);
 
-  let snap;
   try {
-    snap = await readWithDeadline(getDocs(collection(db, 'teachers', currentUser.uid, 'books')));
+    allBooks = await api.listBooks();
   } catch (err) {
-    // The skeleton rows are the whole problem here: unhandled, this rejection
-    // left six shimmering placeholders on screen permanently, which reads as
-    // "still loading" rather than "this failed". Your Books then appeared to
-    // work only after adding a book — because that path calls loadLibrary()
-    // again, and the second call succeeded.
-    console.error('[teacher] could not load your books:', err);
+    // Unhandled, this left six shimmering placeholders on screen permanently,
+    // which reads as "still loading" rather than "this failed".
     renderPanelError(listEl, 'your books', err);
-    throw err;   // let step() surface it in a toast too
+    throw err;
   }
 
-  allBooks   = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  if (countEl) countEl.textContent = `${allBooks.length} book${allBooks.length !== 1 ? 's' : ''}`;
-  // Offer the cleanup only when there is actually something to clean up.
+  if (countEl) countEl.textContent = plural(allBooks.length, 'book');
+
+  // Offer the cleanup only when there is something to clean up.
   const mergeBtn = document.getElementById('mergeDuplicatesBtn');
   if (mergeBtn) {
-    const dupes = findDuplicateGroups();
+    const dupes = api.findDuplicateGroups(allBooks);
     mergeBtn.hidden = dupes.length === 0;
     mergeBtn.innerHTML = `<i class="bi bi-union" aria-hidden="true"></i> Merge ${dupes.length} duplicate${dupes.length !== 1 ? 's' : ''}`;
   }
+
   renderLibraryList(allBooks);
   renderReadingPicker();
   renderRecPicker();
+  refreshVisibilityStats();
 }
 
 function renderLibraryList(books) {
   const listEl = document.getElementById('libraryList');
   if (!listEl) return;
-  if (books.length === 0) {
+  if (!books.length) {
     listEl.innerHTML = `<p class='empty-state'>${allBooks.length === 0 ? 'No books yet — add one above!' : 'No matches.'}</p>`;
     return;
   }
   listEl.innerHTML = '';
+
   books.forEach(book => {
-    const isRec   = recommendations.some(r => r.bookId === book.id);
-    const copies  = book.copies ?? 1;
-    const out     = book.checkedOutCount ?? (book.status === 'checked_out' ? 1 : 0);
-    const avail   = copies - out;
+    const isRec  = recommendations.some(r => r.bookId === book.id);
+    const copies = book.copies ?? 1;
+    const out    = api.outCount(book);
+    const avail  = copies - out;
     const badgeClass = avail > 0 ? 't-badge t-badge--available' : 't-badge t-badge--checked-out';
-    const badgeTxt   = copies > 1 ? `${avail}/${copies} cop${copies !== 1 ? 'ies' : 'y'} available` : (out > 0 ? 'Checked Out' : 'Available');
+    const badgeTxt   = copies > 1
+      ? `${avail}/${copies} cop${copies !== 1 ? 'ies' : 'y'} available`
+      : (out > 0 ? 'Checked Out' : 'Available');
 
     const row = document.createElement('div');
     row.className = 'book-row';
@@ -1382,594 +1113,500 @@ function renderLibraryList(books) {
           ${isRec ? `<span class='t-badge t-badge--recommended'><i class='bi bi-star-fill'></i> Recommended</span>` : ''}
         </div>
         <div class='book-actions'>
-          <button class='btn btn--xs ${isRec ? 'starred' : ''}' data-action='${isRec ? 'unrecommend' : 'recommend'}' data-id='${esc(book.id)}' data-title='${esc(book.title)}' data-author='${esc(book.author ?? '')}' data-cover='${esc(book.coverUrl ?? '')}'>
+          <button class='btn btn--xs ${isRec ? 'starred' : ''}' data-action='rec'>
             ${isRec ? '<i class="bi bi-star"></i> Unrecommend' : '<i class="bi bi-star-fill"></i> Recommend'}
           </button>
-          ${out > 0 ? `<button class='btn btn--xs success' data-action='return' data-id='${esc(book.id)}' data-title='${esc(book.title)}'><i class='bi bi-arrow-return-left'></i> Return</button>` : ''}
-          <button class='btn btn--xs' data-action='add-copy' data-id='${esc(book.id)}' data-title='${esc(book.title)}' title='Add a copy'><i class='bi bi-plus-lg'></i> Copy</button>
-          ${copies > 1 ? `<button class='btn btn--xs' data-action='remove-copy' data-id='${esc(book.id)}' data-title='${esc(book.title)}' title='Remove a copy (damaged/lost)'><i class='bi bi-dash-lg'></i> Copy</button>` : ''}
-          <button class='btn btn--xs danger' data-action='delete' data-id='${esc(book.id)}' data-title='${esc(book.title)}'><i class='bi bi-trash3-fill'></i> Delete</button>
+          ${out > 0 ? `<button class='btn btn--xs success' data-action='return'><i class='bi bi-arrow-return-left'></i> Return</button>` : ''}
+          <button class='btn btn--xs' data-action='add-copy' title='Add a copy'><i class='bi bi-plus-lg'></i> Copy</button>
+          ${copies > 1 ? `<button class='btn btn--xs' data-action='remove-copy' title='Remove a copy (damaged/lost)'><i class='bi bi-dash-lg'></i> Copy</button>` : ''}
+          <button class='btn btn--xs danger' data-action='delete'><i class='bi bi-trash3-fill'></i> Delete</button>
         </div>
       </div>`;
-    row.querySelector('[data-action="recommend"]')?.addEventListener('click',   e => { const d = e.currentTarget.dataset; toggleRecommendation(d.id, d.title, d.author, d.cover); });
-    row.querySelector('[data-action="unrecommend"]')?.addEventListener('click', e => { const d = e.currentTarget.dataset; toggleRecommendation(d.id, d.title, d.author, d.cover); });
-    row.querySelector('[data-action="return"]')?.addEventListener('click',      e => validateReturn(e.currentTarget.dataset.id, e.currentTarget.dataset.title));
-    row.querySelector('[data-action="delete"]')?.addEventListener('click',      e => deleteBook(e.currentTarget.dataset.id, e.currentTarget.dataset.title));
-    row.querySelector('[data-action="add-copy"]')?.addEventListener('click',    e => addSingleCopy(e.currentTarget.dataset.id, e.currentTarget.dataset.title));
-    row.querySelector('[data-action="remove-copy"]')?.addEventListener('click', e => removeSingleCopy(e.currentTarget.dataset.id, e.currentTarget.dataset.title));
+
+    const on = (action, handler) => row.querySelector(`[data-action="${action}"]`)?.addEventListener('click', handler);
+    on('rec',         () => toggleRecommendation({ bookId: book.id, bookTitle: book.title, author: book.author ?? '', coverUrl: book.coverUrl ?? '' }));
+    on('return',      () => returnFromLibraryRow(book));
+    on('delete',      () => deleteBook(book));
+    on('add-copy',    () => changeCopies(book, +1));
+    on('remove-copy', () => changeCopies(book, -1));
     listEl.appendChild(row);
   });
 }
 
 document.getElementById('librarySearchInput')?.addEventListener('input', e => {
   const q = e.target.value.toLowerCase();
-  renderLibraryList(allBooks.filter(b => b.title?.toLowerCase().includes(q) || b.author?.toLowerCase().includes(q) || b.isbn?.includes(q)));
+  renderLibraryList(allBooks.filter(b =>
+    b.title?.toLowerCase().includes(q) ||
+    b.author?.toLowerCase().includes(q) ||
+    b.isbn?.includes(q)));
 });
 
-async function deleteBook(bookId, bookTitle) {
-  if (!confirm(`Permanently delete "${bookTitle}"? This cannot be undone.`)) return;
-  await deleteDoc(doc(db, 'teachers', currentUser.uid, 'books', bookId));
-  allBooks = allBooks.filter(b => b.id !== bookId);
-  renderLibraryList(allBooks);
-  const chip = document.getElementById('libraryCountChip');
-  if (chip) chip.textContent = `${allBooks.length} book${allBooks.length !== 1 ? 's' : ''}`;
-  toast(`<i class='bi bi-check2'></i> "${esc(bookTitle)}" deleted`, 'success');
+async function changeCopies(book, delta) {
+  if (delta < 0 && !confirm(`Remove one copy of "${book.title}"?\n\n${book.copies ?? 1} → ${(book.copies ?? 1) - 1} copies. Use this when a copy is damaged or lost.`)) return;
+  try {
+    const next = await api.adjustCopies(book.id, delta);
+    book.copies = next;
+    renderLibraryList(allBooks);
+    toast(`<i class='bi bi-check2'></i> "${esc(book.title)}" — now ${next} cop${next !== 1 ? 'ies' : 'y'}`, 'success');
+  } catch (err) {
+    // "last copy" and "copies still out" are expected outcomes, not failures.
+    toastError(err, err.code === 'bw/last-copy' ? 'info' : 'danger');
+  }
 }
 
-async function validateReturn(bookId, bookTitle) {
-  const bookRef = doc(db, 'teachers', currentUser.uid, 'books', bookId);
-  const bSnap   = await getDoc(bookRef);
-  const bData   = bSnap.exists() ? bSnap.data() : {};
-  const newCount = Math.max(0, (bData.checkedOutCount ?? 1) - 1);
-
-  // Find the outstanding checkout in history first — tells us which student to free.
-  const q    = query(collection(db, 'teachers', currentUser.uid, 'history'), where('bookId', '==', bookId), where('dateReturned', '==', null));
-  const snap = await getDocs(q);
-  const histDoc   = snap.empty ? null : snap.docs[0];
-  const studentId = histDoc?.data()?.studentId ?? bData.checkedOutBy ?? null;
-
-  // Status mirrors the checkout path (`newCount >= copies`), NOT `newCount === 0`.
-  // On a multi-copy book, returning one of several copies leaves copies free, so
-  // the book must go back to 'available' — otherwise the student view showed
-  // "1/3 available" with no Check Out button.
-  const copies = bData.copies ?? 1;
-  await updateDoc(bookRef, { checkedOutCount: newCount, status: newCount >= copies ? 'checked_out' : 'available', checkedOutBy: newCount === 0 ? null : bData.checkedOutBy, checkedOutAt: newCount === 0 ? null : bData.checkedOutAt, dueDate: newCount === 0 ? null : bData.dueDate });
-
-  // Close the history log entry → shows "returned".
-  if (histDoc) {
-    await updateDoc(histDoc.ref, { dateReturned: serverTimestamp() });
-  } else {
-    // No open row to close. That happens when the checkout predates the history
-    // log, or when the student's own history write failed at checkout time (it
-    // is a separate write from the transaction, and it can be denied on its
-    // own). Log the return anyway rather than letting the loan vanish with no
-    // record of it ever coming back.
-    try {
-      await addDoc(collection(db, 'teachers', currentUser.uid, 'history'), {
-        bookId,
-        bookTitle,
-        author:       bData.author ?? '',
-        studentId,
-        studentName:  studentId ? (await getDoc(doc(db, 'students', studentId))).data()?.name ?? '' : '',
-        dateOut:      bData.checkedOutAt ?? null,
-        dateReturned: serverTimestamp(),
-        reconstructed: true,
-      });
-    } catch (e) {
-      console.warn('[teacher] could not log this return:', e?.code ?? e);
-      toast('Return recorded, but it could not be written to the checkout history.', 'danger');
-    }
-  }
-
-  // Clear the student's current book so they stop showing a phantom/missing book.
-  // Guarded so a newer checkout by the same student isn't wiped.
-  if (studentId) {
-    try {
-      const sRef  = doc(db, 'students', studentId);
-      const sSnap = await getDoc(sRef);
-      if (sSnap.exists() && sSnap.data().currentBook === bookId) {
-        await updateDoc(sRef, { currentBook: null, currentBookTeacherId: null });
-      }
-    } catch (e) { console.warn('[teacher] could not clear student currentBook:', e?.code ?? e); }
-  }
-
-  await loadLibrary();
-  loadCheckedOut(); loadHistory();
-  toast(`<i class='bi bi-check2'></i> "${esc(bookTitle)}" marked returned`, 'success');
+async function deleteBook(book) {
+  if (!confirm(`Permanently delete "${book.title}"? This cannot be undone.`)) return;
+  try {
+    await api.deleteBook(book.id);
+    allBooks = allBooks.filter(b => b.id !== book.id);
+    renderLibraryList(allBooks);
+    const chip = document.getElementById('libraryCountChip');
+    if (chip) chip.textContent = plural(allBooks.length, 'book');
+    toast(`<i class='bi bi-check2'></i> "${esc(book.title)}" deleted`, 'success');
+  } catch (err) { toastError(err); }
 }
 
-// ── Students: Checked Out ─────────────────────────────────────────────────────
-/** Give a single read a deadline of its own.
+/** The Return button on a library row.
  *
- *  step() puts a deadline on the start-up CHAIN, which is enough to stop one
- *  stalled read freezing the whole portal — but the stalled call itself never
- *  settles, so the panel waiting on it never reaches its own catch and keeps
- *  its placeholder forever. Each panel therefore races its own read too, so it
- *  can render a failure state instead of shimmering indefinitely. */
-function readWithDeadline(promise, ms = STEP_TIMEOUT_MS) {
-  let timer;
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => {
-      timer = setTimeout(
-        () => reject(Object.assign(new Error('the server did not respond'), { code: 'bw/timeout' })),
-        ms,
-      );
-    }),
-  ]).finally(() => clearTimeout(timer));
-}
-
-/** A start-up read the portal genuinely can't continue without — the role
- *  check and the teacher document. readWithDeadline() turns a stalled read into
- *  a rejection; this retries that a few times before giving up.
- *
- *  These reads sit ABOVE the step()-isolated chain, so nothing was guarding
- *  them: a single one that never settled (a cold Firestore connection routinely
- *  makes the FIRST read of a session slow while every read after it is instant)
- *  hung the whole handler. renderSettings(), initTheme() and every step() loader
- *  are downstream of here, so none of them ran — Account info, Your Books, Now
- *  Reading and the rest all sat on "Loading…" until a Students-tab click fired
- *  its own fresh reads. That is the "nothing loads until I open the Students
- *  tab" report. Accept a slow first read; refuse to wait forever. */
-async function readCritical(promiseFactory, tries = 3) {
-  let lastErr;
-  for (let i = 0; i < tries; i++) {
-    try {
-      return await readWithDeadline(promiseFactory());
-    } catch (err) {
-      lastErr = err;
-      console.warn(`[teacher] critical start-up read attempt ${i + 1}/${tries} failed:`, err?.code ?? err?.message ?? err);
-    }
+ *  A book row is a book, not a loan, so with several copies out there is no
+ *  single "the" return to process — which is precisely what the old single
+ *  `checkedOutBy` field papered over, silently returning whichever borrower
+ *  happened to be last. Resolve it against the open loans instead, and send
+ *  the teacher to the list when it is genuinely ambiguous. */
+async function returnFromLibraryRow(book) {
+  const loans = openLoans.filter(l => l.bookId === book.id);
+  if (loans.length === 1) return doReturn(loans[0]);
+  if (loans.length > 1) {
+    toast(`${loans.length} copies of "${esc(book.title)}" are out — pick the right student under <strong>Checked Out</strong>.`, 'info');
+    showPage('library');
+    document.getElementById('checkedOutList')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    return;
   }
-  throw lastErr;
+  // Counter says out, no loan row to match. Happens for checkouts that predate
+  // the history log, or when a student's own (separate) history write failed.
+  if (!confirm(`There's no checkout record for "${book.title}", but a copy is marked out.\n\nRecord it as returned anyway?`)) return;
+  try {
+    await api.reconstructReturn(book.id);
+    toast(`<i class='bi bi-check2'></i> "${esc(book.title)}" marked returned`, 'success');
+    await refreshAfterLoanChange();
+  } catch (err) { toastError(err); }
 }
 
-/** Panel-level failure state with a way out, so no panel can sit on "Loading…"
- *  forever with nothing to click. */
-function renderPanelError(el, what, err) {
-  if (!el) return;
-  el.innerHTML = `
-    <p class='empty-state' style='color:var(--danger)'>
-      <i class='bi bi-exclamation-triangle-fill' aria-hidden='true'></i>
-      Couldn't load ${esc(what)} — ${esc(err?.code ?? err?.message ?? 'unknown error')}.
-    </p>`;
-  const btn = document.createElement('button');
-  btn.className = 'btn btn--sm';
-  btn.innerHTML = `<i class='bi bi-arrow-clockwise' aria-hidden='true'></i> Retry`;
-  btn.addEventListener('click', () => window.location.reload());
-  el.appendChild(btn);
+async function doReturn(loan) {
+  try {
+    await api.returnLoan(loan.id);
+    toast(`<i class='bi bi-check2'></i> "${esc(loan.bookTitle)}" marked returned`, 'success');
+  } catch (err) { toastError(err); return; }
+  await refreshAfterLoanChange();
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Checked out
+// ═══════════════════════════════════════════════════════════════════════════
+// One row per LOAN, not per book. With several copies of a title out, a
+// per-book list could only ever name one borrower — the other students, and
+// their overdue dates, were invisible.
 
 async function loadCheckedOut() {
   const el = document.getElementById('checkedOutList');
   if (!el) return;
   el.innerHTML = `<p class='empty-state loading-state'>Loading…</p>`;
 
-  // Read the shelf directly when loadLibrary() hasn't populated allBooks —
-  // it runs as its own start-up step and may have failed or still be in
-  // flight. Depending on another step's side effect is what made this panel
-  // show "No books currently out" (or nothing at all) on a slow load.
-  if (!allBooks.length && currentUser) {
-    try {
-      const snap = await readWithDeadline(getDocs(collection(db, 'teachers', currentUser.uid, 'books')));
-      allBooks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    } catch (err) {
-      renderPanelError(el, 'checked-out books', err);
-      return;
-    }
+  try {
+    openLoans = await api.listOpenLoans({ withBorrowerStatus: true });
+  } catch (err) {
+    renderPanelError(el, 'checked-out books', err);
+    return;
   }
-  // Include multi-copy books with only some copies out (status stays 'available'
-  // until every copy is gone, so filtering on status alone hid partial checkouts).
-  const checkedOut = allBooks.filter(b => (b.checkedOutCount ?? 0) > 0 || b.status === 'checked_out');
-  if (checkedOut.length === 0) { el.innerHTML = `<p class='empty-state'>No books currently out.</p>`; return; }
 
-  // Look up every borrower's name concurrently — a sequential await per book
-  // here meant a teacher with a dozen books out waited a dozen round trips
-  // just to see who has what.
-  // Also read whether the borrower still has this book as their current loan.
-  // A student's "Returned It" clears `currentBook` on their own record but
-  // deliberately leaves the copy count alone — the teacher is the single
-  // authority for the return (see validateReturn). Without surfacing that
-  // difference here, a handed-back book sat in this list looking identical to
-  // one still in a backpack, and the history row stayed open indefinitely,
-  // which is why returns never appeared as returned.
-  const borrowers = await Promise.all(checkedOut.map(async book => {
-    if (!book.checkedOutBy) return { name: 'Unknown', saysReturned: false };
-    try {
-      const s = await getDoc(doc(db, 'students', book.checkedOutBy));
-      if (!s.exists()) return { name: 'Unknown', saysReturned: false };
-      return {
-        name: s.data().name ?? 'Unknown',
-        saysReturned: s.data().currentBook !== book.id,
-      };
-    } catch (_) { return { name: 'Unknown', saysReturned: false }; }
-  }));
+  if (!openLoans.length) { el.innerHTML = `<p class='empty-state'>No books currently out.</p>`; return; }
 
+  const now = new Date();
   el.innerHTML = '';
-  // Books the student says they've handed back come first — those are the ones
-  // waiting on the teacher to do something.
-  const order = checkedOut
-    .map((book, i) => ({ book, ...borrowers[i] }))
-    .sort((a, b) => Number(b.saysReturned) - Number(a.saysReturned));
 
-  order.forEach(({ book, name: studentName, saysReturned }) => {
-    const dueDate  = book.dueDate?.toDate?.() ?? null;
-    const isOverdue = dueDate && dueDate < new Date();
+  // Books the student says they've handed back come first — those are waiting
+  // on the teacher. Then soonest due, so the nudges are near the top.
+  const ordered = [...openLoans].sort((a, b) =>
+    (Number(b.saysReturned) - Number(a.saysReturned)) ||
+    ((a.dueDate?.seconds ?? 0) - (b.dueDate?.seconds ?? 0)));
+
+  ordered.forEach(loan => {
+    const book      = allBooks.find(b => b.id === loan.bookId);
+    const cover     = loan.coverUrl || book?.coverUrl || '';
+    const dueDate   = loan.dueDate?.toDate?.() ?? null;
+    const isOverdue = dueDate && dueDate < now;
+
     const row = document.createElement('div');
     row.className = 'book-row';
     row.setAttribute('role', 'listitem');
     row.innerHTML = `
-      ${book.coverUrl ? `<img src='${esc(book.coverUrl)}' class='book-cover' alt='' loading='lazy'>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
+      ${cover ? `<img src='${esc(cover)}' class='book-cover' alt='' loading='lazy'>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
       <div class='book-info'>
-        <div class='book-title'>${esc(book.title)}</div>
-        <div class='book-author'>${esc(book.author ?? '')}</div>
+        <div class='book-title'>${esc(loan.bookTitle)}</div>
+        <div class='book-author'>${esc(loan.author ?? book?.author ?? '')}</div>
         <div style='display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px'>
-          <span class='t-badge t-badge--checked-out'>${esc(studentName)} · Since ${fmtDate(book.checkedOutAt)}${isOverdue ? ` <strong style='color:var(--danger)'><i class='bi bi-exclamation-triangle-fill'></i> OVERDUE</strong>` : dueDate ? ` · Due ${fmtDate(book.dueDate)}` : ''}</span>
-          ${saysReturned ? `<span class='return-flag'><i class='bi bi-arrow-return-left' aria-hidden='true'></i> ${esc(studentName)} says they handed it back</span>` : ''}
+          <span class='t-badge t-badge--checked-out'>${esc(loan.studentName || 'Unknown student')} · Since ${fmtDate(loan.dateOut)}${
+            isOverdue ? ` <strong style='color:var(--danger)'><i class='bi bi-exclamation-triangle-fill'></i> OVERDUE</strong>`
+                      : dueDate ? ` · Due ${fmtDate(loan.dueDate)}` : ''}</span>
+          ${loan.saysReturned ? `<span class='return-flag'><i class='bi bi-arrow-return-left' aria-hidden='true'></i> ${esc(loan.studentName || 'The student')} says they handed it back</span>` : ''}
         </div>
-        <button class='btn btn--xs ${saysReturned ? 'btn--primary' : 'success'}' data-action='return' data-id='${esc(book.id)}' data-title='${esc(book.title)}'>
-          <i class='bi bi-arrow-return-left'></i> ${saysReturned ? 'Confirm Return' : 'Mark Returned'}
+        <button class='btn btn--xs ${loan.saysReturned ? 'btn--primary' : 'success'}' data-action='return'>
+          <i class='bi bi-arrow-return-left'></i> ${loan.saysReturned ? 'Confirm Return' : 'Mark Returned'}
         </button>
       </div>`;
-    row.querySelector('[data-action="return"]')?.addEventListener('click', e => validateReturn(e.currentTarget.dataset.id, e.currentTarget.dataset.title));
+    row.querySelector('[data-action="return"]')?.addEventListener('click', (e) => {
+      e.currentTarget.disabled = true;
+      doReturn(loan);
+    });
     el.appendChild(row);
   });
 }
 
-// ── Students: History (real-time) ─────────────────────────────────────────────
-function loadHistory() {
+// ═══════════════════════════════════════════════════════════════════════════
+// History (live)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function startHistoryWatch() {
   const el = document.getElementById('historyList');
   if (!el) return;
-  if (historyUnsubscribe) { historyUnsubscribe(); historyUnsubscribe = null; }
+  stopHistoryWatch?.();
   el.innerHTML = `<p class='empty-state loading-state'>Loading…</p>`;
 
-  // Watchdog. onSnapshot has two failure modes: it errors (handled below), or
-  // it simply never fires — no data, no error, no timeout of its own. The
-  // second one leaves this panel on "Loading…" indefinitely, which is exactly
-  // what a teacher was staring at. Give it a deadline and something to click.
-  let settled = false;
-  const watchdog = setTimeout(() => {
-    if (settled) return;
-    renderPanelError(el, 'checkout history', { message: 'the server did not respond' });
-  }, STEP_TIMEOUT_MS);
-
-  historyUnsubscribe = onSnapshot(collection(db, 'teachers', currentUser.uid, 'history'), snap => {
-    settled = true;
-    clearTimeout(watchdog);
-    if (snap.empty) { el.innerHTML = `<p class='empty-state'>No history yet.</p>`; return; }
-    const entries = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0));
-    el.innerHTML = '';
-    entries.forEach(e => {
-      const row = document.createElement('div');
-      row.className = 'book-row';
-      row.setAttribute('role', 'listitem');
-      row.innerHTML = `
-        <div class='book-info'>
-          <div class='book-title'>${esc(e.bookTitle)}</div>
-          <div class='book-author'>${esc(e.studentName)}</div>
-          <div style='display:flex;gap:5px;flex-wrap:wrap;margin-top:4px'>
-            <span class='t-badge t-badge--available'>Out: ${fmtDate(e.dateOut)}</span>
-            ${e.dateReturned ? `<span class='t-badge t-badge--available'>Back: ${fmtDate(e.dateReturned)}</span>` : `<span class='t-badge t-badge--checked-out'>Still out</span>`}
-          </div>
-        </div>`;
-      el.appendChild(row);
-    });
-  }, err => {
-    settled = true;
-    clearTimeout(watchdog);
-    console.error('[teacher] History listener:', err);
-    renderPanelError(el, 'checkout history', err);
+  stopHistoryWatch = api.watchHistory({
+    onError: (err) => renderPanelError(el, 'checkout history', err),
+    onData: (entries) => {
+      if (!entries.length) { el.innerHTML = `<p class='empty-state'>No history yet.</p>`; return; }
+      el.innerHTML = '';
+      entries.forEach(e => {
+        const row = document.createElement('div');
+        row.className = 'book-row';
+        row.setAttribute('role', 'listitem');
+        row.innerHTML = `
+          <div class='book-info'>
+            <div class='book-title'>${esc(e.bookTitle)}</div>
+            <div class='book-author'>${esc(e.studentName || '—')}</div>
+            <div style='display:flex;gap:5px;flex-wrap:wrap;margin-top:4px'>
+              <span class='t-badge t-badge--available'>Out: ${fmtDate(e.dateOut)}</span>
+              ${e.dateReturned
+                ? `<span class='t-badge t-badge--available'>Back: ${fmtDate(e.dateReturned)}</span>`
+                : `<span class='t-badge t-badge--checked-out'>Still out</span>`}
+            </div>
+          </div>`;
+        el.appendChild(row);
+      });
+    },
   });
 }
 
-// ── Export .MD ────────────────────────────────────────────────────────────────
+// Drop the listener when the page goes away, so a sign-out doesn't leave a
+// subscription running against a signed-out session.
+window.addEventListener('pagehide', () => stopHistoryWatch?.());
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Exports
+// ═══════════════════════════════════════════════════════════════════════════
+
+function downloadBlob(content, mime, filename) {
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(new Blob([content], { type: mime })),
+    download: filename,
+  });
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+const teacherName = () => teacherData()?.name ?? 'Teacher';
+const fileStem    = () => teacherName().replace(/\s+/g, '_');
+
 document.getElementById('exportCheckoutsMdBtn')?.addEventListener('click', async () => {
-  const histSnap = await getDocs(collection(db, 'teachers', currentUser.uid, 'history'));
-  const entries  = histSnap.docs.map(d => d.data()).sort((a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0));
-  const tName    = teacherData?.name ?? 'Teacher';
-  let md = `# BookWare — Checkout Report\n\n**Teacher:** ${tName}  \n**Generated:** ${new Date().toLocaleString()}  \n\n---\n\n`;
-  const active = allBooks.filter(b => (b.checkedOutCount ?? 0) > 0 || b.status === 'checked_out');
-  md += `## Currently Checked Out\n\n`;
-  if (active.length === 0) { md += `*No books currently checked out.*\n\n`; }
-  else {
-    md += `| Book | Author | Student | Date Out |\n|------|--------|---------|----------|\n`;
-    for (const book of active) {
-      const e = entries.find(x => x.bookId === book.id && !x.dateReturned);
-      md += `| ${book.title} | ${book.author ?? '—'} | ${e?.studentName ?? '—'} | ${fmtDate(e?.dateOut ?? null)} |\n`;
+  try {
+    const entries = await api.listHistory();
+    const active  = entries.filter(e => !e.dateReturned);
+    let md = `# BookWare — Checkout Report\n\n**Teacher:** ${teacherName()}  \n**Generated:** ${new Date().toLocaleString()}  \n\n---\n\n`;
+
+    md += `## Currently Checked Out\n\n`;
+    if (!active.length) md += `*No books currently checked out.*\n\n`;
+    else {
+      md += `| Book | Author | Student | Date Out | Due |\n|------|--------|---------|----------|-----|\n`;
+      active.forEach(e => {
+        md += `| ${e.bookTitle} | ${e.author ?? '—'} | ${e.studentName ?? '—'} | ${fmtDate(e.dateOut)} | ${fmtDate(e.dueDate)} |\n`;
+      });
+      md += '\n';
     }
-    md += '\n';
-  }
-  md += `## Full History\n\n`;
-  if (entries.length === 0) { md += `*No history yet.*\n`; }
-  else {
-    md += `| Book | Author | Student | Date Out | Date Returned |\n|------|--------|---------|----------|---------------|\n`;
-    entries.forEach(e => { md += `| ${e.bookTitle} | ${e.author ?? '—'} | ${e.studentName} | ${fmtDate(e.dateOut)} | ${e.dateReturned ? fmtDate(e.dateReturned) : 'Not yet returned'} |\n`; });
-  }
-  md += `\n---\n*Generated by BookWare · Mason High School*\n`;
-  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([md], { type: 'text/markdown' })), download: `${tName.replace(/\s+/g, '_')}_checkouts_${Date.now()}.md` });
-  a.click(); URL.revokeObjectURL(a.href);
-  toast(`<i class='bi bi-check2'></i> Exported as .MD`, 'success');
+
+    md += `## Full History\n\n`;
+    if (!entries.length) md += `*No history yet.*\n`;
+    else {
+      md += `| Book | Author | Student | Date Out | Date Returned |\n|------|--------|---------|----------|---------------|\n`;
+      entries.forEach(e => {
+        md += `| ${e.bookTitle} | ${e.author ?? '—'} | ${e.studentName ?? '—'} | ${fmtDate(e.dateOut)} | ${e.dateReturned ? fmtDate(e.dateReturned) : 'Not yet returned'} |\n`;
+      });
+    }
+    md += `\n---\n*Generated by BookWare · Mason High School*\n`;
+
+    downloadBlob(md, 'text/markdown', `${fileStem()}_checkouts_${Date.now()}.md`);
+    toast(`<i class='bi bi-check2'></i> Exported as .MD`, 'success');
+  } catch (err) { toastError(err); }
 });
 
-// ── Export CSV ────────────────────────────────────────────────────────────────
 document.getElementById('exportCheckoutsCsvBtn')?.addEventListener('click', async () => {
-  const histSnap = await getDocs(collection(db, 'teachers', currentUser.uid, 'history'));
-  const entries  = histSnap.docs.map(d => d.data()).sort((a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0));
-  const tName    = teacherData?.name ?? 'Teacher';
-  const rows     = [['Book Title','Author','Student','Date Out','Due Date','Date Returned','Status']];
-  const now      = new Date();
-  entries.forEach(e => {
-    const dueDate   = e.dueDate ? (e.dueDate.toDate ? e.dueDate.toDate() : new Date(e.dueDate)) : null;
-    const isOverdue = !e.dateReturned && dueDate && dueDate < now;
-    rows.push([
-      e.bookTitle ?? '',
-      e.author ?? '',
-      e.studentName ?? '',
-      fmtDate(e.dateOut),
-      dueDate ? dueDate.toLocaleDateString() : '',
-      e.dateReturned ? fmtDate(e.dateReturned) : '',
-      e.dateReturned ? 'Returned' : isOverdue ? 'Overdue' : 'Active',
-    ]);
-  });
-  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
-  const a   = Object.assign(document.createElement('a'), {
-    href:     URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
-    download: `${(tName).replace(/\s+/g, '_')}_checkouts_${new Date().toISOString().slice(0, 10)}.csv`,
-  });
-  a.click(); URL.revokeObjectURL(a.href);
-  toast(`<i class='bi bi-check2'></i> Exported as .CSV`, 'success');
+  try {
+    const entries = await api.listHistory();
+    const now  = new Date();
+    const rows = [['Book Title', 'Author', 'Student', 'Date Out', 'Due Date', 'Date Returned', 'Status']];
+    entries.forEach(e => {
+      const due       = e.dueDate?.toDate?.() ?? null;
+      const isOverdue = !e.dateReturned && due && due < now;
+      rows.push([
+        e.bookTitle ?? '', e.author ?? '', e.studentName ?? '',
+        fmtDate(e.dateOut), due ? due.toLocaleDateString() : '',
+        e.dateReturned ? fmtDate(e.dateReturned) : '',
+        e.dateReturned ? 'Returned' : isOverdue ? 'Overdue' : 'Active',
+      ]);
+    });
+    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    downloadBlob(csv, 'text/csv', `${fileStem()}_checkouts_${new Date().toISOString().slice(0, 10)}.csv`);
+    toast(`<i class='bi bi-check2'></i> Exported as .CSV`, 'success');
+  } catch (err) { toastError(err); }
 });
 
-// ── Export PDF (clean red/gray theme, baked-in & non-editable) ─────────────────
 document.getElementById('exportCheckoutsPdfBtn')?.addEventListener('click', async (ev) => {
   const btn  = ev.currentTarget;
   const orig = btn.innerHTML;
   btn.disabled = true;
   btn.innerHTML = `<i class='bi bi-hourglass-split'></i> Building…`;
   try {
-    // Lazy-load jsPDF + autotable only when actually exporting
+    // Lazy — jsPDF is ~300 KB and most sessions never export.
     const { jsPDF } = await import('https://cdn.jsdelivr.net/npm/jspdf@2.5.2/+esm');
     const atMod     = (await import('https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/+esm')).default;
     const autoTable = typeof atMod === 'function' ? atMod : atMod.default;
 
-    const histSnap = await getDocs(collection(db, 'teachers', currentUser.uid, 'history'));
-    const entries  = histSnap.docs.map(d => d.data()).sort((a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0));
-    const tName    = teacherData?.name ?? 'Teacher';
-    const recSet   = new Set(recommendations.map(r => r.bookId));
-    const now      = new Date();
+    const entries = await api.listHistory();
+    const active  = entries.filter(e => !e.dateReturned);
+    const recSet  = new Set(recommendations.map(r => r.bookId));
+    const now     = new Date();
 
-    // Locked theme — these colours are written into the file and can't be changed after export
-    const RED   = [231, 76, 60];
-    const GRAY  = [110, 110, 128];
-    const DARK  = [40, 40, 46];
-    const ALT   = [244, 244, 247];
+    // Locked theme — these colours are written into the file.
+    const RED = [231, 76, 60], GRAY = [110, 110, 128], DARK = [40, 40, 46], ALT = [244, 244, 247];
 
-    const doc    = new jsPDF({ unit: 'pt', format: 'letter' });
-    const pageW  = doc.internal.pageSize.getWidth();
+    const pdf   = new jsPDF({ unit: 'pt', format: 'letter' });
+    const pageW = pdf.internal.pageSize.getWidth();
     const margin = 40;
 
-    // Header band
-    doc.setFillColor(...RED);
-    doc.rect(0, 0, pageW, 68, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFont('helvetica', 'bold');  doc.setFontSize(20);
-    doc.text('BookWare', margin, 32);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(12);
-    doc.text('Checkout Report', margin, 50);
+    pdf.setFillColor(...RED);
+    pdf.rect(0, 0, pageW, 68, 'F');
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFont('helvetica', 'bold');   pdf.setFontSize(20); pdf.text('BookWare', margin, 32);
+    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(12); pdf.text('Checkout Report', margin, 50);
 
-    // Subheader
-    doc.setTextColor(...GRAY); doc.setFontSize(10);
-    doc.text(`Teacher: ${tName}`, margin, 88);
-    doc.text(`Generated: ${now.toLocaleString()}`, margin, 102);
-    doc.setDrawColor(...RED); doc.setLineWidth(1.5);
-    doc.line(margin, 112, pageW - margin, 112);
+    pdf.setTextColor(...GRAY); pdf.setFontSize(10);
+    pdf.text(`Teacher: ${teacherName()}`, margin, 88);
+    pdf.text(`Generated: ${now.toLocaleString()}`, margin, 102);
+    pdf.setDrawColor(...RED); pdf.setLineWidth(1.5);
+    pdf.line(margin, 112, pageW - margin, 112);
 
-    // Font-independent vector check mark centred in a cell
+    // Font-independent vector check mark, centred in a cell.
     const drawTick = (cell) => {
       const cx = cell.x + cell.width / 2, cy = cell.y + cell.height / 2;
-      doc.setDrawColor(...RED); doc.setLineWidth(1.4);
-      doc.line(cx - 4, cy + 0.5, cx - 1, cy + 3.5);
-      doc.line(cx - 1, cy + 3.5, cx + 4.5, cy - 3.5);
+      pdf.setDrawColor(...RED); pdf.setLineWidth(1.4);
+      pdf.line(cx - 4, cy + 0.5, cx - 1, cy + 3.5);
+      pdf.line(cx - 1, cy + 3.5, cx + 4.5, cy - 3.5);
     };
 
     const headStyles = { fillColor: RED, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 };
     const bodyStyles = { textColor: DARK, fontSize: 9, cellPadding: 5 };
     const altRows    = { fillColor: ALT };
 
-    // ── Currently checked out ──
-    const active = allBooks.filter(b => (b.checkedOutCount ?? 0) > 0 || b.status === 'checked_out');
-    const activeRows = active.map(book => {
-      const e = entries.find(x => x.bookId === book.id && !x.dateReturned);
-      return { title: book.title ?? '—', author: book.author ?? '—', student: e?.studentName ?? '—', out: fmtDate(e?.dateOut ?? null), rec: recSet.has(book.id) };
-    });
-    doc.setTextColor(...DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
-    doc.text('Currently Checked Out', margin, 138);
-    autoTable(doc, {
+    pdf.setTextColor(...DARK); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(13);
+    pdf.text('Currently Checked Out', margin, 138);
+    autoTable(pdf, {
       startY: 148, margin: { left: margin, right: margin },
       head: [['Book', 'Author', 'Student', 'Date Out', 'Rec.']],
-      body: activeRows.length ? activeRows.map(r => [r.title, r.author, r.student, r.out, '']) : [['No books currently checked out.', '', '', '', '']],
+      body: active.length
+        ? active.map(e => [e.bookTitle ?? '—', e.author ?? '—', e.studentName ?? '—', fmtDate(e.dateOut), ''])
+        : [['No books currently checked out.', '', '', '', '']],
       headStyles, bodyStyles, alternateRowStyles: altRows,
       columnStyles: { 4: { halign: 'center', cellWidth: 34 } },
-      didDrawCell: (d) => { if (d.section === 'body' && d.column.index === 4 && activeRows[d.row.index]?.rec) drawTick(d.cell); },
+      didDrawCell: (d) => { if (d.section === 'body' && d.column.index === 4 && recSet.has(active[d.row.index]?.bookId)) drawTick(d.cell); },
     });
 
-    // ── Full history ──
-    const histRows = entries.map(e => ({ title: e.bookTitle ?? '—', author: e.author ?? '—', student: e.studentName ?? '—', out: fmtDate(e.dateOut), back: e.dateReturned ? fmtDate(e.dateReturned) : 'Not yet returned', rec: recSet.has(e.bookId) }));
-    const y2 = (doc.lastAutoTable?.finalY ?? 160) + 24;
-    doc.setTextColor(...DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
-    doc.text('Full History', margin, y2);
-    autoTable(doc, {
+    const y2 = (pdf.lastAutoTable?.finalY ?? 160) + 24;
+    pdf.setTextColor(...DARK); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(13);
+    pdf.text('Full History', margin, y2);
+    autoTable(pdf, {
       startY: y2 + 10, margin: { left: margin, right: margin },
       head: [['Book', 'Author', 'Student', 'Out', 'Returned', 'Rec.']],
-      body: histRows.length ? histRows.map(r => [r.title, r.author, r.student, r.out, r.back, '']) : [['No history yet.', '', '', '', '', '']],
+      body: entries.length
+        ? entries.map(e => [e.bookTitle ?? '—', e.author ?? '—', e.studentName ?? '—', fmtDate(e.dateOut), e.dateReturned ? fmtDate(e.dateReturned) : 'Not yet returned', ''])
+        : [['No history yet.', '', '', '', '', '']],
       headStyles, bodyStyles, alternateRowStyles: altRows,
       columnStyles: { 5: { halign: 'center', cellWidth: 34 } },
-      didDrawCell: (d) => { if (d.section === 'body' && d.column.index === 5 && histRows[d.row.index]?.rec) drawTick(d.cell); },
+      didDrawCell: (d) => { if (d.section === 'body' && d.column.index === 5 && recSet.has(entries[d.row.index]?.bookId)) drawTick(d.cell); },
     });
 
-    // ── Footer with page numbers + recommended legend ──
-    const pages = doc.internal.getNumberOfPages();
+    const pages = pdf.internal.getNumberOfPages();
     for (let i = 1; i <= pages; i++) {
-      doc.setPage(i);
-      const h = doc.internal.pageSize.getHeight();
-      doc.setDrawColor(...GRAY); doc.setLineWidth(0.5);
-      doc.line(margin, h - 36, pageW - margin, h - 36);
-      // legend tick
-      doc.setDrawColor(...RED); doc.setLineWidth(1.2);
-      doc.line(margin, h - 24, margin + 3, h - 21);
-      doc.line(margin + 3, h - 21, margin + 8, h - 27);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...GRAY);
-      doc.text('= recommended title', margin + 13, h - 22);
-      doc.text('Generated by BookWare · Mason High School', margin, h - 10);
-      doc.text(`Page ${i} of ${pages}`, pageW - margin, h - 10, { align: 'right' });
+      pdf.setPage(i);
+      const h = pdf.internal.pageSize.getHeight();
+      pdf.setDrawColor(...GRAY); pdf.setLineWidth(0.5);
+      pdf.line(margin, h - 36, pageW - margin, h - 36);
+      pdf.setDrawColor(...RED); pdf.setLineWidth(1.2);
+      pdf.line(margin, h - 24, margin + 3, h - 21);
+      pdf.line(margin + 3, h - 21, margin + 8, h - 27);
+      pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(...GRAY);
+      pdf.text('= recommended title', margin + 13, h - 22);
+      pdf.text('Generated by BookWare · Mason High School', margin, h - 10);
+      pdf.text(`Page ${i} of ${pages}`, pageW - margin, h - 10, { align: 'right' });
     }
 
-    doc.save(`${tName.replace(/\s+/g, '_')}_checkouts_${now.toISOString().slice(0, 10)}.pdf`);
+    pdf.save(`${fileStem()}_checkouts_${now.toISOString().slice(0, 10)}.pdf`);
     toast(`<i class='bi bi-check2'></i> Exported as .PDF`, 'success');
   } catch (err) {
     console.error('[teacher] PDF export failed:', err);
-    toast(`PDF export failed: ${esc(err.message ?? 'unknown')}`, 'danger');
+    toastError(err);
   } finally {
-    btn.disabled = false;
+    btn.disabled  = false;
     btn.innerHTML = orig;
   }
 });
 
-// ── Class Roster ──────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// Class roster
+// ═══════════════════════════════════════════════════════════════════════════
+
 async function loadRoster() {
   const listEl  = document.getElementById('rosterList');
   const countEl = document.getElementById('rosterCount');
-  if (!listEl || !currentUser) return;
+  if (!listEl) return;
   listEl.innerHTML = `<p class='empty-state loading-state'>Loading roster…</p>`;
-  try {
-    if (allClasses.length === 0) await loadClasses();
-    let totalStudents = 0;
-    listEl.innerHTML  = '';
-    for (const cls of allClasses) {
-      // Past its last day of school, firestore.rules stops serving this roster
-      // to the teacher — a denied read here is the retention policy working,
-      // not a failure. Render it as such instead of a red error.
-      if (isClassExpired(cls.endDate)) {
-        const header = document.createElement('div');
-        header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;padding-bottom:6px;border-bottom:1px solid var(--border)';
-        header.innerHTML = `<div class='settings-label' style='margin:0'>${esc(cls.name)}</div><span class='muted-text small-text'><i class='bi bi-shield-lock-fill'></i> School year ended</span>`;
-        listEl.appendChild(header);
-        const note = document.createElement('p');
-        note.className = 'empty-state';
-        note.style.marginBottom = '6px';
-        note.textContent = `Roster deleted on ${fmtDate(endOfSchoolDay(cls.endDate))} — student names and emails are no longer retained for this class.`;
-        listEl.appendChild(note);
-        continue;
-      }
 
-      let students = [];
-      let rosterRead = false;
-      try {
-        const snap = await getDocs(collection(db, 'teachers', currentUser.uid, 'classes', cls.id, 'students'));
-        students = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
-        rosterRead = true;
-      } catch (err) {
-        console.warn('[teacher] roster read denied for class', cls.id, err);
-      }
-      // The counts on the class cards are captured once at portal load, so a
-      // student joining while the teacher has the page open never showed up
-      // there. This read is the live truth — reuse it.
-      if (rosterRead) cls.studentCount = students.length;
-      totalStudents  += students.length;
-      const header = document.createElement('div');
-      header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;padding-bottom:6px;border-bottom:1px solid var(--border)';
-      header.innerHTML = `<div class='settings-label' style='margin:0'>${esc(cls.name)}</div><span class='muted-text small-text'>${students.length} student${students.length !== 1 ? 's' : ''} · Code: <code style='font-size:0.65rem'>${esc(cls.inviteCode)}</code></span>`;
+  try {
+    if (!allClasses.length) await loadClasses();
+  } catch (err) {
+    renderPanelError(listEl, 'your classes', err);
+    return;
+  }
+
+  if (!allClasses.length) { listEl.innerHTML = `<p class='empty-state'>No classes yet. Add one above.</p>`; return; }
+
+  listEl.innerHTML = '';
+  let totalStudents = 0;
+
+  for (const cls of allClasses) {
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;padding-bottom:6px;border-bottom:1px solid var(--border)';
+
+    // Past its last day of school, firestore.rules stops serving this roster to
+    // the teacher. A denied read here is the retention policy working, not a
+    // failure — render it as such instead of as a red error.
+    if (cls.expired) {
+      header.innerHTML = `<div class='settings-label' style='margin:0'>${esc(cls.name)}</div><span class='muted-text small-text'><i class='bi bi-shield-lock-fill'></i> School year ended</span>`;
       listEl.appendChild(header);
-      if (students.length === 0) {
-        const empty = document.createElement('p');
-        empty.className = 'empty-state'; empty.style.marginBottom = '6px';
-        empty.textContent = 'No students yet — share the code above.';
-        listEl.appendChild(empty); continue;
-      }
-      students.forEach(s => {
-        const row = document.createElement('div');
-        row.className = 'book-row';
-        row.setAttribute('role', 'listitem');
-        row.innerHTML = `
-          <div class='book-cover-ph' style='width:32px;height:32px;border-radius:50%;font-size:0.6rem;font-weight:700'>${esc((s.name ?? '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase())}</div>
-          <div class='book-info' style='display:flex;align-items:center;gap:8px'>
-            <div style='flex:1;min-width:0'>
-              <div class='book-title'>${esc(s.name ?? 'Unknown')}</div>
-              <div class='book-author'>${esc(s.email ?? '')}</div>
-            </div>
-            <button class='btn btn--xs danger' data-sid='${esc(s.id)}' data-cid='${esc(cls.id)}' data-name='${esc(s.name ?? '')}'>Remove</button>
-          </div>`;
-        row.querySelector('button')?.addEventListener('click', e => removeStudent(e.currentTarget.dataset.sid, e.currentTarget.dataset.name, e.currentTarget.dataset.cid));
-        listEl.appendChild(row);
-      });
+      const note = document.createElement('p');
+      note.className = 'empty-state';
+      note.style.marginBottom = '6px';
+      note.textContent = `Roster deleted on ${fmtDate(api.endOfDay(cls.endDate))} — student names and emails are no longer retained for this class.`;
+      listEl.appendChild(note);
+      continue;
     }
-    if (countEl) countEl.textContent = `${totalStudents} student${totalStudents !== 1 ? 's' : ''} total`;
-    if (totalStudents === 0 && allClasses.length === 0) listEl.innerHTML = `<p class='empty-state'>No classes yet. Add one above.</p>`;
-    // Push the freshly-counted numbers back onto the class cards above.
-    renderClassManager();
-  } catch (err) {
-    console.error('[teacher] loadRoster failed:', err);
-    listEl.innerHTML = `<p class='empty-state' style='color:var(--danger)'>Failed to load roster: ${esc(err.message ?? '')}</p>`;
+
+    const { students, readable } = await api.listRoster(cls.id);
+    // The counts on the class cards are captured at portal load, so a student
+    // joining while the page is open never showed up there. This read is the
+    // live truth — reuse it.
+    if (readable) cls.studentCount = students.length;
+    totalStudents += students.length;
+
+    header.innerHTML = `<div class='settings-label' style='margin:0'>${esc(cls.name)}</div><span class='muted-text small-text'>${plural(students.length, 'student')} · Code: <code style='font-size:0.65rem'>${esc(cls.inviteCode ?? '—')}</code></span>`;
+    listEl.appendChild(header);
+
+    if (!students.length) {
+      const empty = document.createElement('p');
+      empty.className = 'empty-state';
+      empty.style.marginBottom = '6px';
+      empty.textContent = readable
+        ? 'No students yet — share the code above.'
+        : 'This roster could not be read.';
+      listEl.appendChild(empty);
+      continue;
+    }
+
+    students.forEach(s => {
+      const initials = (s.name ?? '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+      const row = document.createElement('div');
+      row.className = 'book-row';
+      row.setAttribute('role', 'listitem');
+      row.innerHTML = `
+        <div class='book-cover-ph' style='width:32px;height:32px;border-radius:50%;font-size:0.6rem;font-weight:700'>${esc(initials)}</div>
+        <div class='book-info' style='display:flex;align-items:center;gap:8px'>
+          <div style='flex:1;min-width:0'>
+            <div class='book-title'>${esc(s.name ?? 'Unknown')}</div>
+            <div class='book-author'>${esc(s.email ?? '')}</div>
+          </div>
+          <button class='btn btn--xs danger' data-action='remove'>Remove</button>
+        </div>`;
+      row.querySelector('[data-action="remove"]')?.addEventListener('click', () => removeStudent(cls, s));
+      listEl.appendChild(row);
+    });
   }
+
+  if (countEl) countEl.textContent = `${plural(totalStudents, 'student')} total`;
+  renderClassManager();   // push the freshly-counted numbers onto the cards
 }
 
-async function removeStudent(sid, name, classId) {
-  if (!confirm(`Remove ${name || 'this student'} from class?\n\nThey can rejoin with the class code.`)) return;
+async function removeStudent(cls, student) {
+  const name = student.name || 'this student';
+  if (!confirm(`Remove ${name} from ${cls.name}?\n\nThey can rejoin with the class code.`)) return;
   try {
-    await deleteDoc(doc(db, 'teachers', currentUser.uid, 'classes', classId, 'students', sid));
-    const otherClasses = allClasses.filter(c => c.id !== classId);
-    let stillIn = false;
-    for (const c of otherClasses) {
-      const s = await getDoc(doc(db, 'teachers', currentUser.uid, 'classes', c.id, 'students', sid));
-      if (s.exists()) { stillIn = true; break; }
-    }
-    if (!stillIn) {
-      try { await updateDoc(doc(db, 'students', sid), { addedTeachers: arrayRemove(currentUser.uid) }); } catch (_) {}
-      // The flat-roster membership marker is what firestore.rules actually
-      // checks to serve a Class Only library. Leaving it behind meant a removed
-      // student kept full read + checkout access to the books indefinitely.
-      try { await deleteDoc(doc(db, 'teachers', currentUser.uid, 'students', sid)); } catch (_) {}
-    }
-    toast(`Removed ${esc(name)} from class`, 'success');
+    await api.removeStudentFromClass(cls.id, student.id, allClasses.map(c => c.id));
+    toast(`<i class='bi bi-check2'></i> Removed ${esc(name)} from ${esc(cls.name)}`, 'success');
     loadRoster();
-  } catch (err) {
-    toast(`Failed: ${esc(String(err.message ?? err))}`, 'danger');
-  }
+  } catch (err) { toastError(err); }
 }
 
-// ── Bans ──────────────────────────────────────────────────────────────────────
-document.getElementById('issueBanBtn')?.addEventListener('click', async () => {
-  const email  = document.getElementById('banStudentEmail')?.value.trim();
-  const days   = parseInt(document.getElementById('banDays')?.value);
-  const reason = document.getElementById('banReason')?.value.trim();
+// ═══════════════════════════════════════════════════════════════════════════
+// Bans
+// ═══════════════════════════════════════════════════════════════════════════
+
+document.getElementById('issueBanBtn')?.addEventListener('click', async (e) => {
+  const emailEl  = document.getElementById('banStudentEmail');
+  const daysEl   = document.getElementById('banDays');
+  const reasonEl = document.getElementById('banReason');
+  const email    = emailEl?.value.trim();
+  const days     = parseInt(daysEl?.value, 10);
+  const reason   = reasonEl?.value.trim();
   if (!email || !days || !reason) { toast('Fill in email, days, and reason.', 'danger'); return; }
+
+  e.currentTarget.disabled = true;
   try {
-    const snap = await getDocs(query(collection(db, 'users'), where('email', '==', email)));
-    // Teachers may only temp-ban students — firestore.rules rejects ban writes
-    // against teacher/admin accounts, so filter here for a clear message.
-    const studentDoc = snap.docs.find(d => d.data().role === 'student');
-    if (!studentDoc) { toast('No student account found with that email.', 'danger'); return; }
-    const banExpiry  = Timestamp.fromDate(new Date(Date.now() + days * 86400000));
-    await updateDoc(doc(db, 'users', studentDoc.id), { banned: true, banExpiry, banReason: reason, bannedBy: currentUser.uid, bannedAt: serverTimestamp() });
-    document.getElementById('banStudentEmail').value = '';
-    document.getElementById('banDays').value         = '';
-    document.getElementById('banReason').value       = '';
-    toast(`<i class='bi bi-exclamation-triangle-fill'></i> ${esc(email)} banned for ${days} day${days !== 1 ? 's' : ''}`, 'success');
+    const student = await api.findStudentByEmail(email);
+    await api.banStudent({ studentUid: student.id, days, reason });
+    emailEl.value = ''; daysEl.value = ''; reasonEl.value = '';
+    toast(`<i class='bi bi-exclamation-triangle-fill'></i> ${esc(email)} banned for ${plural(days, 'day')}`, 'success');
     loadActiveBans();
   } catch (err) {
-    console.error('[teacher] ban failed:', err);
-    toast(`Ban failed: ${esc(err.message ?? 'unknown error')}`, 'danger');
+    toastError(err);
+  } finally {
+    e.currentTarget.disabled = false;
   }
 });
 
 async function loadActiveBans() {
   const el = document.getElementById('activeBansList');
   if (!el) return;
-  const snap = await getDocs(query(collection(db, 'users'), where('bannedBy', '==', currentUser.uid), where('banned', '==', true)));
-  if (snap.empty) { el.innerHTML = `<p class='muted-text small-text'>No active bans.</p>`; return; }
+  el.innerHTML = `<p class='muted-text small-text loading-state'>Loading…</p>`;
+
+  let bans;
+  try {
+    bans = await api.listActiveBans();
+  } catch (err) {
+    renderPanelError(el, 'active bans', err);
+    return;
+  }
+  if (!bans.length) { el.innerHTML = `<p class='muted-text small-text'>No active bans.</p>`; return; }
+
   el.innerHTML = '';
-  snap.docs.forEach(d => {
-    const u   = d.data();
+  bans.forEach(u => {
     const row = document.createElement('div');
     row.className = 'ban-item';
     row.innerHTML = `
@@ -1978,52 +1615,66 @@ async function loadActiveBans() {
         <div class='ban-meta'>${esc(u.email)} · Expires ${fmtDate(u.banExpiry)}</div>
         <div class='ban-reason'>Reason: ${esc(u.banReason)}</div>
       </div>
-      <button class='btn btn--xs success' data-uid='${esc(d.id)}' data-name='${esc(u.name ?? u.email)}'>Lift Ban</button>`;
-    row.querySelector('button')?.addEventListener('click', async (e) => {
-      const { uid, name } = e.currentTarget.dataset;
+      <button class='btn btn--xs success' data-action='lift'>Lift Ban</button>`;
+    row.querySelector('[data-action="lift"]')?.addEventListener('click', async (e) => {
+      e.currentTarget.disabled = true;
       try {
-        await updateDoc(doc(db, 'users', uid), { banned: false, banExpiry: null, banReason: null, bannedBy: null });
-        toast(`<i class='bi bi-check2'></i> Ban lifted for ${esc(name)}`, 'success');
+        await api.liftBan(u.id);
+        toast(`<i class='bi bi-check2'></i> Ban lifted for ${esc(u.name ?? u.email)}`, 'success');
         loadActiveBans();
       } catch (err) {
-        console.error('[teacher] lift ban failed:', err);
-        toast(`Failed to lift ban: ${esc(err.message ?? 'unknown error')}`, 'danger');
+        e.currentTarget.disabled = false;
+        toastError(err);
       }
     });
     el.appendChild(row);
   });
 }
 
-// ── Recommendations ───────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// Recommendations
+// ═══════════════════════════════════════════════════════════════════════════
+
 async function loadRecommendations() {
-  const snap = await getDocs(collection(db, 'teachers', currentUser.uid, 'recommendations'));
-  recommendations = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  recommendations = await api.listRecommendations();
 }
 
-async function toggleRecommendation(bookId, bookTitle, author = '', coverUrl = '') {
+/** Star or unstar a book. `bookId` is a library document id for a shelf book,
+ *  or a Google volume id for one that isn't on the shelf yet — `source` records
+ *  which, so the library badge only ever matches real library books. */
+async function toggleRecommendation({ bookId, bookTitle, author = '', coverUrl = '', source = 'library' }) {
   const existing = recommendations.find(r => r.bookId === bookId);
-  if (existing) {
-    await deleteDoc(doc(db, 'teachers', currentUser.uid, 'recommendations', existing.id));
-    recommendations = recommendations.filter(r => r.bookId !== bookId);
-    toast(`<i class='bi bi-star'></i> "${esc(bookTitle)}" unrecommended`, 'info');
-  } else {
-    const ref = await addDoc(collection(db, 'teachers', currentUser.uid, 'recommendations'), { bookId, bookTitle, author, coverUrl, createdAt: serverTimestamp() });
-    recommendations.push({ id: ref.id, bookId, bookTitle, author, coverUrl });
-    toast(`<i class='bi bi-star-fill'></i> "${esc(bookTitle)}" recommended`, 'success');
-  }
+  try {
+    if (existing) {
+      await api.removeRecommendation(existing.id);
+      recommendations = recommendations.filter(r => r.id !== existing.id);
+      toast(`<i class='bi bi-star'></i> "${esc(bookTitle)}" unrecommended`, 'info');
+    } else {
+      const rec = await api.addRecommendation({ bookId, bookTitle, author, coverUrl, source });
+      recommendations.push(rec);
+      toast(`<i class='bi bi-star-fill'></i> "${esc(bookTitle)}" recommended`, 'success');
+    }
+  } catch (err) { toastError(err); return; }
+
   renderLibraryList(allBooks);
-  if (document.getElementById('recommendationsPage')?.classList.contains('active')) { renderRecommendationsList(); renderRecPicker(); }
+  if (document.getElementById('recommendationsPage')?.classList.contains('active')) {
+    renderRecommendationsList();
+    renderRecPicker();
+  }
 }
 
 function renderRecommendationsList() {
   const el = document.getElementById('recommendationsList');
   if (!el) return;
-  if (recommendations.length === 0) { el.innerHTML = `<p class='empty-state'>No recommendations yet. Search the right panel to add books.</p>`; return; }
+  if (!recommendations.length) {
+    el.innerHTML = `<p class='empty-state'>No recommendations yet. Search the right panel to add books.</p>`;
+    return;
+  }
   el.innerHTML = '';
   recommendations.forEach(rec => {
-    const book    = allBooks.find(b => b.id === rec.bookId);
+    const book     = allBooks.find(b => b.id === rec.bookId);
     const coverUrl = rec.coverUrl || book?.coverUrl || '';
-    const author  = rec.author   || book?.author   || '';
+    const author   = rec.author   || book?.author   || '';
     const row = document.createElement('div');
     row.className = 'book-row';
     row.setAttribute('role', 'listitem');
@@ -2034,67 +1685,66 @@ function renderRecommendationsList() {
           <div class='book-title'>${esc(rec.bookTitle)}</div>
           ${author ? `<div class='book-author'>${esc(author)}</div>` : ''}
         </div>
-        <button class='btn btn--xs danger' data-id='${esc(rec.bookId)}' data-title='${esc(rec.bookTitle)}'><i class='bi bi-star'></i> Remove</button>
+        <button class='btn btn--xs danger' data-action='remove'><i class='bi bi-star'></i> Remove</button>
       </div>`;
-    row.querySelector('button')?.addEventListener('click', e => toggleRecommendation(e.currentTarget.dataset.id, e.currentTarget.dataset.title));
+    row.querySelector('[data-action="remove"]')?.addEventListener('click',
+      () => toggleRecommendation({ bookId: rec.bookId, bookTitle: rec.bookTitle }));
     el.appendChild(row);
   });
 }
 
+/** One starrable row, used for both library books and Google Books results. */
+function recRow(entry) {
+  const isRec = recommendations.some(r => r.bookId === entry.bookId);
+  const row = document.createElement('div');
+  row.className = 'book-row';
+  row.innerHTML = `
+    ${entry.coverUrl ? `<img src='${esc(entry.coverUrl)}' class='book-cover' alt='' loading='lazy'>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
+    <div class='book-info' style='display:flex;align-items:center;justify-content:space-between;gap:10px'>
+      <div style='min-width:0'>
+        <div class='book-title'>${esc(entry.bookTitle)}</div>
+        <div class='book-author'>${esc(entry.author ?? '')}</div>
+      </div>
+      <button class='btn btn--xs ${isRec ? 'starred' : ''}' data-action='star' style='flex-shrink:0'>
+        ${isRec ? '<i class="bi bi-star-fill"></i> Starred' : '<i class="bi bi-star"></i> Star'}
+      </button>
+    </div>`;
+  row.querySelector('[data-action="star"]')?.addEventListener('click', () => toggleRecommendation(entry));
+  return row;
+}
+
 function renderRecPicker() {
   const el = document.getElementById('recPickerList');
-  const q  = (document.getElementById('recSearchInput')?.value ?? '').toLowerCase();
   if (!el) return;
+  const q = (document.getElementById('recSearchInput')?.value ?? '').toLowerCase();
   const filtered = allBooks.filter(b => !q || b.title?.toLowerCase().includes(q) || b.author?.toLowerCase().includes(q));
   el.innerHTML = '';
 
-  if (filtered.length > 0) {
-    if (q && recGoogleResults.length > 0) {
+  if (filtered.length) {
+    if (q && recGoogleResults.length) {
       const hdr = document.createElement('p');
-      hdr.className = 'muted-text small-text'; hdr.style.marginBottom = '6px';
+      hdr.className = 'muted-text small-text';
+      hdr.style.marginBottom = '6px';
       hdr.textContent = 'Your Library:';
       el.appendChild(hdr);
     }
-    filtered.forEach(book => {
-      const isRec = recommendations.some(r => r.bookId === book.id);
-      const row   = document.createElement('div');
-      row.className = 'book-row';
-      row.innerHTML = `
-        ${book.coverUrl ? `<img src='${esc(book.coverUrl)}' class='book-cover' alt='' loading='lazy'>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
-        <div class='book-info' style='display:flex;align-items:center;justify-content:space-between;gap:10px'>
-          <div style='min-width:0'><div class='book-title'>${esc(book.title)}</div><div class='book-author'>${esc(book.author ?? '')}</div></div>
-          <button class='btn btn--xs ${isRec ? 'starred' : ''}' data-action='${isRec ? 'unrecommend' : 'recommend'}' data-id='${esc(book.id)}' data-title='${esc(book.title)}' data-author='${esc(book.author ?? '')}' data-cover='${esc(book.coverUrl ?? '')}' style='flex-shrink:0'>
-            ${isRec ? '<i class="bi bi-star-fill"></i> Starred' : '<i class="bi bi-star"></i> Star'}
-          </button>
-        </div>`;
-      row.querySelector('button')?.addEventListener('click', e => { const d = e.currentTarget.dataset; toggleRecommendation(d.id, d.title, d.author, d.cover); });
-      el.appendChild(row);
-    });
+    filtered.forEach(b => el.appendChild(recRow({
+      bookId: b.id, bookTitle: b.title, author: b.author ?? '', coverUrl: b.coverUrl ?? '', source: 'library',
+    })));
   }
 
-  if (recGoogleResults.length > 0) {
-    const gHdr = document.createElement('p');
-    gHdr.className = 'muted-text small-text'; gHdr.style.margin = '10px 0 6px';
-    gHdr.textContent = 'From Google Books:';
-    el.appendChild(gHdr);
-    recGoogleResults.forEach(book => {
-      const isRec = recommendations.some(r => r.bookId === book.sourceId);
-      const row   = document.createElement('div');
-      row.className = 'book-row';
-      row.innerHTML = `
-        ${book.cover ? `<img src='${esc(book.cover)}' class='book-cover' alt='' loading='lazy'>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
-        <div class='book-info' style='display:flex;align-items:center;justify-content:space-between;gap:10px'>
-          <div style='min-width:0'><div class='book-title'>${esc(book.title)}</div><div class='book-author'>${esc(book.author ?? '')}</div></div>
-          <button class='btn btn--xs ${isRec ? 'starred' : ''}' data-action='${isRec ? 'unrecommend' : 'recommend'}' data-id='${esc(book.sourceId)}' data-title='${esc(book.title)}' data-author='${esc(book.author ?? '')}' data-cover='${esc(book.cover ?? '')}' style='flex-shrink:0'>
-            ${isRec ? '<i class="bi bi-star-fill"></i> Starred' : '<i class="bi bi-star"></i> Star'}
-          </button>
-        </div>`;
-      row.querySelector('button')?.addEventListener('click', e => { const d = e.currentTarget.dataset; toggleRecommendation(d.id, d.title, d.author, d.cover); });
-      el.appendChild(row);
-    });
+  if (recGoogleResults.length) {
+    const hdr = document.createElement('p');
+    hdr.className = 'muted-text small-text';
+    hdr.style.margin = '10px 0 6px';
+    hdr.textContent = 'From Google Books:';
+    el.appendChild(hdr);
+    recGoogleResults.forEach(b => el.appendChild(recRow({
+      bookId: b.sourceId, bookTitle: b.title, author: b.author ?? '', coverUrl: b.cover ?? '', source: 'google',
+    })));
   }
 
-  if (filtered.length === 0 && recGoogleResults.length === 0) {
+  if (!filtered.length && !recGoogleResults.length) {
     el.innerHTML = `<p class='empty-state'>${allBooks.length === 0 ? 'No books in library yet.' : q ? 'Searching Google Books…' : 'No matches.'}</p>`;
   }
 }
@@ -2103,37 +1753,32 @@ document.getElementById('recSearchInput')?.addEventListener('input', () => {
   clearTimeout(recGoogleDebounce);
   renderRecPicker();
   const q = document.getElementById('recSearchInput')?.value.trim();
-  if (q && q.length >= 2) {
-    recGoogleDebounce = setTimeout(async () => {
-      const results   = await searchBooks(q, 6);
+  if (!q || q.length < 2) { recGoogleResults = []; return; }
+  recGoogleDebounce = setTimeout(async () => {
+    try {
+      const results = await searchBooks(q, 6);
       recGoogleResults = results.filter(b => !allBooks.some(lb => lb.title?.toLowerCase() === b.title?.toLowerCase()));
       renderRecPicker();
-    }, 600);
-  } else { recGoogleResults = []; }
+    } catch (err) { console.warn('[teacher] Google Books search failed:', err); }
+  }, 600);
 });
 
-// ── Now Reading ───────────────────────────────────────────────────────────────
-// The current read lives on `teacherData.currentlyReading` — the same object
-// the portal already loaded at sign-in — rather than on an ad-hoc `_reading`
-// property bolted onto the Firebase Auth user.
-//
-// That old arrangement had a real race: `_reading` was populated by a SECOND,
-// fire-and-forget fetch of the teacher document kicked off at the very end of
-// init, while `showPage('reading')` renders from it the instant the teacher
-// clicks "Now Reading". Click fast enough — or have the fetch fail — and the
-// page rendered "Nothing set yet." over a book that was, in fact, set, and
-// stayed that way until a reload. Reading from teacherData removes both the
-// second fetch and the window.
-const currentReading = () => teacherData?.currentlyReading ?? null;
+// ═══════════════════════════════════════════════════════════════════════════
+// Now Reading
+// ═══════════════════════════════════════════════════════════════════════════
+// The current read lives on the teacher document the portal already loaded, not
+// on a second fire-and-forget fetch. That old arrangement raced the UI: click
+// "Now Reading" fast enough and the page rendered "Nothing set yet." over a
+// book that was, in fact, set, and stayed wrong until a reload.
 
-/** Persist the current read (or null to clear) and refresh every view of it. */
+const currentReading = () => teacherData()?.currentlyReading ?? null;
+
 async function saveCurrentlyReading(reading) {
-  await updateDoc(doc(db, 'teachers', currentUser.uid), { currentlyReading: reading });
-  teacherData.currentlyReading = reading;
+  await api.setCurrentlyReading(reading);
   renderReadingDisplay();
   renderReadingPreview();
   renderRecReadingDisplay();
-  renderReadingPicker();   // so the picker marks the book that is now current
+  renderReadingPicker();
 }
 
 function loadCurrentlyReading() {
@@ -2142,33 +1787,55 @@ function loadCurrentlyReading() {
   renderRecReadingDisplay();
 }
 
+/** The picker shows search results when there are any, otherwise the shelf. */
+function readingCandidates() {
+  return readingSearchResults.length
+    ? readingSearchResults
+    : allBooks.map(b => ({ isLibrary: true, bookId: b.id, title: b.title, author: b.author, cover: b.coverUrl ?? '' }));
+}
+
 function renderReadingPicker() {
   const listEl = document.getElementById('readingPickerList');
   if (!listEl) return;
+  const toShow = readingCandidates();
+  if (!toShow.length) {
+    listEl.innerHTML = `<p class='empty-state'>No books in your library yet. Search for one above.</p>`;
+    return;
+  }
   listEl.innerHTML = '';
-  const toShow = readingSearchResults.length > 0
-    ? readingSearchResults
-    : allBooks.map(b => ({ isLibrary: true, bookId: b.id, title: b.title, author: b.author, cover: b.coverUrl ?? '', isbn: b.isbn ?? '' }));
-  if (toShow.length === 0) { listEl.innerHTML = `<p class='empty-state'>No books in your library yet. Search for one above.</p>`; return; }
   const current = currentReading();
+
   toShow.forEach((book, i) => {
     // Mark whichever entry is already the current read, so the picker reflects
     // the state instead of offering "Set as Reading" on the book that is set.
-    const bookKey   = normBookKey(book.title);
-    const isCurrent = !!current && !!bookKey && normBookKey(current.title) === bookKey;
+    const key       = api.normBookKey(book.title);
+    const isCurrent = !!current && !!key && api.normBookKey(current.title) === key;
     const row = document.createElement('div');
     row.className = 'book-row';
     row.innerHTML = `
       ${book.cover ? `<img src='${esc(book.cover)}' class='book-cover' alt='' loading='lazy'>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
       <div class='book-info' style='display:flex;align-items:center;gap:8px'>
-        <div style='flex:1;min-width:0'><div class='book-title'>${esc(book.title)}</div><div class='book-author'>${esc(book.author ?? '')}</div></div>
-        <button class='btn btn--xs ${isCurrent ? 'starred' : 'success'}' data-idx='${i}' data-is-library='${book.isLibrary ? '1' : '0'}' ${isCurrent ? 'disabled' : ''}>
+        <div style='flex:1;min-width:0'>
+          <div class='book-title'>${esc(book.title)}</div>
+          <div class='book-author'>${esc(book.author ?? '')}</div>
+        </div>
+        <button class='btn btn--xs ${isCurrent ? 'starred' : 'success'}' data-action='set' ${isCurrent ? 'disabled' : ''}>
           <i class='bi bi-book-fill'></i> ${isCurrent ? 'Currently Reading' : 'Set as Reading'}
         </button>
       </div>`;
-    row.querySelector('button')?.addEventListener('click', e => setReading(parseInt(e.currentTarget.dataset.idx), e.currentTarget.dataset.isLibrary === '1'));
+    row.querySelector('[data-action="set"]')?.addEventListener('click', () => setReading(toShow[i]));
     listEl.appendChild(row);
   });
+}
+
+async function setReading(book) {
+  if (!book) return;
+  const reading = { title: book.title ?? '', author: book.author ?? '', coverUrl: book.cover ?? '' };
+  if (book.isLibrary && book.bookId) reading.bookId = book.bookId;
+  try {
+    await saveCurrentlyReading(reading);
+    toast(`<i class='bi bi-book-fill'></i> Now reading: "${esc(book.title)}"`, 'success');
+  } catch (err) { toastError(err); }
 }
 
 async function runReadingSearch() {
@@ -2176,118 +1843,102 @@ async function runReadingSearch() {
   const btn = document.getElementById('readingSearchBtn');
   if (!q) { readingSearchResults = []; renderReadingPicker(); return; }
   if (btn) btn.disabled = true;
-  readingSearchResults = (await searchBooks(q, 6)).map(b => ({ ...b, cover: b.cover, isLibrary: false }));
-  if (btn) btn.disabled = false;
+  try {
+    readingSearchResults = (await searchBooks(q, 6)).map(b => ({ ...b, isLibrary: false }));
+  } catch (err) {
+    toast(`Search failed — ${esc(err?.message ?? 'try again')}`, 'danger');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
   renderReadingPicker();
 }
 
 document.getElementById('readingSearchBtn')?.addEventListener('click', runReadingSearch);
 document.getElementById('readingSearchInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') runReadingSearch(); });
 
-async function setReading(idx, isLibrary) {
-  const toShow = readingSearchResults.length > 0
-    ? readingSearchResults
-    : allBooks.map(b => ({ isLibrary: true, bookId: b.id, title: b.title, author: b.author, cover: b.coverUrl ?? '' }));
-  const book = toShow[idx];
-  if (!book) return;
-  const reading = { title: book.title ?? '', author: book.author ?? '', coverUrl: book.cover ?? '' };
-  if (isLibrary && book.bookId) reading.bookId = book.bookId;
-  try {
-    await saveCurrentlyReading(reading);
-  } catch (err) {
-    console.error('[teacher] could not save currently reading:', err);
-    toast(`Couldn't set that as your current read (${esc(err.code ?? err.message ?? 'unknown error')}).`, 'danger');
-    return;
-  }
-  toast(`<i class='bi bi-book-fill'></i> Now reading: "${esc(book.title)}"`, 'success');
+function readingCard(r, { style = '' } = {}) {
+  return `
+    <div class='book-row' ${style ? `style='${style}'` : ''}>
+      ${r.coverUrl ? `<img src='${esc(r.coverUrl)}' class='book-cover' style='border-color:var(--accent)' alt=''>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
+      <div class='book-info'>
+        <div class='book-title'>${esc(r.title)}</div>
+        <div class='book-author'>${esc(r.author)}</div>
+      </div>
+    </div>`;
 }
 
 function renderReadingDisplay() {
   const el = document.getElementById('currentlyReadingDisplay');
   if (!el) return;
   const r = currentReading();
-  // Was a blank area under the Clear button, which read as a failed render
-  // rather than as "you haven't picked anything".
-  if (!r) { el.innerHTML = `<p class='empty-state' style='margin-top:10px'>No current read set — pick one from the list above.</p>`; return; }
-  el.innerHTML = `
-    <div class='book-row' style='margin-top:10px'>
-      ${r.coverUrl ? `<img src='${esc(r.coverUrl)}' class='book-cover' style='border-color:var(--accent)' alt=''>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
-      <div class='book-info'><div class='book-title'>${esc(r.title)}</div><div class='book-author'>${esc(r.author)}</div></div>
-    </div>`;
+  // A blank area under the Clear button reads as a failed render rather than as
+  // "you haven't picked anything".
+  el.innerHTML = r
+    ? readingCard(r, { style: 'margin-top:10px' })
+    : `<p class='empty-state' style='margin-top:10px'>No current read set — pick one from the list above.</p>`;
 }
 
 function renderReadingPreview() {
   const el = document.getElementById('readingPreview');
   if (!el) return;
   const r = currentReading();
-  if (!r) { el.innerHTML = `<p class='empty-state'>Nothing set yet.</p>`; return; }
-  el.innerHTML = `
-    <p class='muted-text small-text' style='margin-bottom:10px'>Students see this on the Library page:</p>
-    <div class='book-row'>
-      ${r.coverUrl ? `<img src='${esc(r.coverUrl)}' class='book-cover' style='border-color:var(--accent)' alt=''>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
-      <div class='book-info'><div class='book-title'>${esc(r.title)}</div><div class='book-author'>${esc(r.author)}</div></div>
-    </div>`;
+  el.innerHTML = r
+    ? `<p class='muted-text small-text' style='margin-bottom:10px'>Students see this on the Library page:</p>${readingCard(r)}`
+    : `<p class='empty-state'>Nothing set yet.</p>`;
+}
+
+function renderRecReadingDisplay() {
+  const el = document.getElementById('recReadingDisplay');
+  if (!el) return;
+  const r = currentReading();
+  el.innerHTML = r ? readingCard(r) : `<p class='empty-state'>Nothing set yet.</p>`;
 }
 
 async function clearCurrentlyReading() {
   if (!currentReading()) { toast('Nothing set to clear.', 'info'); return; }
   try {
     await saveCurrentlyReading(null);
-  } catch (err) {
-    console.error('[teacher] could not clear currently reading:', err);
-    toast(`Couldn't clear that (${esc(err.code ?? err.message ?? 'unknown error')}).`, 'danger');
-    return;
-  }
-  toast('Currently reading cleared.', 'info');
+    toast('Currently reading cleared.', 'info');
+  } catch (err) { toastError(err); }
 }
 
 document.getElementById('clearCurrentlyReadingBtn')?.addEventListener('click', clearCurrentlyReading);
-
-function renderRecReadingDisplay() {
-  const el = document.getElementById('recReadingDisplay');
-  if (!el) return;
-  const r = currentReading();
-  if (!r) { el.innerHTML = `<p class='empty-state'>Nothing set yet.</p>`; return; }
-  el.innerHTML = `
-    <div class='book-row'>
-      ${r.coverUrl ? `<img src='${esc(r.coverUrl)}' class='book-cover' alt=''>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
-      <div class='book-info'><div class='book-title'>${esc(r.title)}</div><div class='book-author'>${esc(r.author)}</div></div>
-    </div>`;
-}
-
-let recReadingDebounce = null;
+document.getElementById('recClearReadingBtn')?.addEventListener('click', clearCurrentlyReading);
 
 async function runRecReadingSearch() {
-  const q   = document.getElementById('recReadingInput')?.value.trim();
-  const btn = document.getElementById('recReadingSearchBtn');
-  if (!q) return;
-  if (btn) btn.disabled = true;
-  const results = (await searchBooks(q, 6)).map(b => ({ ...b, cover: b.cover, isLibrary: false }));
-  if (btn) btn.disabled = false;
+  const q      = document.getElementById('recReadingInput')?.value.trim();
+  const btn    = document.getElementById('recReadingSearchBtn');
   const listEl = document.getElementById('recReadingResults');
-  if (!listEl) return;
+  if (!q || !listEl) return;
+  if (btn) btn.disabled = true;
+
+  let results = [];
+  try {
+    results = await searchBooks(q, 6);
+  } catch (err) {
+    toast(`Search failed — ${esc(err?.message ?? 'try again')}`, 'danger');
+    return;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+
   listEl.innerHTML = '';
   if (!results.length) { listEl.innerHTML = `<p class='empty-state'>No results.</p>`; return; }
-  results.forEach((book, i) => {
+
+  results.forEach(book => {
     const row = document.createElement('div');
     row.className = 'book-row';
     row.innerHTML = `
       ${book.cover ? `<img src='${esc(book.cover)}' class='book-cover' alt='' loading='lazy'>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
       <div class='book-info' style='display:flex;align-items:center;gap:8px'>
-        <div style='flex:1;min-width:0'><div class='book-title'>${esc(book.title)}</div><div class='book-author'>${esc(book.author ?? '')}</div></div>
-        <button class='btn btn--xs success' data-idx='${i}'><i class='bi bi-book-fill'></i> Set</button>
+        <div style='flex:1;min-width:0'>
+          <div class='book-title'>${esc(book.title)}</div>
+          <div class='book-author'>${esc(book.author ?? '')}</div>
+        </div>
+        <button class='btn btn--xs success' data-action='set'><i class='bi bi-book-fill'></i> Set</button>
       </div>`;
-    row.querySelector('button')?.addEventListener('click', async (e) => {
-      const b = results[parseInt(e.currentTarget.dataset.idx)];
-      const reading = { title: b.title ?? '', author: b.author ?? '', coverUrl: b.cover ?? '' };
-      try {
-        await saveCurrentlyReading(reading);
-      } catch (err) {
-        console.error('[teacher] could not save currently reading:', err);
-        toast(`Couldn't set that as your current read (${esc(err.code ?? err.message ?? 'unknown error')}).`, 'danger');
-        return;
-      }
-      toast(`<i class='bi bi-book-fill'></i> Now reading: "${esc(b.title)}"`, 'success');
+    row.querySelector('[data-action="set"]')?.addEventListener('click', async () => {
+      await setReading({ ...book, isLibrary: false });
       listEl.innerHTML = '';
     });
     listEl.appendChild(row);
@@ -2296,74 +1947,61 @@ async function runRecReadingSearch() {
 
 document.getElementById('recReadingSearchBtn')?.addEventListener('click', runRecReadingSearch);
 document.getElementById('recReadingInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') runRecReadingSearch(); });
-document.getElementById('recClearReadingBtn')?.addEventListener('click', clearCurrentlyReading);
 
-// ── Invite Teachers ───────────────────────────────────────────────────────────
-// Stores the last generated invite link for email-share button
-let _lastInviteLink = '';
-let _lastInviteEmail = '';
+// ═══════════════════════════════════════════════════════════════════════════
+// Teacher invites
+// ═══════════════════════════════════════════════════════════════════════════
 
-document.getElementById('createInviteBtn')?.addEventListener('click', async () => {
-  const emailInput   = document.getElementById('inviteEmailInput');
-  const output       = document.getElementById('inviteOutput');
-  const qrContainer  = document.getElementById('inviteQrContainer');
-  const qrImg        = document.getElementById('inviteQrImg');
-  const emailBtn     = document.getElementById('emailInviteBtn');
-  const email        = emailInput?.value.trim().toLowerCase();
-  if (!email || !email.includes('@')) { toast('Enter a valid email address.', 'danger'); return; }
+let lastInviteLink  = '';
+let lastInviteEmail = '';
 
-  const expiresAt = new Date(Date.now() + 7 * 86400000);
+const inviteLinkFor = (id) => `${window.location.origin}/teacher-signup.html?token=${id}`;
+
+document.getElementById('createInviteBtn')?.addEventListener('click', async (ev) => {
+  const emailInput  = document.getElementById('inviteEmailInput');
+  const output      = document.getElementById('inviteOutput');
+  const qrContainer = document.getElementById('inviteQrContainer');
+  const qrImg       = document.getElementById('inviteQrImg');
+  const emailBtn    = document.getElementById('emailInviteBtn');
+
+  ev.currentTarget.disabled = true;
   try {
-    const ref = await addDoc(collection(db, 'invites'), {
-      recipientEmail: email,
-      used:           false,
-      revoked:        false,
-      expiresAt:      Timestamp.fromDate(expiresAt),
-      createdBy:      currentUser.uid,
-      createdByName:  teacherData?.name ?? currentUser.displayName ?? 'Teacher',
-      createdByRole:  'teacher',
-      createdAt:      serverTimestamp(),
-    });
-    const link = `${window.location.origin}/teacher-signup.html?token=${ref.id}`;
-    _lastInviteLink  = link;
-    _lastInviteEmail = email;
+    const { id, email, days } = await api.createInvite(emailInput?.value ?? '');
+    const link = inviteLinkFor(id);
+    lastInviteLink  = link;
+    lastInviteEmail = email;
 
     await navigator.clipboard.writeText(link).catch(() => {});
     if (output) output.innerHTML = `
       <div class='invite-link-box'>${esc(link)}</div>
       <p class='muted-text small-text' style='margin-top:8px'>
-        <i class='bi bi-check2'></i> Link copied! Valid 7 days — locked to ${esc(email)}
+        <i class='bi bi-check2'></i> Link copied! Valid ${days} days — locked to ${esc(email)}
       </p>`;
-
-    // Show QR code (generated locally — see qr.js)
     if (qrImg && qrContainer) {
       setQrImage(qrImg, link, 240);
-      qrImg.alt       = 'QR code for invite link';
+      qrImg.alt = 'QR code for invite link';
       qrContainer.hidden = false;
     }
-
-    // Show email share button
     if (emailBtn) emailBtn.hidden = false;
-
     if (emailInput) emailInput.value = '';
     toast(`<i class='bi bi-check2'></i> Invite link created &amp; copied`, 'success');
     loadPastInvites();
   } catch (err) {
-    toast(`Failed to create invite: ${esc(err.message ?? 'unknown')}`, 'danger');
+    toastError(err);
+  } finally {
+    ev.currentTarget.disabled = false;
   }
 });
 
-// Email share button
 document.getElementById('emailInviteBtn')?.addEventListener('click', () => {
-  if (!_lastInviteLink) return;
-  const tName   = teacherData?.name ?? 'a teacher';
-  const subject = encodeURIComponent('You\'ve been invited to BookWare');
-  const body    = encodeURIComponent(
+  if (!lastInviteLink) return;
+  const subject = encodeURIComponent("You've been invited to BookWare");
+  const body = encodeURIComponent(
     `Hi,\n\nYou've been invited to join BookWare as a teacher at Mason High School.\n\n` +
-    `Click the link below to create your account:\n${_lastInviteLink}\n\n` +
-    `This invite is locked to ${_lastInviteEmail} and expires in 7 days.\n\n— ${tName}`
+    `Click the link below to create your account:\n${lastInviteLink}\n\n` +
+    `This invite is locked to ${lastInviteEmail} and expires in 7 days.\n\n— ${teacherName()}`,
   );
-  window.open(`mailto:${_lastInviteEmail}?subject=${subject}&body=${body}`);
+  window.open(`mailto:${lastInviteEmail}?subject=${subject}&body=${body}`);
   toast(`<i class='bi bi-envelope-fill'></i> Opening email client…`, 'info');
 });
 
@@ -2371,144 +2009,117 @@ async function loadPastInvites() {
   const el = document.getElementById('pastInvitesList');
   if (!el) return;
   el.innerHTML = `<p class='empty-state loading-state'>Loading…</p>`;
+
+  let invites;
   try {
-    const snap = await getDocs(query(collection(db, 'invites'), where('createdBy', '==', currentUser.uid)));
-    if (snap.empty) { el.innerHTML = `<p class='empty-state'>No invites sent yet.</p>`; return; }
-    const now     = new Date();
-    const invites = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => {
-      const aActive = !a.used && !a.revoked && a.expiresAt?.toDate?.() > now;
-      const bActive = !b.used && !b.revoked && b.expiresAt?.toDate?.() > now;
-      if (aActive !== bActive) return bActive ? 1 : -1;
-      return (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0);
-    });
-    el.innerHTML = '';
-    invites.forEach(inv => {
-      const expDate  = inv.expiresAt?.toDate?.();
-      const expired  = expDate && expDate < now;
-      const isActive = !inv.used && !inv.revoked && !expired;
-      const link     = `${window.location.origin}/teacher-signup.html?token=${inv.id}`;
-
-      const statusBadge = inv.used
-        ? `<span class='t-badge'>Used</span>`
-        : inv.revoked
-        ? `<span class='t-badge' style='color:var(--danger)'>Revoked</span>`
-        : expired
-        ? `<span class='t-badge' style='opacity:0.5'>Expired</span>`
-        : `<span class='t-badge t-badge--available'>Active · Expires ${fmtDate(inv.expiresAt)}</span>`;
-
-      const row = document.createElement('div');
-      row.className = 'book-row';
-      row.innerHTML = `
-        <div class='book-info' style='flex:1;min-width:0'>
-          <div class='book-title'>${esc(inv.recipientEmail || 'Open invite')}</div>
-          <div style='display:flex;gap:6px;flex-wrap:wrap;margin-top:4px'>${statusBadge}</div>
-          <div class='teacher-invite-qr' hidden style='margin-top:10px'>
-            <img src='' alt='QR code'
-                 style='width:120px;height:120px;background:#fff;padding:5px;border-radius:7px;display:block'>
-            <p class='muted-text small-text' style='margin-top:4px'>Scan to open invite</p>
-          </div>
-        </div>
-        <div style='display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap'>
-          ${isActive ? `
-            <button class='btn btn--ghost btn--sm' data-action='copy' data-link='${esc(link)}'
-                    title='Copy link' aria-label='Copy invite link'><i class='bi bi-clipboard'></i></button>
-            <button class='btn btn--ghost btn--sm' data-action='qr' data-link='${esc(link)}'
-                    title='QR code' aria-label='Show QR code'><i class='bi bi-qr-code'></i></button>
-            <button class='btn btn--danger btn--sm' data-action='revoke' data-id='${esc(inv.id)}'>
-              Revoke
-            </button>
-          ` : ''}
-        </div>`;
-      el.appendChild(row);
-    });
-
-    el.querySelectorAll('[data-action]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const { action, link, id } = btn.dataset;
-        if (action === 'copy') {
-          navigator.clipboard.writeText(link)
-            .then(() => toast('<i class="bi bi-check2"></i> Link copied', 'success'))
-            .catch(() => toast(`Copy failed — link: ${link}`, 'info'));
-        }
-        if (action === 'qr') {
-          const row    = btn.closest('.book-row');
-          const qrDiv  = row?.querySelector('.teacher-invite-qr');
-          const qrImg  = qrDiv?.querySelector('img');
-          if (!qrDiv) return;
-          qrDiv.hidden = !qrDiv.hidden;
-          if (!qrDiv.hidden && qrImg && !qrImg.dataset.qrReady) {
-            setQrImage(qrImg, link, 180);
-          }
-        }
-        if (action === 'revoke') {
-          if (!confirm('Revoke this invite? The link will stop working immediately.')) return;
-          try {
-            await updateDoc(doc(db, 'invites', id), {
-              revoked:   true,
-              revokedAt: serverTimestamp(),
-              revokedBy: currentUser.uid,
-            });
-            toast('Invite revoked', 'success');
-            loadPastInvites();
-          } catch (err) {
-            toast(`Revoke failed: ${esc(err.message)}`, 'danger');
-          }
-        }
-      });
-    });
+    invites = await api.listInvites();
   } catch (err) {
-    el.innerHTML = `<p class='empty-state'>Could not load invites: ${esc(err.message)}</p>`;
+    renderPanelError(el, 'your invites', err);
+    return;
   }
+  if (!invites.length) { el.innerHTML = `<p class='empty-state'>No invites sent yet.</p>`; return; }
+
+  el.innerHTML = '';
+  invites.forEach(inv => {
+    const link = inviteLinkFor(inv.id);
+    const statusBadge = inv.used
+      ? `<span class='t-badge'>Used</span>`
+      : inv.revoked
+      ? `<span class='t-badge' style='color:var(--danger)'>Revoked</span>`
+      : inv.expired
+      ? `<span class='t-badge' style='opacity:0.5'>Expired</span>`
+      : `<span class='t-badge t-badge--available'>Active · Expires ${fmtDate(inv.expiresAt)}</span>`;
+
+    const row = document.createElement('div');
+    row.className = 'book-row';
+    row.innerHTML = `
+      <div class='book-info' style='flex:1;min-width:0'>
+        <div class='book-title'>${esc(inv.recipientEmail || 'Open invite')}</div>
+        <div style='display:flex;gap:6px;flex-wrap:wrap;margin-top:4px'>${statusBadge}</div>
+        <div class='teacher-invite-qr' hidden style='margin-top:10px'>
+          <img src='' alt='QR code' style='width:120px;height:120px;background:#fff;padding:5px;border-radius:7px;display:block'>
+          <p class='muted-text small-text' style='margin-top:4px'>Scan to open invite</p>
+        </div>
+      </div>
+      <div style='display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap'>
+        ${inv.active ? `
+          <button class='btn btn--ghost btn--sm' data-action='copy' title='Copy link' aria-label='Copy invite link'><i class='bi bi-clipboard'></i></button>
+          <button class='btn btn--ghost btn--sm' data-action='qr' title='QR code' aria-label='Show QR code'><i class='bi bi-qr-code'></i></button>
+          <button class='btn btn--danger btn--sm' data-action='revoke'>Revoke</button>` : ''}
+      </div>`;
+
+    const on = (action, handler) => row.querySelector(`[data-action="${action}"]`)?.addEventListener('click', handler);
+    on('copy', () => copyText(link, 'Link copied'));
+    on('qr', () => {
+      const qrDiv = row.querySelector('.teacher-invite-qr');
+      const qrImg = qrDiv?.querySelector('img');
+      if (!qrDiv) return;
+      qrDiv.hidden = !qrDiv.hidden;
+      if (!qrDiv.hidden && qrImg && !qrImg.dataset.qrReady) setQrImage(qrImg, link, 180);
+    });
+    on('revoke', async (e) => {
+      if (!confirm('Revoke this invite? The link will stop working immediately.')) return;
+      e.currentTarget.disabled = true;
+      try {
+        await api.revokeInvite(inv.id);
+        toast('Invite revoked', 'success');
+        loadPastInvites();
+      } catch (err) {
+        e.currentTarget.disabled = false;
+        toastError(err);
+      }
+    });
+
+    el.appendChild(row);
+  });
 }
 
-// ── Bi-weekly notification ────────────────────────────────────────────────────
-function checkBiweeklyNotification() {
-  const KEY      = `bookware-biweekly-${currentUser.uid}`;
-  const last     = localStorage.getItem(KEY);
-  const TWO_WEEKS = 14 * 86400000;
-  if (last && Date.now() - parseInt(last) < TWO_WEEKS) return;
+// ═══════════════════════════════════════════════════════════════════════════
+// Bi-weekly check-in banner
+// ═══════════════════════════════════════════════════════════════════════════
 
-  const show = async () => {
-    const checkedOut = allBooks.filter(b => (b.checkedOutCount ?? 0) > 0 || b.status === 'checked_out');
-    const banner     = document.getElementById('biweeklyBanner');
-    const content    = document.getElementById('biweeklyContent');
+function checkBiweeklyNotification() {
+  const KEY       = `bookware-biweekly-${me?.uid}`;
+  const TWO_WEEKS = 14 * 86400000;
+  const last      = localStorage.getItem(KEY);
+  if (last && Date.now() - parseInt(last, 10) < TWO_WEEKS) return;
+
+  setTimeout(() => {
+    const banner  = document.getElementById('biweeklyBanner');
+    const content = document.getElementById('biweeklyContent');
     if (!banner || !content) return;
-    const now        = new Date();
-    const overdueCount = checkedOut.filter(b => b.dueDate?.toDate?.() < now).length;
+
+    const now     = new Date();
+    const overdue = openLoans.filter(l => (l.dueDate?.toDate?.() ?? null) < now).length;
+
     content.innerHTML = `
       <div style='display:flex;flex-wrap:wrap;gap:7px;margin-top:8px'>
-        ${checkedOut.map(b => `<span class='count-badge'>${esc(b.title)}</span>`).join('')}
+        ${openLoans.map(l => `<span class='count-badge'>${esc(l.bookTitle)}</span>`).join('')}
       </div>
       <div style='margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center'>
-        <p class='muted-text small-text'>${checkedOut.length} book${checkedOut.length !== 1 ? 's' : ''} out${overdueCount > 0 ? ` · <strong style='color:var(--danger)'>${overdueCount} overdue</strong>` : ''}.</p>
+        <p class='muted-text small-text'>${plural(openLoans.length, 'book')} out${overdue > 0 ? ` · <strong style='color:var(--danger)'>${overdue} overdue</strong>` : ''}.</p>
         <button class='btn btn--sm' id='biweeklyDownloadBtn'><i class='bi bi-download'></i> Download .MD</button>
         <button class='btn btn--ghost btn--sm' id='biweeklyDismissBtn'>Dismiss</button>
       </div>`;
     banner.hidden = false;
     localStorage.setItem(KEY, String(Date.now()));
 
-    document.getElementById('biweeklyDownloadBtn')?.addEventListener('click', async () => {
-      const tName = teacherData?.name ?? 'Teacher';
-      let md = `# BookWare — Bi-Weekly Library Report\n\n**Teacher:** ${tName}  \n**Generated:** ${now.toLocaleString()}  \n\n---\n\n`;
-      if (checkedOut.length === 0) { md += 'All books are currently available.\n'; }
+    document.getElementById('biweeklyDownloadBtn')?.addEventListener('click', () => {
+      let md = `# BookWare — Bi-Weekly Library Report\n\n**Teacher:** ${teacherName()}  \n**Generated:** ${now.toLocaleString()}  \n\n---\n\n`;
+      if (!openLoans.length) md += 'All books are currently available.\n';
       else {
         md += `## Currently Checked Out\n\n| Book | Author | Student | Checked Out | Due Date | Status |\n|------|--------|---------|-------------|----------|--------|\n`;
-        for (const book of checkedOut) {
-          let studentName = '—';
-          if (book.checkedOutBy) { try { const s = await getDoc(doc(db, 'students', book.checkedOutBy)); if (s.exists()) studentName = s.data().name ?? '—'; } catch (_) {} }
-          const dueDate  = book.dueDate?.toDate?.();
-          const isOverdue = dueDate && dueDate < now;
-          md += `| ${book.title} | ${book.author ?? '—'} | ${studentName} | ${fmtDate(book.checkedOutAt)} | ${dueDate ? dueDate.toLocaleDateString() : '—'} | ${isOverdue ? 'OVERDUE' : 'Active'} |\n`;
-        }
+        openLoans.forEach(l => {
+          const due       = l.dueDate?.toDate?.() ?? null;
+          const isOverdue = due && due < now;
+          md += `| ${l.bookTitle} | ${l.author ?? '—'} | ${l.studentName || '—'} | ${fmtDate(l.dateOut)} | ${due ? due.toLocaleDateString() : '—'} | ${isOverdue ? 'OVERDUE' : 'Active'} |\n`;
+        });
       }
       md += `\n---\n*Generated by BookWare · Mason High School*\n`;
-      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([md], { type: 'text/markdown' })), download: `bookware-report-${now.toISOString().slice(0, 10)}.md` });
-      a.click(); URL.revokeObjectURL(a.href);
+      downloadBlob(md, 'text/markdown', `bookware-report-${now.toISOString().slice(0, 10)}.md`);
       toast('<i class="bi bi-check2"></i> Report downloaded', 'success');
     });
 
     document.getElementById('biweeklyDismissBtn')?.addEventListener('click', () => { banner.hidden = true; });
-  };
-
-  setTimeout(show, 1800);
+  }, 1800);
 }
