@@ -177,8 +177,40 @@ onAuthStateChanged(auth, async (user) => {
     if (!userSnap.exists() || (userRole !== 'teacher' && userRole !== 'admin')) { await signOut(auth); window.location.href = '/'; return; }
 
     currentUser   = user;
-    const tSnap   = await readCritical(() => getDoc(doc(db, 'teachers', user.uid)));
-    if (!tSnap.exists()) { hidePreloader(); toast('Teacher record not found. Ask an admin or another teacher for an invite link.', 'danger'); return; }
+    let tSnap     = await readCritical(() => getDoc(doc(db, 'teachers', user.uid)));
+    if (!tSnap.exists()) {
+      // An owner on the admin allowlist runs the teacher portal too (see
+      // FIRESTORE_SCHEMA.md — "the teacher portal admits both" roles). But the
+      // admin sign-in path in auth.js only ever writes users/{uid} + heads to
+      // admin.html; it never creates teachers/{uid}. So an admin who opens the
+      // teacher portal used to dead-end HERE on "Teacher record not found" with
+      // every panel blank and nothing in the console — it's a plain return, not
+      // an error. Bootstrap the record for them (firestore.rules already allows
+      // an admin to create their own teacher doc) instead of stranding them.
+      const isAdminUser = userRole === 'admin' || ADMIN_EMAILS.includes(user.email?.toLowerCase());
+      if (!isAdminUser) {
+        hidePreloader();
+        toast('Teacher record not found. Ask an admin or another teacher for an invite link.', 'danger');
+        return;
+      }
+      try {
+        await setDoc(doc(db, 'teachers', user.uid), {
+          name:            user.displayName ?? user.email ?? '',
+          email:           user.email ?? '',
+          createdAt:       serverTimestamp(),
+          canInvite:       true,
+          libraryPublic:   false,
+          requireApproval: false,
+        });
+        tSnap = await getDoc(doc(db, 'teachers', user.uid));
+      } catch (err) {
+        console.error('[teacher] could not create teacher record for admin:', err);
+        hidePreloader();
+        toast(`Couldn't create your teacher record — ${esc(err.code ?? err.message ?? 'unknown error')}. <button class="toast-retry" data-retry="1">Retry</button>`, 'danger');
+        return;
+      }
+      toast(`<i class='bi bi-check2'></i> Teacher workspace created for ${esc(user.email ?? 'your account')}.`, 'success');
+    }
     teacherData   = tSnap.data();
 
     // Backfill for accounts created before canInvite existed on the schema —
