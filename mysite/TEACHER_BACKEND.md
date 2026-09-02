@@ -119,6 +119,39 @@ ones this rebuild was fixing.
 
 ---
 
+## Bulk operations and import
+
+`deleteBooks(ids)` removes several books in batches of 400 (Firestore caps a
+batch at 500). Each batch is atomic, so a bulk delete cannot leave the shelf
+half-cleared.
+
+`importBooks(entries, { onProgress })` takes entries already grouped by
+`spreadsheet.js` — one per distinct book, carrying a copy count — and writes
+them in the same batches. Two things it deliberately does:
+
+- **A title already on the shelf gains copies** rather than being added again,
+  using the same `findExistingBook` identity rule as the Add flow. Importing
+  the same file twice tops up counts instead of doubling the library.
+- **Checkout state is not imported.** A row marked "Checked out" in another app
+  names a student who does not exist here, and a copy marked out with no
+  borrower could never be returned through the UI. Those copies arrive
+  available, and the count is reported back so the teacher is told.
+
+### Reading the spreadsheet
+
+`public/js/spreadsheet.js` is parsing only — no DOM, no Firestore. It lazy-loads
+SheetJS from jsDelivr (already in the CSP `script-src`; a different CDN would be
+blocked silently). Two properties of these exports drive its design:
+
+- **One row per physical copy.** Four copies of a title are four identical rows,
+  so rows are grouped and the group size becomes `copies`. Importing them
+  ungrouped is what would create the duplicate entries the Merge button cleans up.
+- **ISBNs written as numbers.** They arrive in scientific notation
+  (`9.780439023528E12`), and any ISBN-10 beginning with 0 has lost its leading
+  zeros — `0061097314` comes back as `61097314`. Those are padded back out;
+  verified against the ISBN-10 check digit on a real 436-row export, where it
+  recovered 8 ISBNs and produced zero checksum failures.
+
 ## Errors
 
 Every failure surfaces as a `TeacherApiError` with a `code` and a plain-English

@@ -1,2 +1,9 @@
 .claude/worktrees/
 .aider*
+
+# Spreadsheet exports from classroom-library apps carry student names and their
+# borrowing history (education records). Ignore every .xlsx by default so one
+# can't be committed by accident; the sanitised import fixture is the single
+# opt-in exception. See mysite/samples/README.md.
+*.xlsx
+!mysite/samples/example-library-import.xlsx

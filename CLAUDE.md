@@ -134,6 +134,18 @@ firebase emulators:exec --only firestore --project school-suite-652d8 "echo ok"
 - Comments explain *why*, especially where the code looks odd because of a bug
   it is deliberately avoiding. Don't strip those.
 
+## Never commit a spreadsheet export
+
+`.gitignore` ignores every `*.xlsx`, with exactly one exception:
+`mysite/samples/example-library-import.xlsx`, which is synthetic. Keep it that
+way.
+
+A real export from a classroom-library app has a **Checkouts** sheet listing
+student names against the books they borrowed. That is an education record, it
+is the same data `retention.js` and `firestore.rules` exist to protect, and this
+repo is public. When testing against a real library, strip the names and use the
+`*.local.xlsx` suffix — already covered by the ignore rule.
+
 ## App version number
 
 There is no build-time versioning in this repo — no `package.json`, no CI
@@ -141,7 +153,7 @@ stamp. The only version indicator is a hardcoded string in the Settings panel
 footer, in **both** `mysite/public/teacher.html` and `mysite/public/student.html`:
 
 ```html
-<div class="settings-section-sub">BookWare v2.4 · Mason High School · Sarvin Sukhe</div>
+<div class="settings-section-sub">BookWare v2.5 · Mason High School · Sarvin Sukhe</div>
 ```
 
 **Bump this (in both files, they must match) whenever you ship a change large

@@ -1047,6 +1047,126 @@ document.getElementById('mergeDuplicatesBtn')?.addEventListener('click', async (
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Import a library from a spreadsheet
+// ═══════════════════════════════════════════════════════════════════════════
+// Two steps on purpose: parse and SHOW what was found, then import only once
+// the teacher confirms. Dropping several hundred books onto a shelf silently,
+// off one file-picker click, is not something you want to be wrong about.
+
+let pendingImport = null;
+
+document.getElementById('importPickBtn')?.addEventListener('click', () => {
+  document.getElementById('importFileInput')?.click();
+});
+
+document.getElementById('importFileInput')?.addEventListener('change', async (e) => {
+  const file = e.currentTarget.files?.[0];
+  e.currentTarget.value = '';            // so re-picking the same file re-fires
+  if (!file) return;
+
+  const out = document.getElementById('importResult');
+  if (out) out.innerHTML = `<p class='muted-text small-text' style='margin-top:8px'>Reading ${esc(file.name)}…</p>`;
+
+  let parsed;
+  try {
+    const { parseLibraryFile } = await import('./spreadsheet.js');
+    parsed = await parseLibraryFile(file);
+  } catch (err) {
+    console.error('[teacher] import parse failed:', err);
+    if (out) {
+      out.innerHTML = `<p class='empty-state' style='color:var(--danger);margin-top:8px'>
+        <i class='bi bi-exclamation-triangle-fill' aria-hidden='true'></i>
+        ${esc(err?.message ?? 'Could not read that file')}${err?.hint ? ` — ${esc(err.hint)}` : ''}
+      </p>`;
+    }
+    return;
+  }
+
+  pendingImport = parsed;
+  renderImportPreview(file, parsed);
+});
+
+function renderImportPreview(file, parsed) {
+  const out = document.getElementById('importResult');
+  if (!out) return;
+  const s = parsed.stats;
+
+  if (!parsed.entries.length) {
+    out.innerHTML = `<p class='empty-state' style='margin-top:8px'>No books found in "${esc(parsed.sheetName)}".</p>`;
+    return;
+  }
+
+  // How many of these are already on the shelf, so the teacher sees up front
+  // whether this is an add or a top-up.
+  const alreadyHere = parsed.entries.filter(e => api.findExistingBook(e, allBooks)).length;
+  const sample = parsed.entries.slice(0, 4)
+    .map(e => `${esc(e.title)}${e.copies > 1 ? ` <span class='muted-text'>×${e.copies}</span>` : ''}`)
+    .join(', ');
+
+  out.innerHTML = `
+    <div class='settings-row settings-row--col' style='border-top:1px solid var(--border);margin-top:10px;padding-top:10px'>
+      <div class='settings-label'>${esc(file.name)}</div>
+      <div class='settings-hint' style='margin-bottom:8px'>
+        Sheet <strong>${esc(parsed.sheetName)}</strong> · ${plural(s.rows, 'row')} →
+        <strong>${plural(s.books, 'book')}</strong> (${plural(s.copies, 'copy', 'copies')})<br>
+        ${s.withIsbn} with ISBN · ${s.withCover} with a cover
+        ${alreadyHere ? `<br><strong>${plural(alreadyHere, 'book')}</strong> already on your shelf — those gain copies rather than being added twice.` : ''}
+        ${s.checkedOut ? `<br>${plural(s.checkedOut, 'copy', 'copies')} marked checked out in the file will import as <strong>available</strong> — the borrowers aren't BookWare students.` : ''}
+        ${s.skipped ? `<br>${plural(s.skipped, 'row')} skipped for having no title.` : ''}
+      </div>
+      <p class='muted-text small-text' style='margin-bottom:8px'>e.g. ${sample}${parsed.entries.length > 4 ? ' …' : ''}</p>
+      <div style='display:flex;gap:6px;flex-wrap:wrap'>
+        <button class='btn btn--primary btn--sm' id='importConfirmBtn'>
+          <i class='bi bi-download' aria-hidden='true'></i> Import ${plural(s.books, 'book')}
+        </button>
+        <button class='btn btn--ghost btn--sm' id='importCancelBtn'>Cancel</button>
+      </div>
+      <div id='importProgress' class='muted-text small-text' style='margin-top:8px'></div>
+    </div>`;
+
+  document.getElementById('importCancelBtn')?.addEventListener('click', () => {
+    pendingImport = null;
+    out.innerHTML = '';
+  });
+  document.getElementById('importConfirmBtn')?.addEventListener('click', runImport);
+}
+
+async function runImport(ev) {
+  if (!pendingImport) return;
+  const btn      = ev.currentTarget;
+  const cancel   = document.getElementById('importCancelBtn');
+  const progress = document.getElementById('importProgress');
+  btn.disabled = true;
+  if (cancel) cancel.disabled = true;
+  btn.innerHTML = `<i class='bi bi-hourglass-split' aria-hidden='true'></i> Importing…`;
+
+  try {
+    const result = await api.importBooks(pendingImport.entries, {
+      onProgress: (done, total) => {
+        if (progress) progress.textContent = `Writing ${done} of ${total}…`;
+      },
+    });
+    pendingImport = null;
+    const out = document.getElementById('importResult');
+    if (out) {
+      out.innerHTML = `<p class='muted-text small-text' style='margin-top:8px;color:var(--success)'>
+        <i class='bi bi-check2' aria-hidden='true'></i>
+        Added ${plural(result.created, 'new book')}${result.updated ? `, topped up ${plural(result.updated, 'existing book')}` : ''}
+        — ${plural(result.copiesAdded, 'copy', 'copies')} in total.
+      </p>`;
+    }
+    toast(`<i class='bi bi-check2'></i> Imported ${plural(result.created + result.updated, 'book')}`, 'success');
+    await loadLibrary();
+  } catch (err) {
+    console.error('[teacher] import failed:', err);
+    toastError(err);
+    btn.disabled = false;
+    if (cancel) cancel.disabled = false;
+    btn.innerHTML = `<i class='bi bi-download' aria-hidden='true'></i> Retry import`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Library list
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -1084,8 +1204,15 @@ async function loadLibrary() {
 function renderLibraryList(books) {
   const listEl = document.getElementById('libraryList');
   if (!listEl) return;
+  lastRenderedBooks = books;
+  // Drop selections for books that no longer exist (deleted, or merged away),
+  // otherwise a stale id lingers and the count reads higher than the list.
+  const live = new Set(allBooks.map(b => b.id));
+  [...selectedBookIds].forEach(id => { if (!live.has(id)) selectedBookIds.delete(id); });
+
   if (!books.length) {
     listEl.innerHTML = `<p class='empty-state'>${allBooks.length === 0 ? 'No books yet — add one above!' : 'No matches.'}</p>`;
+    renderBulkBar();
     return;
   }
   listEl.innerHTML = '';
@@ -1101,9 +1228,12 @@ function renderLibraryList(books) {
       : (out > 0 ? 'Checked Out' : 'Available');
 
     const row = document.createElement('div');
-    row.className = 'book-row';
+    row.className = 'book-row' + (selectedBookIds.has(book.id) ? ' is-selected' : '');
     row.setAttribute('role', 'listitem');
     row.innerHTML = `
+      <input type='checkbox' class='book-row-check' data-action='select'
+             ${selectedBookIds.has(book.id) ? 'checked' : ''}
+             aria-label='Select ${esc(book.title)}'>
       ${book.coverUrl ? `<img src='${esc(book.coverUrl)}' class='book-cover' alt='Cover of ${esc(book.title)}' loading='lazy'>` : `<div class='book-cover-ph'><i class='bi bi-book-fill'></i></div>`}
       <div class='book-info'>
         <div class='book-title'>${esc(book.title)}</div>
@@ -1118,7 +1248,7 @@ function renderLibraryList(books) {
           </button>
           ${out > 0 ? `<button class='btn btn--xs success' data-action='return'><i class='bi bi-arrow-return-left'></i> Return</button>` : ''}
           <button class='btn btn--xs' data-action='add-copy' title='Add a copy'><i class='bi bi-plus-lg'></i> Copy</button>
-          ${copies > 1 ? `<button class='btn btn--xs' data-action='remove-copy' title='Remove a copy (damaged/lost)'><i class='bi bi-dash-lg'></i> Copy</button>` : ''}
+          ${copies > 1 ? `<button class='btn btn--xs' data-action='remove-copy' title='Remove copies (damaged/lost)'><i class='bi bi-dash-lg'></i> Copy</button>` : ''}
           <button class='btn btn--xs danger' data-action='delete'><i class='bi bi-trash3-fill'></i> Delete</button>
         </div>
       </div>`;
@@ -1128,9 +1258,115 @@ function renderLibraryList(books) {
     on('return',      () => returnFromLibraryRow(book));
     on('delete',      () => deleteBook(book));
     on('add-copy',    () => changeCopies(book, +1));
-    on('remove-copy', () => changeCopies(book, -1));
+    on('remove-copy', () => removeCopiesPrompt(book));
+    row.querySelector('[data-action="select"]')?.addEventListener('change', (e) => {
+      if (e.currentTarget.checked) selectedBookIds.add(book.id);
+      else selectedBookIds.delete(book.id);
+      row.classList.toggle('is-selected', e.currentTarget.checked);
+      renderBulkBar();
+    });
     listEl.appendChild(row);
   });
+
+  renderBulkBar();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Bulk selection
+// ═══════════════════════════════════════════════════════════════════════════
+// Two different things get called "bulk delete", and both exist:
+//   • several DIFFERENT books at once — tick rows, Delete selected
+//   • several COPIES of one book — the − Copy button asks how many
+// A spreadsheet import can drop hundreds of books on a shelf at once, so
+// undoing that a single click at a time was never going to be usable.
+
+/** Ids currently ticked. Survives re-renders (search, refresh) so a filter
+ *  change doesn't silently drop part of a selection the teacher made. */
+const selectedBookIds = new Set();
+
+/** What the list last rendered. Every bulk action is scoped to these, so a
+ *  teacher can never delete something the search filter is hiding from them. */
+let lastRenderedBooks = [];
+const shownIds = () => lastRenderedBooks.map(b => b.id);
+
+function renderBulkBar() {
+  const bar     = document.getElementById('bulkBar');
+  const listEl  = document.getElementById('libraryList');
+  const countEl = document.getElementById('bulkCount');
+  const allBox  = document.getElementById('bulkSelectAll');
+  if (!bar || !listEl) return;
+
+  const shown    = shownIds();
+  const selected = shown.filter(id => selectedBookIds.has(id));
+  bar.hidden = selected.length === 0;
+  listEl.classList.toggle('selecting', selected.length > 0);
+
+  if (countEl) {
+    const copies = selected.reduce((n, id) => n + (allBooks.find(b => b.id === id)?.copies ?? 1), 0);
+    countEl.textContent = `${plural(selected.length, 'book')} selected · ${plural(copies, 'copy', 'copies')}`;
+  }
+  if (allBox) {
+    allBox.checked = shown.length > 0 && selected.length === shown.length;
+    allBox.indeterminate = selected.length > 0 && selected.length < shown.length;
+  }
+}
+
+document.getElementById('bulkSelectAll')?.addEventListener('change', (e) => {
+  const shown = shownIds();
+  if (e.currentTarget.checked) shown.forEach(id => selectedBookIds.add(id));
+  else                         shown.forEach(id => selectedBookIds.delete(id));
+  renderLibraryList(lastRenderedBooks);
+});
+
+document.getElementById('bulkClearBtn')?.addEventListener('click', () => {
+  selectedBookIds.clear();
+  renderLibraryList(lastRenderedBooks);
+});
+
+document.getElementById('bulkDeleteBtn')?.addEventListener('click', async (e) => {
+  const ids = shownIds().filter(id => selectedBookIds.has(id));
+  if (!ids.length) return;
+  const titles = ids.map(id => allBooks.find(b => b.id === id)?.title).filter(Boolean);
+  const preview = titles.slice(0, 5).join('\n  • ');
+  const more    = titles.length > 5 ? `\n  …and ${titles.length - 5} more` : '';
+  if (!confirm(`Permanently delete ${plural(ids.length, 'book')}?\n\n  • ${preview}${more}\n\nThis cannot be undone. Checkout history is kept.`)) return;
+
+  e.currentTarget.disabled = true;
+  try {
+    await api.deleteBooks(ids);
+    ids.forEach(id => selectedBookIds.delete(id));
+    toast(`<i class='bi bi-check2'></i> Deleted ${plural(ids.length, 'book')}`, 'success');
+    await loadLibrary();
+  } catch (err) {
+    toastError(err);
+  } finally {
+    e.currentTarget.disabled = false;
+  }
+});
+
+/** Remove several copies of one book in a single action. */
+async function removeCopiesPrompt(book) {
+  const copies = book.copies ?? 1;
+  const out    = api.outCount(book);
+  const spare  = copies - out;
+  if (spare < 1) {
+    toast(`Every copy of "${esc(book.title)}" is checked out — have one returned first.`, 'info');
+    return;
+  }
+  const answer = prompt(
+    `Remove how many copies of "${book.title}"?\n\n` +
+    `${copies} on the shelf, ${out} checked out — up to ${spare} can go.\n` +
+    `Use this when copies are damaged or lost.`,
+    '1');
+  if (answer === null) return;
+  const n = parseInt(answer, 10);
+  if (!Number.isFinite(n) || n < 1) { toast('Enter a whole number of copies.', 'danger'); return; }
+  if (n > spare) { toast(`Only ${plural(spare, 'copy', 'copies')} can be removed right now.`, 'danger'); return; }
+  if (n === copies) {
+    if (!confirm(`That removes every copy of "${book.title}".\n\nDelete the book entirely instead?`)) return;
+    return deleteBook(book, { skipConfirm: true });
+  }
+  await changeCopies(book, -n);
 }
 
 document.getElementById('librarySearchInput')?.addEventListener('input', e => {
@@ -1154,8 +1390,8 @@ async function changeCopies(book, delta) {
   }
 }
 
-async function deleteBook(book) {
-  if (!confirm(`Permanently delete "${book.title}"? This cannot be undone.`)) return;
+async function deleteBook(book, { skipConfirm = false } = {}) {
+  if (!skipConfirm && !confirm(`Permanently delete "${book.title}"? This cannot be undone.`)) return;
   try {
     await api.deleteBook(book.id);
     allBooks = allBooks.filter(b => b.id !== book.id);

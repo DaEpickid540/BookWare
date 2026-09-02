@@ -2870,3 +2870,25 @@ button, .btn, .nav-item, a, label, summary, input, select, textarea {
 /* .toast sits on var(--bg-card), which is light in light mode, so the white
    wash above disappears there. Same pattern as .nav-item / .book-row. */
 html[data-theme="light"] .toast-retry:hover { background: rgba(0,0,0,0.10); }
+
+/* ── Bulk selection (library list) ───────────────────────────── */
+.bulk-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; flex-wrap: wrap;
+  padding: 8px 11px; margin-bottom: 8px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--r-sm);
+}
+.bulk-bar-all {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.72rem; font-weight: 600; color: var(--text);
+  cursor: pointer;
+}
+.bulk-bar-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* The checkbox sits in the row gutter. It only takes space once selection
+   mode is on, so an ordinary browse of the list looks exactly as before. */
+.book-row-check { display: none; align-self: center; flex-shrink: 0; margin-right: 2px; }
+.books-list.selecting .book-row-check { display: block; }
+.book-row.is-selected { background: var(--accent-bg); }

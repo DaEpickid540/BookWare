@@ -599,6 +599,106 @@ export async function deleteBook(bookId) {
   await call('delete the book', () => deleteDoc(T('books', bookId)));
 }
 
+/** Delete several books at once.
+ *
+ *  Batched: a 40-book cleanup is a couple of round trips rather than 40, and
+ *  each batch is atomic, so the list can't end up half-deleted. Firestore caps
+ *  a batch at 500 writes; 400 leaves headroom. */
+export async function deleteBooks(bookIds) {
+  const ids = [...new Set(bookIds)].filter(Boolean);
+  if (!ids.length) return 0;
+  await call('delete the selected books', async () => {
+    for (const chunk of chunked(ids, 400)) {
+      const batch = writeBatch(db);
+      chunk.forEach(id => batch.delete(T('books', id)));
+      await batch.commit();
+    }
+  });
+  return ids.length;
+}
+
+/** Import books from a parsed spreadsheet.
+ *
+ *  `entries` are already grouped by the caller: one entry per distinct book,
+ *  carrying the number of copies. Exports from other classroom-library apps
+ *  list one ROW PER COPY, so grouping is what turns four "The Martian" rows
+ *  into a single book with copies: 4 rather than four duplicate shelf entries.
+ *
+ *  A title already on the shelf gains copies instead of being duplicated —
+ *  same identity rule the Add flow uses (findExistingBook), so importing the
+ *  same file twice tops up copy counts rather than doubling the library.
+ *
+ *  Checkout state is deliberately NOT imported. A row marked "Checked out" in
+ *  another app refers to a student who does not exist in BookWare, and a copy
+ *  marked out with no borrower can never be returned through the UI. Those
+ *  copies come in as available and are reported back to the caller so the
+ *  teacher can be told.
+ *
+ *  Returns { created, updated, copiesAdded, checkedOutIgnored, skipped }. */
+export async function importBooks(entries, { onProgress } = {}) {
+  requireSession();
+  const existing = await listBooks();
+  const byId = new Map(existing.map(b => [b.id, { ...b }]));
+
+  const plan = { created: 0, updated: 0, copiesAdded: 0, checkedOutIgnored: 0, skipped: 0 };
+  const writes = [];
+
+  for (const e of entries) {
+    const title = (e.title ?? '').trim();
+    if (!title) { plan.skipped++; continue; }
+    const copies = Math.max(1, e.copies ?? 1);
+    plan.copiesAdded += copies;
+    plan.checkedOutIgnored += e.checkedOut ?? 0;
+
+    // Match against the running set, not the original snapshot: two spreadsheet
+    // entries that normalise to the same book must merge into one shelf entry.
+    const match = findExistingBook({ ...e, title }, [...byId.values()]);
+    if (match) {
+      const next = (match.copies ?? 1) + copies;
+      match.copies = next;
+      writes.push({ type: 'update', ref: T('books', match.id), data: { copies: next } });
+      plan.updated++;
+    } else {
+      const ref = doc(TC('books'));
+      const data = {
+        title,
+        author:      (e.author ?? '').trim(),
+        isbn:        (e.isbn ?? '').trim(),
+        coverUrl:    (e.coverUrl ?? '').trim(),
+        description: (e.description ?? '').trim(),
+        sourceId:    '',
+        status:      'available',
+        copies,
+        checkedOutCount: 0,
+        checkedOutBy:    null,
+        checkedOutAt:    null,
+        wishlist:        [],
+        addedAt:         serverTimestamp(),
+        importedAt:      serverTimestamp(),
+      };
+      byId.set(ref.id, { id: ref.id, ...data });
+      writes.push({ type: 'set', ref, data });
+      plan.created++;
+    }
+  }
+
+  let done = 0;
+  await call('import the books', async () => {
+    for (const chunk of chunked(writes, 400)) {
+      const batch = writeBatch(db);
+      for (const w of chunk) {
+        if (w.type === 'set') batch.set(w.ref, w.data);
+        else batch.update(w.ref, w.data);
+      }
+      await batch.commit();
+      done += chunk.length;
+      onProgress?.(done, writes.length);
+    }
+  }, { ms: 60000 });
+
+  return plan;
+}
+
 /** Fold duplicate entries into one, summing their copy counts.
  *
  *  A group with open loans on two different entries is skipped, not merged:

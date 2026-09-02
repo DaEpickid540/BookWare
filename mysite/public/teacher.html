@@ -117,6 +117,22 @@
             </div>
 
             <div class="panel-card">
+              <div class="section-label">Import a Library</div>
+              <p class="settings-hint" style="margin-bottom:9px">
+                Bring in a spreadsheet exported from another classroom-library app.
+                Repeated rows of the same title become copies. Nothing is deleted —
+                books already on your shelf just gain the extra copies.
+              </p>
+              <div class="input-row">
+                <input type="file" id="importFileInput" accept=".xlsx,.xls,.csv" hidden />
+                <button class="btn btn--primary btn--sm" id="importPickBtn">
+                  <i class="bi bi-file-earmark-arrow-up" aria-hidden="true"></i> Choose spreadsheet
+                </button>
+              </div>
+              <div id="importResult"></div>
+            </div>
+
+            <div class="panel-card">
               <div class="section-label">Library Settings</div>
               <!-- Visibility -->
               <div class="settings-row" style="padding:0 0 10px">
@@ -180,6 +196,19 @@
             <div class="search-box">
               <i class="bi bi-search search-box-icon" aria-hidden="true"></i>
               <input type="search" id="librarySearchInput" class="search-box-input" placeholder="Search title, author, or ISBN…" aria-label="Search your library" />
+            </div>
+            <!-- Shown only once at least one row is ticked. -->
+            <div id="bulkBar" class="bulk-bar" hidden>
+              <label class="bulk-bar-all">
+                <input type="checkbox" id="bulkSelectAll" aria-label="Select all shown books" />
+                <span id="bulkCount">0 selected</span>
+              </label>
+              <div class="bulk-bar-actions">
+                <button class="btn btn--xs" id="bulkClearBtn">Clear</button>
+                <button class="btn btn--xs danger" id="bulkDeleteBtn">
+                  <i class="bi bi-trash3-fill" aria-hidden="true"></i> Delete selected
+                </button>
+              </div>
             </div>
             <div id="libraryList" class="books-list" role="list">
               <p class="empty-state loading-state">Loading…</p>
@@ -733,7 +762,7 @@
             <div class="settings-section-header">
               <div>
                 <div class="settings-section-title">About</div>
-                <div class="settings-section-sub">BookWare v2.4 · Mason High School · Sarvin Sukhe</div>
+                <div class="settings-section-sub">BookWare v2.5 · Mason High School · Sarvin Sukhe</div>
               </div>
             </div>
           </div>
