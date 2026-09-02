@@ -32,38 +32,22 @@ export const THEME_PRESETS = {
   snow:      { brightness: 95, color: 'ocean'   },
 };
 
-function lerp(a, b, t) { return a + (b - a) * t; }
-function clamp(v)       { return Math.max(0, Math.min(255, Math.round(v))); }
-function toHex(v)       { v = clamp(v); return '#' + v.toString(16).padStart(2, '0').repeat(3); }
-
-// applyBrightness() switches data-theme to "light" at val >= 50, so the text
-// curve has to be dark on that side of 50 and light on the other, with no gap
-// or overlap at the seam itself. The old three-piece curve didn't have that
-// property: its "light" branch didn't start darkening until val >= 55, and
-// even then it started from 200 (near-white) — at val 50–~60 the background
-// was already light (base ~127–150) while the text was AS LIGHT OR LIGHTER
-// than it, so light-mode text read as washed out or briefly inverted. There
-// was also a dead flat zone at val 46–54 that ignored which theme was active.
+/** The brightness → colour math lives in theme-preload.js, which every portal
+ *  loads as a blocking script before this module runs. See the header there
+ *  for why the definition sits in that file and not this one.
+ *
+ *  Do NOT reimplement it here. It used to exist in both places, the two copies
+ *  drifted, and that is precisely how a light theme shipped whose muted text
+ *  was lighter than the background it sat on. */
 function brightnessToVars(val) {
-  const t      = val / 100;
-  const base   = lerp(0, 255, t);
-  const offAlt = lerp(16, -8, t);
-  // Single split at 50, matching applyBrightness()'s own light/dark switch.
-  // Dark side: light text (240 → 205) as the background rises toward the
-  // switch point. Light side: text starts DARK right at the switch — the
-  // background there is only mid-gray (~127), so anything less than a solid
-  // dark gray reads as washed out — and eases further to near-black as the
-  // background approaches white.
-  const textV = val < 50
-    ? lerp(240, 205, val / 50)
-    : lerp(28, 10, (val - 50) / 50);
-  return {
-    '--bg':       toHex(base),
-    '--bg-card':  toHex(base + lerp(-8, 8, t)),
-    '--bg-inset': toHex(base + lerp(-14, 12, t)),
-    '--border':   toHex(base + offAlt * 0.6),
-    '--text':     toHex(textV),
-  };
+  const compute = window.BookWareTheme?.computeThemeVars;
+  if (!compute) {
+    // Loud, but not fatal: without the vars the page falls back to the static
+    // palette in app.css, which is a perfectly usable dark theme.
+    console.error('[theme] theme-preload.js did not load — brightness disabled. It must be a blocking <script src> in <head>, before this module.');
+    return null;
+  }
+  return compute(val);
 }
 
 export function brightnessLabel(val) {
@@ -80,8 +64,14 @@ export function brightnessLabel(val) {
 
 export function applyBrightness(val) {
   const vars = brightnessToVars(val);
-  const html  = document.documentElement;
-  for (const [k, v] of Object.entries(vars)) html.style.setProperty(k, v);
+  const html = document.documentElement;
+  // `vars` also carries a non-CSS `light` flag; only the custom properties
+  // (the "--" keys) go onto the element.
+  if (vars) {
+    for (const [k, v] of Object.entries(vars)) {
+      if (k.startsWith('--')) html.style.setProperty(k, v);
+    }
+  }
   if (val >= 50) {
     html.setAttribute('data-theme', 'light');
     html.style.setProperty('color-scheme', 'light');

@@ -141,7 +141,7 @@ stamp. The only version indicator is a hardcoded string in the Settings panel
 footer, in **both** `mysite/public/teacher.html` and `mysite/public/student.html`:
 
 ```html
-<div class="settings-section-sub">BookWare v2.3 · Mason High School · Sarvin Sukhe</div>
+<div class="settings-section-sub">BookWare v2.4 · Mason High School · Sarvin Sukhe</div>
 ```
 
 **Bump this (in both files, they must match) whenever you ship a change large
