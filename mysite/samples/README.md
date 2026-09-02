@@ -16,8 +16,10 @@ it exercises the parser rather than just the happy path:
 | a `Thunderhead` row with no ISBN | the ISBN column is optional |
 | a row with no title | must be skipped, not imported blank |
 | `9.781442472037E12` | ISBN written as a **number**, so it arrives in scientific notation |
+| a title of `2054` stored as a **number cell** | a book called "1776" is a Number, not a string — `.trim()` on it throws and killed the whole import |
+| a `Scythe` row with ISBN `61097314` | ISBN-10 stored as a number, leading zero stripped — must pad back to `0061097314` |
 
-Parsing it should yield **2 books, 8 copies, 1 row skipped, 1 copy flagged as
+Parsing it should yield **3 books, 10 copies, 1 row skipped, 1 copy flagged as
 checked-out in the file**.
 
 ## Real exports are NOT committed

@@ -54,6 +54,16 @@ const FIELDS = {
 
 const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 
+/** Every cell value, as a trimmed string.
+ *
+ *  A spreadsheet cell is not necessarily text. A book called "1776" is stored
+ *  as the NUMBER 1776, and a date-like title can arrive as a Date — so
+ *  `(cell ?? '').trim()` throws "trim is not a function" on exactly one row in
+ *  a 436-row file and takes the whole import down with it. Coerce first,
+ *  always. (ISBN deliberately does NOT go through here: normalizeIsbn needs to
+ *  know whether it was handed a number, to recover stripped leading zeros.) */
+const str = (v) => (v === null || v === undefined) ? '' : String(v).trim();
+
 /** Map a sheet's header row onto our field names. */
 function mapHeaders(headerRow) {
   const map = {};
@@ -112,9 +122,9 @@ export function groupRows(rows) {
   let skipped = 0;
 
   for (const r of rows) {
-    const title = (r.title ?? '').trim();
+    const title = str(r.title);
     if (!title) { skipped++; continue; }
-    const author = (r.author ?? '').trim();
+    const author = str(r.author);
     const key = `${normBookKey(title)}|${normBookKey(author)}`;
 
     // An explicit Copies column wins; otherwise each row IS one copy.
@@ -128,15 +138,15 @@ export function groupRows(rows) {
       // Fill gaps from later rows — the first row of a group isn't always the
       // most complete one.
       g.isbn        ||= normalizeIsbn(r.isbn);
-      g.coverUrl    ||= (r.coverUrl ?? '').trim();
-      g.description ||= (r.description ?? '').trim();
+      g.coverUrl    ||= str(r.coverUrl);
+      g.description ||= str(r.description);
       g.author      ||= author;
     } else {
       groups.set(key, {
         title, author,
         isbn:        normalizeIsbn(r.isbn),
-        coverUrl:    (r.coverUrl ?? '').trim(),
-        description: (r.description ?? '').trim(),
+        coverUrl:    str(r.coverUrl),
+        description: str(r.description),
         copies,
         checkedOut:  isCheckedOut(r.status) ? copies : 0,
       });
@@ -196,14 +206,14 @@ export async function parseLibraryFile(file) {
   for (let i = headerIdx + 1; i < grid.length; i++) {
     const row = grid[i] ?? [];
     const pick = (f) => (map[f] === undefined ? '' : row[map[f]]);
-    if (!String(pick('title') ?? '').trim() && !String(pick('isbn') ?? '').trim()) continue; // blank line
+    if (!str(pick('title')) && !str(pick('isbn'))) continue; // blank line
     rows.push({
-      title:       pick('title'),
-      author:      pick('author'),
-      isbn:        pick('isbn'),
-      coverUrl:    pick('coverUrl'),
-      description: pick('description'),
-      status:      pick('status'),
+      title:       str(pick('title')),
+      author:      str(pick('author')),
+      isbn:        pick('isbn'),          // raw on purpose — see normalizeIsbn
+      coverUrl:    str(pick('coverUrl')),
+      description: str(pick('description')),
+      status:      str(pick('status')),
       copies:      pick('copies'),
     });
   }

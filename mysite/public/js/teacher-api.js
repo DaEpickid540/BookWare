@@ -643,8 +643,13 @@ export async function importBooks(entries, { onProgress } = {}) {
   const plan = { created: 0, updated: 0, copiesAdded: 0, checkedOutIgnored: 0, skipped: 0 };
   const writes = [];
 
+  // Coerce, don't assume. A spreadsheet cell can be a number or a Date — the
+  // book "1776" arrives as the number 1776 — and `(x ?? '').trim()` throws on
+  // those, taking the whole import down over a single row.
+  const str = (v) => (v === null || v === undefined) ? '' : String(v).trim();
+
   for (const e of entries) {
-    const title = (e.title ?? '').trim();
+    const title = str(e.title);
     if (!title) { plan.skipped++; continue; }
     const copies = Math.max(1, e.copies ?? 1);
     plan.copiesAdded += copies;
@@ -662,10 +667,10 @@ export async function importBooks(entries, { onProgress } = {}) {
       const ref = doc(TC('books'));
       const data = {
         title,
-        author:      (e.author ?? '').trim(),
-        isbn:        (e.isbn ?? '').trim(),
-        coverUrl:    (e.coverUrl ?? '').trim(),
-        description: (e.description ?? '').trim(),
+        author:      str(e.author),
+        isbn:        str(e.isbn),
+        coverUrl:    str(e.coverUrl),
+        description: str(e.description),
         sourceId:    '',
         status:      'available',
         copies,
