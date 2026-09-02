@@ -36,14 +36,27 @@ function lerp(a, b, t) { return a + (b - a) * t; }
 function clamp(v)       { return Math.max(0, Math.min(255, Math.round(v))); }
 function toHex(v)       { v = clamp(v); return '#' + v.toString(16).padStart(2, '0').repeat(3); }
 
+// applyBrightness() switches data-theme to "light" at val >= 50, so the text
+// curve has to be dark on that side of 50 and light on the other, with no gap
+// or overlap at the seam itself. The old three-piece curve didn't have that
+// property: its "light" branch didn't start darkening until val >= 55, and
+// even then it started from 200 (near-white) — at val 50–~60 the background
+// was already light (base ~127–150) while the text was AS LIGHT OR LIGHTER
+// than it, so light-mode text read as washed out or briefly inverted. There
+// was also a dead flat zone at val 46–54 that ignored which theme was active.
 function brightnessToVars(val) {
   const t      = val / 100;
   const base   = lerp(0, 255, t);
   const offAlt = lerp(16, -8, t);
-  let textV;
-  if      (val <= 45) textV = lerp(240, 200, val / 45);
-  else if (val >= 55) textV = lerp(200, 26,  (val - 55) / 45);
-  else                textV = 200;
+  // Single split at 50, matching applyBrightness()'s own light/dark switch.
+  // Dark side: light text (240 → 205) as the background rises toward the
+  // switch point. Light side: text starts DARK right at the switch — the
+  // background there is only mid-gray (~127), so anything less than a solid
+  // dark gray reads as washed out — and eases further to near-black as the
+  // background approaches white.
+  const textV = val < 50
+    ? lerp(240, 205, val / 50)
+    : lerp(28, 10, (val - 50) / 50);
   return {
     '--bg':       toHex(base),
     '--bg-card':  toHex(base + lerp(-8, 8, t)),
