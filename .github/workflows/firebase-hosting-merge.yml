@@ -38,13 +38,6 @@ jobs:
           SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SCHOOL_SUITE_652D8 }}
         run: printf '%s' "$SA_JSON" > "$RUNNER_TEMP/firebase-sa.json"
 
-      # TEMPORARY — diagnosing which service account this secret actually
-      # authenticates as, since a previous IAM grant on a same-named account
-      # didn't clear the 403 this job was hitting. Prints only client_email,
-      # never the key. Remove once identified.
-      - name: DEBUG which service account
-        run: node -e "console.log('SA_EMAIL:', require('$RUNNER_TEMP/firebase-sa.json').client_email)"
-
       - name: Deploy rules and indexes
         working-directory: ./mysite
         env:
