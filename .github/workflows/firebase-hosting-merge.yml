@@ -38,6 +38,14 @@ jobs:
           SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SCHOOL_SUITE_652D8 }}
         run: printf '%s' "$SA_JSON" > "$RUNNER_TEMP/firebase-sa.json"
 
+      # The trailing flag below only affects THIS firebase-tools deploy
+      # command, not git: without it, firebase-tools stops and asks
+      # interactively before deleting any field override in Firestore that
+      # isn't declared in firestore.indexes.json, and a CI run can't answer
+      # that prompt. The one override on this project (classes.inviteCode,
+      # from a since-removed collectionGroup query) is confirmed dead —
+      # nothing in public/js uses collectionGroup any more — so clearing it
+      # here is correct, not a blind override of a real safety check.
       - name: Deploy rules and indexes
         working-directory: ./mysite
         env:
@@ -47,6 +55,7 @@ jobs:
           --only firestore:rules,firestore:indexes
           --project school-suite-652d8
           --non-interactive
+          --force
 
       - name: Remove credentials
         if: always()
