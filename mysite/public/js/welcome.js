@@ -69,17 +69,51 @@ const TEACHER_SLIDES = [
   },
 ];
 
+/** The teacher slides, plus a display-name step when the caller supplied a way
+ *  to save one.
+ *
+ *  Gated on `nameStep` so this module stays presentational: welcome.js has no
+ *  Firestore import and no idea what a teacher document is, and teacher.js
+ *  hands it the save function. A caller that passes nothing gets the old tour
+ *  rather than an input that silently does nothing.
+ *
+ *  It goes last on purpose. The step is an action, not a fact, so "Get Started"
+ *  becomes the button that commits it. */
+/** Same normalisation as setDisplayName() in teacher-api.js, so the preview
+ *  cannot promise "Mrs.   Chen" for a value that stores as "Mrs. Chen". */
+const tidyName = (v) => String(v ?? '').trim().replace(/\s+/g, ' ');
+
+function teacherSlides(nameStep) {
+  if (!nameStep) return TEACHER_SLIDES;
+  return TEACHER_SLIDES.concat([{
+    icon:  'bi-person-badge',
+    title: 'What should students call you?',
+    body:  `Students see this name on their library list and on the join emails
+            you send, so set it to whatever your classes actually call you.
+            Leave it blank to use <strong>${esc(nameStep.fallback)}</strong>,
+            the name on your school account. You can change it whenever you
+            like in Settings; nothing here is permanent.`,
+    field: true,
+  }]);
+}
+
 /**
  * Show the first-run intro slideshow as a full-screen modal.
  * @param {'student'|'teacher'} role
  * @returns {Promise<void>} resolves once the slideshow is closed
  */
-export function runWelcomeTour(role = 'student') {
-  const slides = role === 'teacher' ? TEACHER_SLIDES : STUDENT_SLIDES;
+export function runWelcomeTour(role = 'student', { nameStep = null } = {}) {
+  const slides = role === 'teacher' ? teacherSlides(nameStep) : STUDENT_SLIDES;
 
   return new Promise((resolve) => {
     let idx = 0;
     let settled = false;
+
+    // Held across renders: render() rebuilds innerHTML, so the typed value
+    // has to live out here or every repaint would wipe it.
+    let nameValue = nameStep?.initial ?? '';
+    let nameError = '';
+    let saving    = false;
 
     const overlay = document.createElement('div');
     overlay.className = 'welcome-overlay';
@@ -102,12 +136,37 @@ export function runWelcomeTour(role = 'student') {
 
     function onKey(e) {
       if (e.key === 'Escape')     { close(); return; }
+      // Arrows move the caret when the display-name field has focus. Without
+      // this guard, typing a name and nudging the cursor jumps slides.
+      const el = e.target;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
       if (e.key === 'ArrowRight') { next(); return; }
       if (e.key === 'ArrowLeft')  { back(); }
     }
     document.addEventListener('keydown', onKey);
 
-    function next() { if (idx < slides.length - 1) { idx++; render(); } else close(); }
+    async function next() {
+      const s = slides[idx];
+      if (s.field && nameStep) {
+        const wanted = tidyName(nameValue);
+        if (wanted !== tidyName(nameStep.initial)) {
+          saving = true; nameError = ''; render();
+          try {
+            await nameStep.onSave(wanted);
+            nameStep.initial = wanted;   // so Back then Next doesn't re-save
+          } catch (err) {
+            // Stay on the slide so it can be retried. Skip is still right
+            // there, and Settings offers the same field later, so a failed
+            // write here must not trap anyone inside the tour.
+            nameError = String(err?.message ? err : 'Could not save that name.');
+            saving = false; render();
+            return;
+          }
+          saving = false;
+        }
+      }
+      if (idx < slides.length - 1) { idx++; render(); } else close();
+    }
     function back() { if (idx > 0) { idx--; render(); } }
 
     function render() {
@@ -125,6 +184,14 @@ export function runWelcomeTour(role = 'student') {
             <div class="welcome-icon" aria-hidden="true"><i class="bi ${esc(s.icon)}"></i></div>
             <h2 class="welcome-title">${esc(s.title)}</h2>
             <p class="welcome-body">${s.body}</p>
+            ${s.field && nameStep ? `
+              <div class="welcome-field">
+                <input type="text" class="welcome-name-input text-input" maxlength="60"
+                       autocomplete="off" aria-label="Display name"
+                       placeholder="${esc(nameStep.fallback)}" value="${esc(nameValue)}" />
+                <div class="welcome-field-preview">Students see: ${esc(tidyName(nameValue) || nameStep.fallback)}</div>
+                ${nameError ? `<div class="welcome-field-error"><i class="bi bi-exclamation-triangle-fill"></i> ${esc(nameError)}</div>` : ''}
+              </div>` : ''}
           </div>
           <div class="welcome-footer">
             <div class="welcome-dots">${dots}</div>
@@ -132,9 +199,9 @@ export function runWelcomeTour(role = 'student') {
               <button type="button" class="btn btn--ghost btn--sm welcome-back" ${idx === 0 ? 'disabled' : ''}>
                 <i class="bi bi-arrow-left" aria-hidden="true"></i> Back
               </button>
-              <button type="button" class="btn btn--primary btn--sm welcome-next">
-                ${isLast ? 'Get Started' : 'Next'}
-                <i class="bi ${isLast ? 'bi-check2' : 'bi-arrow-right'}" aria-hidden="true"></i>
+              <button type="button" class="btn btn--primary btn--sm welcome-next" ${saving ? 'disabled' : ''}>
+                ${saving ? 'Saving…' : isLast ? 'Get Started' : 'Next'}
+                <i class="bi ${saving ? 'bi-hourglass-split' : isLast ? 'bi-check2' : 'bi-arrow-right'}" aria-hidden="true"></i>
               </button>
             </div>
           </div>
@@ -146,7 +213,23 @@ export function runWelcomeTour(role = 'student') {
       overlay.querySelectorAll('[data-goto]').forEach(dot => {
         dot.addEventListener('click', () => { idx = Number(dot.dataset.goto); render(); });
       });
-      overlay.querySelector('.welcome-next')?.focus();
+      const input = overlay.querySelector('.welcome-name-input');
+      if (input) {
+        input.addEventListener('input', () => {
+          nameValue = input.value;
+          // Patch the preview in place instead of re-rendering: a full repaint
+          // would rebuild the input and drop the caret mid-word.
+          const p = overlay.querySelector('.welcome-field-preview');
+          if (p) p.textContent = `Students see: ${tidyName(nameValue) || nameStep.fallback}`;
+        });
+        input.addEventListener('keydown', e => {
+          if (e.key === 'Enter') { e.preventDefault(); next(); }
+        });
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      } else {
+        overlay.querySelector('.welcome-next')?.focus();
+      }
     }
 
     render();

@@ -1174,6 +1174,30 @@ export const setCurrentlyReading = (reading) => patchTeacher('save your current 
 export const setReadingProfile   = (profile) => patchTeacher('save your reading profile', { readingProfile: profile });
 export const markWelcomeSeen     = ()        => patchTeacher('save your progress',        { welcomeSeenAt: serverTimestamp() });
 
+/** The name students see, which is not always the name on the Google account.
+ *  Teachers go by "Mrs. Chen" in front of a class, and a legal name can change
+ *  with a marriage or a divorce long before the school directory catches up.
+ *
+ *  Stored alongside `name` rather than replacing it. `name` stays the account
+ *  of record, which is what the admin portal lists and what an administrator
+ *  needs to match a person to a Google account; `displayName` is only what the
+ *  student portal renders. An empty string clears the override, so every
+ *  reader has to fall back to `name` — see teacherLabel() in student.js.
+ *
+ *  No rules change was needed for this: teachers/{teacherId} already allows
+ *  update by the owning teacher or an admin, and read by any school account. */
+export async function setDisplayName(displayName) {
+  const clean = String(displayName ?? '').trim().replace(/\s+/g, ' ');
+  if (clean.length > 60) {
+    throw new TeacherApiError('That display name is too long', {
+      code: 'bw/display-name-too-long',
+      hint: 'keep it to 60 characters or fewer',
+    });
+  }
+  await patchTeacher('save your display name', { displayName: clean });
+  return clean;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Small shared helpers
 // ═══════════════════════════════════════════════════════════════════════════

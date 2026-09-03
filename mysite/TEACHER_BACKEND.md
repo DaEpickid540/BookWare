@@ -35,6 +35,31 @@ students/{uid}                       the student's own record
 invites/{token}                      teacher invite links
 ```
 
+### `name` is the account, `displayName` is what students see
+
+`teachers/{uid}` carries both:
+
+| field | written by | read by | if missing |
+|---|---|---|---|
+| `name` | sign-up, from the Google account | admin portal | — |
+| `displayName` | the teacher, in Settings → Account | student portal | falls back to `name` |
+
+Teachers go by "Mrs. Chen" in front of a class rather than the name on their
+school account, and a legal name can change with a marriage or a divorce well
+before the district directory catches up. `displayName` lets them fix that
+themselves instead of filing a ticket.
+
+The two are deliberately separate. `name` stays the account of record so an
+administrator can still match a person to a Google account; `displayName` is
+cosmetic and student-facing only. An empty string means "no override", so every
+reader must fall back — `teacherLabel()` in `student.js` is the single place
+that does, and every student-facing render of a teacher goes through it. The
+teacher portal has its own copy of that fallback in `wireDisplayName()`, because
+the two portals share no module; change one, change the other.
+
+No rules or index change was needed: `teachers/{teacherId}` already allowed
+`update` by the owning teacher or an admin, and `read` by any school account.
+
 ### `history` is the ledger, not a log
 
 A book document has one `checkedOutBy` field but can have several `copies`. With

@@ -317,7 +317,18 @@ async function maybeRunWelcomeTour() {
 }
 
 async function showWelcomeTour() {
-  await runWelcomeTour('teacher');
+  // welcome.js holds no Firestore import, so the display-name step is handed
+  // the save function from here. Passing nothing would give the old tour.
+  await runWelcomeTour('teacher', {
+    nameStep: {
+      initial:  teacherData()?.displayName ?? '',
+      fallback: teacherData()?.name || 'your account name',
+      onSave:   (value) => api.setDisplayName(value),
+    },
+  });
+  // The tour can have just written displayName, and the Settings panel may
+  // already have been rendered with the old value.
+  renderSettings();
   // Worst case the tour shows once more — not worth a visible error.
   try { await api.markWelcomeSeen(); } catch (err) { console.warn('[teacher] could not record the tour as seen:', err); }
 }
@@ -375,7 +386,7 @@ function renderSettings() {
   if (acct && t) {
     acct.innerHTML = `
       <div class='settings-row' style='border-top:none'>
-        <div class='settings-label'>Name</div>
+        <div class='settings-label'>Account Name</div>
         <span class='muted-text small-text'>${esc(t.name ?? '—')}</span>
       </div>
       <div class='settings-row'>
@@ -385,7 +396,25 @@ function renderSettings() {
       <div class='settings-row'>
         <div class='settings-label'>Member Since</div>
         <span class='muted-text small-text'>${fmtDate(t.createdAt)}</span>
+      </div>
+      <div class='settings-row settings-row--col'>
+        <div>
+          <div class='settings-label'>Display Name</div>
+          <div class='settings-hint'>
+            What students see on their library list and join emails. Leave it
+            blank to use your account name; change it whenever you like.
+          </div>
+        </div>
+        <div class='aria-key-row-input'>
+          <input type='text' id='displayNameInput' class='text-input' maxlength='60'
+                 autocomplete='off' aria-label='Display name'
+                 placeholder='${esc(t.name ?? 'Your name')}'
+                 value='${esc(t.displayName ?? '')}' />
+          <button type='button' class='btn btn--sm' id='displayNameSaveBtn'>Save</button>
+        </div>
+        <div class='settings-hint' id='displayNamePreview' style='margin-top:6px'></div>
       </div>`;
+    wireDisplayName();
   }
 
   const badge   = document.getElementById('canInviteSettingsBadge');
@@ -394,6 +423,53 @@ function renderSettings() {
   if (invChip) { invChip.textContent = 'All teachers can invite'; invChip.style.color = 'var(--success)'; }
 
   renderRetentionBadges();
+}
+
+/** Display-name row: live preview of the student-side label, plus save.
+ *
+ *  The preview matters more than it looks. The field is empty for anyone who
+ *  has never set one, and an empty box next to "Display Name" reads as "your
+ *  students see nothing" rather than "your students see your account name".
+ *  Showing the resolved label removes that guess. */
+function wireDisplayName() {
+  const input = document.getElementById('displayNameInput');
+  const btn   = document.getElementById('displayNameSaveBtn');
+  const prev  = document.getElementById('displayNamePreview');
+  if (!input || !btn) return;
+
+  // Same fallback order as teacherLabel() in student.js. The two are separate
+  // portals with no shared module, so this has to be kept in step by hand.
+  // Matches setDisplayName() in teacher-api.js and tidyName() in welcome.js:
+  // the preview must show the value that will actually be stored.
+  const resolve = v => String(v ?? '').trim().replace(/\s+/g, ' ')
+    || teacherData()?.name || 'Library';
+  const paint   = () => {
+    if (prev) prev.textContent = `Students see: ${resolve(input.value)}`;
+  };
+  paint();
+  input.addEventListener('input', paint);
+
+  btn.addEventListener('click', async () => {
+    const wanted = input.value;
+    btn.disabled = true;
+    try {
+      const saved = await api.setDisplayName(wanted);
+      input.value = saved;
+      paint();
+      toast(
+        saved
+          ? `<i class='bi bi-check2'></i> Students now see "${esc(saved)}"`
+          : `<i class='bi bi-check2'></i> Display name cleared; students see your account name`,
+        'success',
+      );
+    } catch (err) {
+      toast(`Couldn't save your display name: ${describeError(err)}`, 'danger');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') btn.click(); });
 }
 
 /** Show the teacher concretely when their student data disappears, rather than
@@ -643,7 +719,7 @@ function shareJoinLinkByEmail(cls, joinUrl) {
     `Hi,\n\nUse this link to join our classroom library on BookWare:\n${joinUrl}\n\n` +
     `Sign in with your school Google account and you'll be added to ${cls.name} automatically.\n\n` +
     `If the link doesn't work, sign in at ${window.location.origin} and enter the class code ${cls.inviteCode} under Settings → Teacher Libraries.\n\n` +
-    `– ${teacherData()?.name ?? 'Your teacher'}`,
+    `– ${teacherName()}`,
   );
   window.open(`mailto:?subject=${subject}&body=${body}`);
 }
@@ -1551,7 +1627,11 @@ function downloadBlob(content, mime, filename) {
   URL.revokeObjectURL(a.href);
 }
 
-const teacherName = () => teacherData()?.name ?? 'Teacher';
+// Prefers the display name: this feeds the class-invite email students
+// receive and the report headers, both of which should say whatever the
+// teacher chose to be called.
+const teacherName = () => (teacherData()?.displayName || '').trim()
+  || teacherData()?.name || 'Teacher';
 const fileStem    = () => teacherName().replace(/\s+/g, '_');
 
 document.getElementById('exportCheckoutsMdBtn')?.addEventListener('click', async () => {

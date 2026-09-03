@@ -14,23 +14,25 @@
   --text-3:   #6e6e80;
   --hue-l: 0.68;
   --hue-c: 1;   /* overwritten per brightness by theme-preload.js */
-  --accent-base: #e74c3c;
+  /* Kept in step with app.css :root by hand — admin.css carries its own copy
+     of the token block and there is no build step to share them. */
+  --accent-base: #f8291c;
   --accent: var(--accent-base);
   --accent-text: var(--accent-base);
   --success-text: var(--success-base);
   --danger-text: var(--danger-base);
   --warning-text: var(--warning-base);
-  --accent-bg: rgba(231,76,60,0.10);
-  --accent-border: rgba(231,76,60,0.24);
-  --accent-hover: #c0392b;
+  --accent-bg: rgba(248,41,28,0.10);
+  --accent-border: rgba(248,41,28,0.24);
+  --accent-hover: #cb2015;
   --success-base: #2ecc71;
   --success: var(--success-base);
   --success-bg:     rgba(46,204,113,0.10);
   --success-border: rgba(46,204,113,0.24);
-  --danger-base: #e74c3c;
+  --danger-base: #f8291c;
   --danger: var(--danger-base);
-  --danger-bg:      rgba(231,76,60,0.10);
-  --danger-border:  rgba(231,76,60,0.24);
+  --danger-bg:      rgba(248,41,28,0.10);
+  --danger-border:  rgba(248,41,28,0.24);
   --warning-base: #f39c12;
   --warning: var(--warning-base);
   --font-sans:  'DM Sans', system-ui, sans-serif;

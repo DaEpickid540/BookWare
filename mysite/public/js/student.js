@@ -66,6 +66,22 @@ function toast(msg, type = "info") {
   }, 4200);
 }
 
+/** What a teacher wants students to call them.
+ *
+ *  Teachers set `displayName` themselves in their own portal, because the name
+ *  on a school Google account is often not the one a class uses ("Mrs. Chen",
+ *  not "Jennifer Chen") and because a legal name can change. `name` is still
+ *  the account of record and stays the fallback, so a teacher who has never
+ *  touched the setting reads exactly as before.
+ *
+ *  Every student-facing render of a teacher goes through here. Five call sites
+ *  used to read `.name` directly, which is how a rename would have shown up in
+ *  four places and not the fifth. */
+function teacherLabel(t) {
+  if (!t) return "Library";
+  return (t.displayName || "").trim() || t.name || t.email || "Library";
+}
+
 function fmtDate(ts) {
   if (!ts) return "—";
   const d = ts.toDate ? ts.toDate() : new Date(ts);
@@ -718,7 +734,7 @@ async function joinLibraryByCode(code, input) {
   let teacherName = "Library";
   try {
     const tSnap = await getDoc(doc(db, "teachers", teacherId));
-    if (tSnap.exists()) teacherName = tSnap.data().name || teacherName;
+    if (tSnap.exists()) teacherName = teacherLabel(tSnap.data());
   } catch (_) {}
   closeSettingsModal();
   showPage("library");
@@ -813,7 +829,7 @@ async function renderAddedTeachersList() {
     row.className = "settings-row";
     row.innerHTML = `
       <div>
-        <div class='settings-label'>${esc(t.name)}'s Library</div>
+        <div class='settings-label'>${esc(teacherLabel(t))}'s Library</div>
         <div class='settings-hint'>${esc(t.email)}</div>
       </div>
       <button class='btn btn--ghost btn--sm' style='color:var(--danger);border-color:var(--danger-border)' data-remove='${esc(
@@ -961,7 +977,7 @@ async function loadTeachers() {
   teacherListEl.innerHTML = "";
   for (const { tid, data } of fetched) {
     if (!data) continue;
-    const name = data.name || data.email || "Library";
+    const name = teacherLabel(data);
     const btn = document.createElement("button");
     btn.className = "library-chip";
     btn.dataset.tid = tid;
@@ -1031,7 +1047,7 @@ async function renderAllLibraries() {
     const card = document.createElement("div");
     card.className = "all-lib-card";
     card.innerHTML = `
-      <div class='all-lib-name'>${esc(t.name)}</div>
+      <div class='all-lib-name'>${esc(teacherLabel(t))}</div>
       <div class='all-lib-email'>${esc(t.email ?? "")}</div>
       <div class='all-lib-tags'>
         ${
@@ -1149,7 +1165,7 @@ async function autoSelectFirstLibrary() {
     try {
       const tSnap = await getDoc(doc(db, "teachers", tid));
       if (!tSnap.exists()) continue;
-      await setSelectedTeacher(tid, tSnap.data().name);
+      await setSelectedTeacher(tid, teacherLabel(tSnap.data()));
       return true;
     } catch (err) {
       console.warn("[student] could not open library", tid, err);
@@ -2183,7 +2199,7 @@ document
     const ids = new Set([classTeacherId, ...addedTeacherIds].filter(Boolean));
     for (const tid of ids) {
       const tSnap = await getDoc(doc(db, "teachers", tid));
-      const tName = tSnap.exists() ? tSnap.data().name : tid;
+      const tName = tSnap.exists() ? teacherLabel(tSnap.data()) : tid;
       const hSnap = await getDocs(
         query(
           collection(db, "teachers", tid, "history"),

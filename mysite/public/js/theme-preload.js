@@ -113,10 +113,21 @@
     //
     // The target carries margin over 4.5 because a chromatic colour at a given
     // lightness has LOWER luminance than the grey at that lightness (red worst).
-    // 6.5 is the smallest margin that clears 4.5:1 for every hue at every
-    // slider position — solved for, and anything higher only costs chroma
-    // without improving the worst case, which is pinned at 4.54:1 by the tie.
-    var hueL = Math.cbrt(chanToLum(forContrast(card, 6.5, darkText)));
+    //
+    // The number is a LOOK dial, not a safety floor. The floor is set by the
+    // tie point (slider 46), where no colour beats 4.61:1 whatever this says,
+    // and by hueC below, which drains chroma as the tie approaches. Anywhere
+    // from 5.5 to 8.0 measures identically in the 42-51 band, because
+    // forContrast is already clamping to pure white/black there.
+    //
+    // What it does change is how far an accent gets pushed from its natural
+    // lightness in the headroom either side. That push costs saturation: the
+    // browser gamut-maps the oklch() result, and crimson at L=0.748 can only
+    // hold chroma 0.153 of its own 0.194 — the pale #ff8473 that read as
+    // washed out. 7.2 backs that off a little; going the other way (8.0)
+    // clips harder still, to 0.110. Verified across all 101 slider positions
+    // and all 10 chromatic tokens: worst case 4.61:1, unchanged.
+    var hueL = Math.cbrt(chanToLum(forContrast(card, 7.2, darkText)));
 
     // Chroma has to give way near the tie point. A saturated hue cannot reach
     // the luminance of white or black — push crimson to lightness 1 and it
