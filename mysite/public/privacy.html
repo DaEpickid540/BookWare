@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BookWare — What Data We Store</title>
+  <title>BookWare: What Data We Store</title>
   <meta name="description" content="Exactly what data BookWare collects, where each piece is stored, who can see it, and how long it is kept." />
   <meta name="theme-color" content="#1a1a1e" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -40,7 +40,7 @@
       <li><strong>We never see or store a password.</strong> Sign-in is Google sign-in; Google handles the password and never shares it with BookWare.</li>
       <li><strong>Class rosters are deleted on the last day of school.</strong> Your teacher loses access to your name and email on that date automatically.</li>
       <li><strong>Book checkout records are deleted after 2 years.</strong></li>
-      <li><strong>Nothing is sold, advertised against, or shared with anyone outside your school</strong> — except the specific technical services listed at the bottom of this page.</li>
+      <li><strong>Nothing is sold, advertised against, or shared with anyone outside your school</strong>, apart from the specific technical services listed at the bottom of this page.</li>
     </ul>
   </section>
 
@@ -82,7 +82,7 @@
             <td><strong>Your entry on a class roster</strong><br /><span class="dim">name, email, date you joined</span></td>
             <td><span class="pill pill--cloud">Firestore</span></td>
             <td>That one teacher, admins</td>
-            <td class="hl">The last day of school — deleted automatically</td>
+            <td class="hl">The last day of school; deleted automatically</td>
           </tr>
           <tr>
             <td><strong>Books you check out and return</strong><br /><span class="dim">book, your name, date out, date back</span></td>
@@ -97,7 +97,7 @@
             <td>You remove it, or delete your account</td>
           </tr>
           <tr>
-            <td><strong>Reading-preference quiz answers</strong><br /><span class="dim">genres, length, mood — no free text</span></td>
+            <td><strong>Reading-preference quiz answers</strong><br /><span class="dim">genres, length, mood: no free text</span></td>
             <td><span class="pill pill--cloud">Firestore</span></td>
             <td>You, admins</td>
             <td>You retake or delete your account</td>
@@ -111,7 +111,7 @@
           <tr>
             <td><strong>Theme, brightness, button size, "stay signed in"</strong></td>
             <td><span class="pill pill--local">Your browser</span></td>
-            <td>Only you — never uploaded</td>
+            <td>Only you; never uploaded</td>
             <td>You clear your browser data</td>
           </tr>
         </tbody>
@@ -155,7 +155,7 @@
             <td><strong>Your class rosters</strong><br /><span class="dim">student names and emails</span></td>
             <td><span class="pill pill--cloud">Firestore</span></td>
             <td>You, admins</td>
-            <td class="hl">The last day of school you set — access ends that day, records are erased</td>
+            <td class="hl">The last day of school you set: access ends that day and the records are erased</td>
           </tr>
           <tr>
             <td><strong>Checkout history for your library</strong></td>
@@ -172,7 +172,7 @@
           <tr>
             <td><strong>AI provider API keys</strong><span class="dim"> (only if you set up ARIA)</span></td>
             <td><span class="pill pill--local">Your browser</span></td>
-            <td>Only you — never uploaded to Firestore</td>
+            <td>Only you; never uploaded to Firestore</td>
             <td>You clear it or clear browser data</td>
           </tr>
         </tbody>
@@ -182,29 +182,30 @@
 
   <!-- ── Retention ─────────────────────────────────────────────────── -->
   <section class="doc-section">
-    <h2>How deletion actually works</h2>
+    <h2>How deletion works</h2>
     <p>Two automatic rules run without anyone pressing a button:</p>
     <div class="rule-grid">
       <div class="rule-card">
         <div class="rule-when">On the last day of school</div>
-        <p>Every teacher must set a last day of school for each class. On that date the class roster —
-        student names and emails — stops being readable by the teacher and is erased. This cut-off is
-        enforced by the database itself, not just by the app, so it holds even if nobody opens BookWare.</p>
+        <p>Every teacher has to set a last day of school for each class. On that date the class roster,
+        meaning student names and emails, stops being readable by the teacher and is erased. The database
+        enforces this cut-off itself rather than leaving it to the app, so it holds even if nobody opens
+        BookWare that week.</p>
       </div>
       <div class="rule-card">
         <div class="rule-when">After 2 years</div>
-        <p>A record of a book being borrowed and returned is deleted two years after it was borrowed.
-        Books still checked out are never deleted — those are live records the library still needs.</p>
+        <p>A record of a book being borrowed and returned is deleted two years after the borrow date.
+        Books still checked out are exempt: those are live records the library is using right now.</p>
       </div>
     </div>
     <p class="doc-note doc-note--warn">
       <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
       <strong>An honest limitation.</strong> BookWare runs entirely in the browser and has no scheduled
       server job. The access cut-off above is enforced by the database on every request and is exact.
-      The <em>erasure</em> step, however, runs when an administrator next opens the admin portal — so
-      records can sit inaccessible-but-not-yet-deleted for a short period after their deadline. The
-      admin portal shows any roster in that state. Guaranteed same-day erasure would require a
-      scheduled server job, which this app does not currently have.
+      The <em>erasure</em> step is different: it runs when an administrator next opens the admin portal,
+      so records can sit in an inaccessible-but-not-yet-deleted state for a while past their deadline.
+      The admin portal lists every roster caught in that gap. Guaranteed same-day erasure would need a
+      scheduled server job, which this app does not have.
     </p>
   </section>
 
@@ -214,7 +215,7 @@
     <ul class="doc-list">
       <li><strong>Leave a library yourself.</strong> Settings → your libraries → Remove. This deletes your roster entry, with your name and email, from that teacher immediately.</li>
       <li><strong>Full account deletion.</strong> Ask an administrator. This deletes your account, removes you from every class roster, and strips your name from every checkout record in every library.</li>
-      <li><strong>See what's held about you.</strong> Ask an administrator — the admin portal can export it.</li>
+      <li><strong>See what's held about you.</strong> Ask an administrator; the admin portal can export the whole record for you.</li>
     </ul>
   </section>
 
@@ -229,7 +230,7 @@
           <tr>
             <td><strong>Google Firebase</strong> <span class="dim">(Auth + Firestore)</span></td>
             <td>Everything in the tables above; your sign-in</td>
-            <td>Always — this is the database</td>
+            <td>Always: this is the database</td>
           </tr>
           <tr>
             <td><strong>Google Books</strong> and <strong>Open Library</strong></td>
@@ -238,7 +239,7 @@
           </tr>
           <tr>
             <td><strong>Google Fonts</strong>, <strong>jsDelivr CDN</strong></td>
-            <td>IP address only — fonts, icons, and PDF/QR code libraries</td>
+            <td>IP address only, for fonts, icons, and the PDF and QR-code libraries</td>
             <td>On every page load</td>
           </tr>
           <tr class="row-flag">
@@ -257,10 +258,10 @@
     <p class="doc-note doc-note--warn">
       <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
       <strong>Before turning ARIA on for students:</strong> it sends whatever is typed into the chat box
-      to a third-party AI company under <em>your own</em> API key and their terms — not under a school
-      agreement. Districts normally require a signed data-privacy agreement with any vendor that
-      receives student data. Treat enabling ARIA for student accounts as a decision for whoever handles
-      that at the district, not a settings toggle.
+      to a third-party AI company under <em>your own</em> API key and under that company's terms, not
+      under any school agreement. Districts normally require a signed data-privacy agreement with any
+      vendor that receives student data. Switching ARIA on for student accounts is a decision for
+      whoever handles those agreements at the district; it is not a settings toggle.
     </p>
   </section>
 

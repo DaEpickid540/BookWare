@@ -674,12 +674,22 @@ html[data-theme="light"] .nav-item:hover { background: rgba(0,0,0,0.04); }
   font-size: calc(0.75rem * var(--btn-scale));
   font-weight: 500;
   letter-spacing: 0.02em;
-  border: 1px solid transparent;
+  /* A bare `.btn` has to look like a button on its own. It used to inherit a
+     transparent border and no background, so every button carrying no colour
+     modifier — Save, Clear Currently Reading, Export, Retake Quiz — rendered
+     as naked text and read as a link. The neutral surface below is the default
+     that each colour modifier then overrides. */
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  color: var(--text);
   transition: opacity var(--tr), transform var(--tr), background var(--tr), border-color var(--tr), color var(--tr);
   white-space: nowrap;
   cursor: pointer;
   min-height: calc(34px * var(--btn-scale));
 }
+.btn:hover { border-color: var(--accent-text); color: var(--accent-text); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 .btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -727,7 +737,8 @@ html[data-theme="light"] .nav-item:hover { background: rgba(0,0,0,0.04); }
   min-height: calc(24px * var(--btn-scale));
   border-radius: var(--r-full);
   border: 1px solid var(--border);
-  color: var(--text-3);
+  background: var(--bg-inset);
+  color: var(--text-2);
 }
 .btn--xs:hover { border-color: var(--accent-text); color: var(--accent-text); }
 .btn--xs.starred { border-color: var(--accent-text); color: var(--accent-text); background: var(--accent-bg); }
@@ -1900,8 +1911,11 @@ html[data-theme="light"] .book-row:hover { background: rgba(0,0,0,0.015); }
   color: var(--text-3);
   padding: 6px 10px;
   border-radius: var(--r-full);
-  border: 1px solid transparent;
-  transition: color var(--tr), border-color var(--tr);
+  /* Resting border, not a transparent one: without it this dismiss control
+     is bare text in a corner and nobody reads it as clickable. */
+  border: 1px solid var(--border);
+  background: var(--bg-inset);
+  transition: color var(--tr), border-color var(--tr), background var(--tr);
 }
 .quiz-skip:hover { color: var(--accent-text); border-color: var(--border); }
 
@@ -2190,6 +2204,7 @@ button, .btn, .nav-item, a, label, summary, input, select, textarea {
   .quiz-chip:hover,
   .aria-chip:hover { transform: none; }
 
+  .btn:hover          { border-color: var(--border);   color: var(--text); }
   .btn--ghost:hover   { border-color: var(--border);   color: var(--text-3); }
   .btn--danger:hover  { background: var(--danger-bg);  color: var(--danger-text); }
   .btn--success:hover { background: var(--success-bg); color: var(--success-text); }
@@ -2574,8 +2589,11 @@ button, .btn, .nav-item, a, label, summary, input, select, textarea {
   color: var(--text-3);
   padding: 6px 10px;
   border-radius: var(--r-full);
-  border: 1px solid transparent;
-  transition: color var(--tr), border-color var(--tr);
+  /* Resting border, not a transparent one: without it this dismiss control
+     is bare text in a corner and nobody reads it as clickable. */
+  border: 1px solid var(--border);
+  background: var(--bg-inset);
+  transition: color var(--tr), border-color var(--tr), background var(--tr);
 }
 .welcome-skip:hover { color: var(--accent-text); border-color: var(--border); }
 

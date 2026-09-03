@@ -53,7 +53,7 @@ function esc(s) {
 function describeError(err) {
   if (!err) return 'unknown error';
   const msg  = err.message ?? String(err);
-  const hint = err.hint ? ` — ${err.hint}` : '';
+  const hint = err.hint ? `. ${err.hint}` : '';
   return esc(`${msg}${hint}`);
 }
 
@@ -92,7 +92,7 @@ function renderPanelError(el, what, err) {
   el.innerHTML = `
     <p class='empty-state' style='color:var(--danger)'>
       <i class='bi bi-exclamation-triangle-fill' aria-hidden='true'></i>
-      Couldn't load ${esc(what)} — ${describeError(err)}
+      Couldn't load ${esc(what)}: ${describeError(err)}
     </p>`;
   const btn = document.createElement('button');
   btn.className = 'btn btn--sm';
@@ -124,7 +124,7 @@ async function step(label, fn) {
     return await fn();
   } catch (err) {
     console.error(`[teacher] start-up step "${label}" failed:`, err);
-    toast(`Couldn't load ${esc(label)} — ${describeError(err)} <button class="toast-retry" data-retry="1">Retry</button>`, 'danger');
+    toast(`Couldn't load ${esc(label)}: ${describeError(err)} <button class="toast-retry" data-retry="1">Retry</button>`, 'danger');
     return null;
   }
 }
@@ -345,7 +345,7 @@ async function runQuizFlow({ isFirstRun }) {
       toast(`<i class="bi bi-stars"></i> Thanks! ARIA now knows what to recommend for you and your shelves.`, 'success');
       refreshAriaChats();
     } else if (!isFirstRun) {
-      toast('No worries — you can take the quiz anytime from here.', 'info');
+      toast('No worries; you can take the quiz from here whenever you like.', 'info');
     }
   } catch (err) {
     console.error('[teacher] reading quiz failed:', err);
@@ -496,7 +496,7 @@ async function requireSchoolYearEndDates() {
       }
       modal.hidden = true;
       renderClassManager();
-      toast(`<i class='bi bi-shield-check'></i> Last day of school saved — rosters auto-delete then.`, 'success');
+      toast(`<i class='bi bi-shield-check'></i> Last day of school saved; rosters delete themselves on that date.`, 'success');
     } catch (err) {
       fail(`Save failed: ${describeError(err)}`);
     } finally {
@@ -569,7 +569,7 @@ function renderClassManager() {
           <div class='join-share-actions'>
             <button class='btn btn--sm' data-action='copy-link'><i class='bi bi-clipboard'></i> Copy link</button>
             <button class='btn btn--sm' data-action='email-link'><i class='bi bi-envelope-fill'></i> Share by email</button>
-            <p class='join-share-hint'>Project the QR code, or send the link. Students who follow it sign in and join <strong>${esc(cls.name)}</strong> automatically — no typing the code.</p>
+            <p class='join-share-hint'>Project the QR code, or send the link. Students who follow it sign in and join <strong>${esc(cls.name)}</strong> automatically, with no code to type in.</p>
           </div>
         </div>
       </div>
@@ -578,7 +578,7 @@ function renderClassManager() {
           <i class='bi bi-exclamation-triangle-fill' aria-hidden='true'></i>
           <span>
             <strong>Students can't join with this code yet.</strong>
-            It isn't registered for lookup${cls.codeError ? ` — <code>${esc(cls.codeError)}</code>` : ''}.
+            It isn't registered for lookup${cls.codeError ? `: <code>${esc(cls.codeError)}</code>` : ''}.
           </span>
           <button class='btn btn--xs' data-action='fix-code'>Retry</button>
         </div>` : ''}`;
@@ -591,7 +591,7 @@ function renderClassManager() {
       const res = await api.ensureClassCodeMapping(cls.inviteCode, cls.id, { createdAt: cls.createdAt });
       cls.codeLive = res.live; cls.codeError = res.error; cls.inviteCode = res.code;
       toast(res.live
-        ? `<i class='bi bi-check2'></i> Code ${esc(res.code)} is live — students can join now`
+        ? `<i class='bi bi-check2'></i> Code ${esc(res.code)} is live; students can join with it now`
         : `Still failing: ${esc(res.error ?? 'unknown')}`, res.live ? 'success' : 'danger');
       renderClassManager();
     });
@@ -634,16 +634,16 @@ function copyText(text, successMsg) {
   if (!text) return;
   navigator.clipboard.writeText(text)
     .then(() => toast(`<i class='bi bi-check2'></i> ${esc(successMsg)}`, 'success'))
-    .catch(() => toast(`Copy failed — here it is: ${esc(text)}`, 'info'));
+    .catch(() => toast(`Copy failed. Here it is to copy by hand: ${esc(text)}`, 'info'));
 }
 
 function shareJoinLinkByEmail(cls, joinUrl) {
-  const subject = encodeURIComponent(`Join our BookWare class library — ${cls.name}`);
+  const subject = encodeURIComponent(`Join our BookWare class library: ${cls.name}`);
   const body = encodeURIComponent(
     `Hi,\n\nUse this link to join our classroom library on BookWare:\n${joinUrl}\n\n` +
     `Sign in with your school Google account and you'll be added to ${cls.name} automatically.\n\n` +
     `If the link doesn't work, sign in at ${window.location.origin} and enter the class code ${cls.inviteCode} under Settings → Teacher Libraries.\n\n` +
-    `— ${teacherData()?.name ?? 'Your teacher'}`,
+    `– ${teacherData()?.name ?? 'Your teacher'}`,
   );
   window.open(`mailto:?subject=${subject}&body=${body}`);
 }
@@ -667,18 +667,18 @@ async function createClass() {
   // Required: a class cannot exist without a deletion date for its roster.
   const endDate = promptForEndDate(
     `Last day of school for "${name}" (YYYY-MM-DD).\n\n` +
-    `On this date the roster — student names and emails — is deleted automatically ` +
+    `On this date the roster, meaning student names and emails, is deleted automatically ` +
     `and you lose access to it.`,
     defaultEndDate(),
   );
-  if (!endDate) { toast('Class not created — a last day of school is required.', 'danger'); return; }
+  if (!endDate) { toast('Class not created: a last day of school is required.', 'danger'); return; }
 
   try {
     const cls = await api.createClass({ name, endDate });
     allClasses.push(cls);
     renderClassManager();
     toast(cls.codeLive
-      ? `<i class='bi bi-check2'></i> "${esc(name)}" created — code: ${esc(cls.inviteCode)}`
+      ? `<i class='bi bi-check2'></i> "${esc(name)}" created, code: ${esc(cls.inviteCode)}`
       : `"${esc(name)}" created, but its code isn't usable yet (${esc(cls.codeError ?? 'unknown')}). See the warning on the class.`,
       cls.codeLive ? 'success' : 'danger');
   } catch (err) { toastError(err); }
@@ -717,7 +717,7 @@ async function refreshClassCode(cls) {
     cls.codeLive = true;
     cls.codeError = null;
     renderClassManager();
-    toast(`<i class='bi bi-check2'></i> New code for ${esc(cls.name)} — existing students unaffected`, 'success');
+    toast(`<i class='bi bi-check2'></i> New code for ${esc(cls.name)}; existing students are unaffected`, 'success');
   } catch (err) { toastError(err); }
 }
 
@@ -773,7 +773,7 @@ function refreshVisibilityStats() {
 function updateVisUI(isPublic) {
   const hint   = document.getElementById('visibilityHint');
   const detail = document.getElementById('visibilityDetail');
-  if (hint) hint.textContent = isPublic ? 'Public — any Mason student can discover' : 'Class Only';
+  if (hint) hint.textContent = isPublic ? 'Public: any Mason student can discover it' : 'Class Only';
   if (!detail) return;
   if (!isPublic) { detail.hidden = true; return; }
 
@@ -789,7 +789,7 @@ function updateVisUI(isPublic) {
       <span><strong style='color:var(--text)'>${books}</strong> book${books !== 1 ? 's' : ''}</span>
       <span><strong style='color:var(--accent)'>${out}</strong> checked out</span>
     </div>
-    <p class='muted-text small-text' style='margin-top:8px'><i class='bi bi-info-circle'></i> Discoverable to all Mason students — checkout still requires a class code.</p>`;
+    <p class='muted-text small-text' style='margin-top:8px'><i class='bi bi-info-circle'></i> Discoverable to all Mason students, though checkout still requires a class code.</p>`;
 }
 
 // Two named modes rather than one "Require Checkout Approval" switch whose off
@@ -826,7 +826,7 @@ function initCheckoutMode() {
         return;
       }
       toast(wantApproval
-        ? `<i class='bi bi-person-check-fill'></i> Students now <strong>request</strong> books — approve them on the Students tab`
+        ? `<i class='bi bi-person-check-fill'></i> Students now <strong>request</strong> books; approve them on the Students tab`
         : `<i class='bi bi-lightning-charge-fill'></i> Students can now <strong>check out books themselves</strong>`,
         'success');
       if (wantApproval) loadPendingRequests();
@@ -879,7 +879,7 @@ async function loadPendingRequests() {
       e.currentTarget.disabled = true;
       try {
         await api.approveRequest({ requestId: req.id, bookId: req.bookId, studentId: req.studentId });
-        toast(`<i class='bi bi-check2'></i> Approved — "${esc(req.bookTitle)}" checked out`, 'success');
+        toast(`<i class='bi bi-check2'></i> Approved: "${esc(req.bookTitle)}" is checked out`, 'success');
       } catch (err) {
         e.currentTarget.disabled = false;
         toastError(err);
@@ -939,7 +939,7 @@ async function runBookSearch() {
     results = isIsbn ? [await lookupISBN(q)].filter(Boolean) : await searchBooks(q, 8);
   } catch (err) {
     console.error('[teacher] book search failed:', err);
-    resultEl.innerHTML = `<p class='muted-text small-text' style='margin-top:8px;color:var(--danger)'>Search failed — ${esc(err?.message ?? 'try again')}.</p>`;
+    resultEl.innerHTML = `<p class='muted-text small-text' style='margin-top:8px;color:var(--danger)'>Search failed: ${esc(err?.message ?? 'try again')}.</p>`;
     return;
   } finally {
     btn.disabled = false;
@@ -1017,7 +1017,7 @@ async function addCopiesToLibrary(idx, qty = 1) {
   bookSearchResults = [];
 
   await loadLibrary();
-  toast(`<i class='bi bi-check2'></i> "${esc(book.title)}" — ${qtyLabel} added`, 'success');
+  toast(`<i class='bi bi-check2'></i> ${qtyLabel} of "${esc(book.title)}" added`, 'success');
 }
 
 document.getElementById('mergeDuplicatesBtn')?.addEventListener('click', async (e) => {
@@ -1026,7 +1026,7 @@ document.getElementById('mergeDuplicatesBtn')?.addEventListener('click', async (
   const extra = groups.reduce((n, g) => n + g.length - 1, 0);
   if (!confirm(
     `${groups.length} book${groups.length !== 1 ? 's are' : ' is'} listed more than once.\n\n` +
-    `Merge them into one entry each? Copy counts are added together, so nothing is lost — ` +
+    `Merge them into one entry each? Copy counts are added together, so nothing is lost: ` +
     `${plural(extra, 'duplicate entry', 'duplicate entries')} will be removed.`
   )) return;
 
@@ -1036,7 +1036,7 @@ document.getElementById('mergeDuplicatesBtn')?.addEventListener('click', async (
     await loadLibrary();
     await loadCheckedOut();
     toast(skipped
-      ? `<i class='bi bi-check2'></i> Merged ${plural(merged, 'duplicate entry', 'duplicate entries')}. ${skipped} skipped — those have copies checked out on more than one entry.`
+      ? `<i class='bi bi-check2'></i> Merged ${plural(merged, 'duplicate entry', 'duplicate entries')}. ${skipped} skipped, because those have copies checked out on more than one entry.`
       : `<i class='bi bi-check2'></i> Merged ${plural(merged, 'duplicate entry', 'duplicate entries')}.`,
       merged ? 'success' : 'info');
   } catch (err) {
@@ -1076,7 +1076,7 @@ document.getElementById('importFileInput')?.addEventListener('change', async (e)
     if (out) {
       out.innerHTML = `<p class='empty-state' style='color:var(--danger);margin-top:8px'>
         <i class='bi bi-exclamation-triangle-fill' aria-hidden='true'></i>
-        ${esc(err?.message ?? 'Could not read that file')}${err?.hint ? ` — ${esc(err.hint)}` : ''}
+        ${esc(err?.message ?? 'Could not read that file')}${err?.hint ? `. ${esc(err.hint)}` : ''}
       </p>`;
     }
     return;
@@ -1110,8 +1110,8 @@ function renderImportPreview(file, parsed) {
         Sheet <strong>${esc(parsed.sheetName)}</strong> · ${plural(s.rows, 'row')} →
         <strong>${plural(s.books, 'book')}</strong> (${plural(s.copies, 'copy', 'copies')})<br>
         ${s.withIsbn} with ISBN · ${s.withCover} with a cover
-        ${alreadyHere ? `<br><strong>${plural(alreadyHere, 'book')}</strong> already on your shelf — those gain copies rather than being added twice.` : ''}
-        ${s.checkedOut ? `<br>${plural(s.checkedOut, 'copy', 'copies')} marked checked out in the file will import as <strong>available</strong> — the borrowers aren't BookWare students.` : ''}
+        ${alreadyHere ? `<br><strong>${plural(alreadyHere, 'book')}</strong> already on your shelf; those gain copies rather than being added twice.` : ''}
+        ${s.checkedOut ? `<br>${plural(s.checkedOut, 'copy', 'copies')} marked checked out in the file will import as <strong>available</strong>, because the borrowers aren't BookWare students.` : ''}
         ${s.skipped ? `<br>${plural(s.skipped, 'row')} skipped for having no title.` : ''}
       </div>
       <p class='muted-text small-text' style='margin-bottom:8px'>e.g. ${sample}${parsed.entries.length > 4 ? ' …' : ''}</p>
@@ -1152,7 +1152,7 @@ async function runImport(ev) {
       out.innerHTML = `<p class='muted-text small-text' style='margin-top:8px;color:var(--success)'>
         <i class='bi bi-check2' aria-hidden='true'></i>
         Added ${plural(result.created, 'new book')}${result.updated ? `, topped up ${plural(result.updated, 'existing book')}` : ''}
-        — ${plural(result.copiesAdded, 'copy', 'copies')} in total.
+        for ${plural(result.copiesAdded, 'copy', 'copies')} in total.
       </p>`;
     }
     toast(`<i class='bi bi-check2'></i> Imported ${plural(result.created + result.updated, 'book')}`, 'success');
@@ -1211,7 +1211,7 @@ function renderLibraryList(books) {
   [...selectedBookIds].forEach(id => { if (!live.has(id)) selectedBookIds.delete(id); });
 
   if (!books.length) {
-    listEl.innerHTML = `<p class='empty-state'>${allBooks.length === 0 ? 'No books yet — add one above!' : 'No matches.'}</p>`;
+    listEl.innerHTML = `<p class='empty-state'>${allBooks.length === 0 ? 'No books yet; add one above.' : 'No matches.'}</p>`;
     renderBulkBar();
     return;
   }
@@ -1350,12 +1350,12 @@ async function removeCopiesPrompt(book) {
   const out    = api.outCount(book);
   const spare  = copies - out;
   if (spare < 1) {
-    toast(`Every copy of "${esc(book.title)}" is checked out — have one returned first.`, 'info');
+    toast(`Every copy of "${esc(book.title)}" is checked out. Have a copy returned first.`, 'info');
     return;
   }
   const answer = prompt(
     `Remove how many copies of "${book.title}"?\n\n` +
-    `${copies} on the shelf, ${out} checked out — up to ${spare} can go.\n` +
+    `${copies} on the shelf, ${out} checked out: up to ${spare} can go.\n` +
     `Use this when copies are damaged or lost.`,
     '1');
   if (answer === null) return;
@@ -1383,7 +1383,7 @@ async function changeCopies(book, delta) {
     const next = await api.adjustCopies(book.id, delta);
     book.copies = next;
     renderLibraryList(allBooks);
-    toast(`<i class='bi bi-check2'></i> "${esc(book.title)}" — now ${next} cop${next !== 1 ? 'ies' : 'y'}`, 'success');
+    toast(`<i class='bi bi-check2'></i> "${esc(book.title)}" now has ${next} cop${next !== 1 ? 'ies' : 'y'}`, 'success');
   } catch (err) {
     // "last copy" and "copies still out" are expected outcomes, not failures.
     toastError(err, err.code === 'bw/last-copy' ? 'info' : 'danger');
@@ -1413,7 +1413,7 @@ async function returnFromLibraryRow(book) {
   const loans = openLoans.filter(l => l.bookId === book.id);
   if (loans.length === 1) return doReturn(loans[0]);
   if (loans.length > 1) {
-    toast(`${loans.length} copies of "${esc(book.title)}" are out — pick the right student under <strong>Checked Out</strong>.`, 'info');
+    toast(`${loans.length} copies of "${esc(book.title)}" are out; pick the right student under <strong>Checked Out</strong>.`, 'info');
     showPage('library');
     document.getElementById('checkedOutList')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     return;
@@ -1558,7 +1558,7 @@ document.getElementById('exportCheckoutsMdBtn')?.addEventListener('click', async
   try {
     const entries = await api.listHistory();
     const active  = entries.filter(e => !e.dateReturned);
-    let md = `# BookWare — Checkout Report\n\n**Teacher:** ${teacherName()}  \n**Generated:** ${new Date().toLocaleString()}  \n\n---\n\n`;
+    let md = `# BookWare Checkout Report\n\n**Teacher:** ${teacherName()}  \n**Generated:** ${new Date().toLocaleString()}  \n\n---\n\n`;
 
     md += `## Currently Checked Out\n\n`;
     if (!active.length) md += `*No books currently checked out.*\n\n`;
@@ -1741,7 +1741,7 @@ async function loadRoster() {
       const note = document.createElement('p');
       note.className = 'empty-state';
       note.style.marginBottom = '6px';
-      note.textContent = `Roster deleted on ${fmtDate(api.endOfDay(cls.endDate))} — student names and emails are no longer retained for this class.`;
+      note.textContent = `Roster deleted on ${fmtDate(api.endOfDay(cls.endDate))}: student names and emails are no longer retained for this class.`;
       listEl.appendChild(note);
       continue;
     }
@@ -1761,7 +1761,7 @@ async function loadRoster() {
       empty.className = 'empty-state';
       empty.style.marginBottom = '6px';
       empty.textContent = readable
-        ? 'No students yet — share the code above.'
+        ? 'No students yet; share the code above.'
         : 'This roster could not be read.';
       listEl.appendChild(empty);
       continue;
@@ -2082,7 +2082,7 @@ async function runReadingSearch() {
   try {
     readingSearchResults = (await searchBooks(q, 6)).map(b => ({ ...b, isLibrary: false }));
   } catch (err) {
-    toast(`Search failed — ${esc(err?.message ?? 'try again')}`, 'danger');
+    toast(`Search failed: ${esc(err?.message ?? 'try again')}`, 'danger');
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -2111,7 +2111,7 @@ function renderReadingDisplay() {
   // "you haven't picked anything".
   el.innerHTML = r
     ? readingCard(r, { style: 'margin-top:10px' })
-    : `<p class='empty-state' style='margin-top:10px'>No current read set — pick one from the list above.</p>`;
+    : `<p class='empty-state' style='margin-top:10px'>No current read set; pick one from the list above.</p>`;
 }
 
 function renderReadingPreview() {
@@ -2152,7 +2152,7 @@ async function runRecReadingSearch() {
   try {
     results = await searchBooks(q, 6);
   } catch (err) {
-    toast(`Search failed — ${esc(err?.message ?? 'try again')}`, 'danger');
+    toast(`Search failed: ${esc(err?.message ?? 'try again')}`, 'danger');
     return;
   } finally {
     if (btn) btn.disabled = false;
@@ -2211,7 +2211,7 @@ document.getElementById('createInviteBtn')?.addEventListener('click', async (ev)
     if (output) output.innerHTML = `
       <div class='invite-link-box'>${esc(link)}</div>
       <p class='muted-text small-text' style='margin-top:8px'>
-        <i class='bi bi-check2'></i> Link copied! Valid ${days} days — locked to ${esc(email)}
+        <i class='bi bi-check2'></i> Link copied. It is valid for ${days} days and locked to ${esc(email)}
       </p>`;
     if (qrImg && qrContainer) {
       setQrImage(qrImg, link, 240);
@@ -2235,7 +2235,7 @@ document.getElementById('emailInviteBtn')?.addEventListener('click', () => {
   const body = encodeURIComponent(
     `Hi,\n\nYou've been invited to join BookWare as a teacher at Mason High School.\n\n` +
     `Click the link below to create your account:\n${lastInviteLink}\n\n` +
-    `This invite is locked to ${lastInviteEmail} and expires in 7 days.\n\n— ${teacherName()}`,
+    `This invite is locked to ${lastInviteEmail} and expires in 7 days.\n\n– ${teacherName()}`,
   );
   window.open(`mailto:${lastInviteEmail}?subject=${subject}&body=${body}`);
   toast(`<i class='bi bi-envelope-fill'></i> Opening email client…`, 'info');
@@ -2341,7 +2341,7 @@ function checkBiweeklyNotification() {
     localStorage.setItem(KEY, String(Date.now()));
 
     document.getElementById('biweeklyDownloadBtn')?.addEventListener('click', () => {
-      let md = `# BookWare — Bi-Weekly Library Report\n\n**Teacher:** ${teacherName()}  \n**Generated:** ${now.toLocaleString()}  \n\n---\n\n`;
+      let md = `# BookWare Bi-Weekly Library Report\n\n**Teacher:** ${teacherName()}  \n**Generated:** ${now.toLocaleString()}  \n\n---\n\n`;
       if (!openLoans.length) md += 'All books are currently available.\n';
       else {
         md += `## Currently Checked Out\n\n| Book | Author | Student | Checked Out | Due Date | Status |\n|------|--------|---------|-------------|----------|--------|\n`;

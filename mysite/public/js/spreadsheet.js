@@ -170,7 +170,7 @@ export async function parseLibraryFile(file) {
   } catch (err) {
     console.error('[spreadsheet] could not load the parser:', err);
     throw new SpreadsheetError('Could not load the spreadsheet reader',
-      'check your connection — it loads from a CDN the first time you import');
+      'check your connection; the reader loads from a CDN the first time you import');
   }
 
   let wb;

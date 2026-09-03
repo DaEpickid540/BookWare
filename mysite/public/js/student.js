@@ -407,7 +407,7 @@ async function runQuizFlow({ isFirstRun }) {
       toast(`<i class="bi bi-stars"></i> Thanks! ARIA now knows what you like to read.`, 'success');
       refreshAriaChats();
     } else if (!isFirstRun) {
-      toast('No worries — you can take the quiz anytime from here.', 'info');
+      toast('No worries; you can take the quiz from here whenever you like.', 'info');
     }
   } catch (err) {
     console.error('[student] Reading quiz failed:', err);
@@ -693,12 +693,12 @@ async function joinLibraryByCode(code, input) {
     toast(
       `Library added, but your teacher's roster didn't accept the join (${esc(
         rosterError.code ?? rosterError.message ?? "unknown error",
-      )}). You may not be able to check books out — tell your teacher.`,
+      )}). Checking books out may not work until that is sorted, so let your teacher know.`,
       "danger",
     );
   } else if (alreadyLinked) {
     toast(
-      `<i class='bi bi-check2'></i> You're now in ${esc(className)} — this library was already on your list.`,
+      `<i class='bi bi-check2'></i> You're now in ${esc(className)}; this library was already on your list.`,
       "success",
     );
   } else {
@@ -1105,7 +1105,7 @@ async function renderAllLibraries() {
     hint.className = "empty-state";
     hint.style.marginBottom = "10px";
     hint.textContent =
-      "Browse freely — ask the teacher for their class code to check out books.";
+      "Browse freely. To check a book out, ask the teacher for their class code.";
     wrapper.appendChild(h);
     wrapper.appendChild(hint);
     const grid = document.createElement("div");
@@ -1320,7 +1320,7 @@ async function loadTeacherBooks(tid) {
     allBooks = [];
     bookListEl.innerHTML = `<p class='empty-state'>Couldn't load this library's books (${esc(
       err.code ?? err.message ?? "unknown error",
-    )}). If you just joined, refresh the page — and if it keeps happening, ask your teacher to re-share their class code.</p>`;
+    )}). If you have only just joined, refresh the page; if it keeps happening, ask your teacher to re-share their class code.</p>`;
     return;
   }
 
@@ -1636,7 +1636,7 @@ async function requestCheckout(bookId, bookTitle) {
       err.message === "already-has-book"
         ? "You already have a book checked out."
         : err.message === "unavailable"
-        ? "All copies just got taken — someone beat you to it!"
+        ? "All copies just got taken; someone beat you to it."
         : err.message === "book-not-found"
         ? "This book no longer exists."
         : `Checkout failed: ${err.message}`;
@@ -1682,7 +1682,7 @@ async function requestCheckout(bookId, bookTitle) {
   toast(
     `<i class='bi bi-check2'></i> "${esc(
       bookTitle,
-    )}" checked out — due ${dueDate.toLocaleDateString()}`,
+    )}" checked out, due back ${dueDate.toLocaleDateString()}`,
     "success",
   );
 }
@@ -1722,7 +1722,7 @@ async function submitRentalRequest(bookId, bookTitle, coverUrl) {
     toast(
       `<i class='bi bi-send-fill'></i> Request sent for "${esc(
         bookTitle,
-      )}" — waiting for teacher approval`,
+      )}" sent, now waiting on teacher approval`,
       "success",
     );
     if (document.getElementById("lockerPage")?.classList.contains("active"))
@@ -2025,7 +2025,7 @@ async function renderActiveLoans() {
         <div class='book-cover-ph'><i class='bi bi-hourglass-split'></i></div>
         <div class='book-info'>
           <div class='book-title'>${esc(e.bookTitle)}</div>
-          <div class='book-author'>Handed back — waiting for your teacher to confirm</div>
+          <div class='book-author'>Handed back; waiting for your teacher to confirm</div>
           <span class='badge badge--pending'>Awaiting confirmation</span>
         </div>`;
       el.appendChild(card);
@@ -2195,7 +2195,7 @@ document
     const sorted = entries.sort(
       (a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0),
     );
-    let md = `# Reading Log — ${
+    let md = `# Reading Log: ${
       studentData.name
     }\n\n**Exported:** ${new Date().toLocaleDateString()}\n\n`;
     md += `| Book | Teacher Library | Date Out | Date Returned |\n`;
@@ -2241,7 +2241,7 @@ async function renderProfileCurrentBook() {
   el.innerHTML = `<div style='font-size:0.68rem;color:${limitColor};margin-bottom:8px;font-weight:${
     list.length >= READING_LIMIT ? "600" : "400"
   }'>${list.length}/${READING_LIMIT} books${
-    list.length >= READING_LIMIT ? " — list full" : ""
+    list.length >= READING_LIMIT ? " · list full" : ""
   }</div>`;
 
   if (checkedOut) {

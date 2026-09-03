@@ -294,7 +294,7 @@ export const ARIA_SEARCH_PROVIDER_KEYS = {
 const SEARCH_PROVIDER_META = {
   contextwire: {
     label:       'ContextWire API Key',
-    hint:        '⭐ Recommended — 1,000 free searches/mo, no card required · contextwire.dev',
+    hint:        '⭐ Recommended: 1,000 free searches a month, no card required · contextwire.dev',
     placeholder: 'contextwire api key…',
   },
   brave: {
@@ -320,12 +320,12 @@ export const ARIA_PROVIDER_KEYS = {
 };
 
 const PROVIDER_META = {
-  anthropic:  { label: 'Claude (Anthropic) API Key',           hint: 'console.anthropic.com — best quality',     placeholder: 'sk-ant-api03-…' },
+  anthropic:  { label: 'Claude (Anthropic) API Key',           hint: 'console.anthropic.com · best quality',     placeholder: 'sk-ant-api03-…' },
   openai:     { label: 'OpenAI API Key',                       hint: 'platform.openai.com/api-keys',             placeholder: 'sk-…'           },
-  gemini:     { label: 'Gemini API Key',                       hint: 'aistudio.google.com/apikey — free tier',   placeholder: 'AIza…'          },
+  gemini:     { label: 'Gemini API Key',                       hint: 'aistudio.google.com/apikey · free tier',   placeholder: 'AIza…'          },
   cloudflare: { label: 'Cloudflare Key (AccountID::APIToken)', hint: 'dash.cloudflare.com → AI → API Tokens',   placeholder: 'abc123::token'  },
-  openrouter: { label: 'OpenRouter API Key',                   hint: 'openrouter.ai/keys — free models available', placeholder: 'sk-or-…'      },
-  groq:       { label: 'Groq API Key',                         hint: 'console.groq.com — fast & free',           placeholder: 'gsk_…'          },
+  openrouter: { label: 'OpenRouter API Key',                   hint: 'openrouter.ai/keys · free models available', placeholder: 'sk-or-…'      },
+  groq:       { label: 'Groq API Key',                         hint: 'console.groq.com · fast and free',           placeholder: 'gsk_…'          },
 };
 
 // Which single provider the user has chosen to use — the UI only ever shows
@@ -419,15 +419,15 @@ function buildQuickReplies(profile, role = 'student') {
   if (!profile || profile.skipped) return [];
   const out = [];
   const genres = profile.genres ?? [];
-  if (genres[0]) out.push({ label: `More ${lbl('genres', genres[0])}`, msg: `Recommend a great ${lbl('genres', genres[0])} book for me — that's one of my favorite genres.` });
-  if (genres[1]) out.push({ label: `Something ${lbl('genres', genres[1])}`, msg: `I'm also into ${lbl('genres', genres[1])} — what's a good one to pick up next?` });
+  if (genres[0]) out.push({ label: `More ${lbl('genres', genres[0])}`, msg: `Recommend a great ${lbl('genres', genres[0])} book for me; it's one of my favourite genres.` });
+  if (genres[1]) out.push({ label: `Something ${lbl('genres', genres[1])}`, msg: `I'm also into ${lbl('genres', genres[1])}; what's a good one to pick up next?` });
   if (profile.favorite) out.push({ label: `Like "${profile.favorite}"`, msg: `Can you recommend something with a similar feel to "${profile.favorite}"?` });
-  if (profile.vibe) out.push({ label: `Match my mood`, msg: `I'm in the mood for something ${lbl('vibe', profile.vibe)} right now — any ideas?` });
+  if (profile.vibe) out.push({ label: `Match my mood`, msg: `I'm in the mood for something ${lbl('vibe', profile.vibe)} right now. Any ideas?` });
   if (role === 'teacher') {
     if (profile.priorities?.[0]) out.push({ label: `Picks for my shelf`, msg: `Suggest a few books that would be great for ${lbl('priorities', profile.priorities[0])} in my classroom library.` });
     if (profile.grades?.[0]) out.push({ label: `For grade ${profile.grades[0]}`, msg: `What books would you recommend for ${lbl('grades', profile.grades[0])} students?` });
   }
-  out.push({ label: 'Surprise me', msg: 'Surprise me with a book recommendation — anything you think I would love!' });
+  out.push({ label: 'Surprise me', msg: 'Surprise me with a book recommendation: anything you think I would love.' });
   // Keep it tidy — at most 4 chips so the row never wraps awkwardly.
   return out.slice(0, 4);
 }
@@ -462,7 +462,7 @@ async function callOpenAI(endpoint, key, messages, model, extraHeaders = {}) {
   if (!res.ok) {
     let detail = '';
     try { detail = (await res.json())?.error?.message ?? ''; } catch (_) {}
-    if (res.status === 401) throw new Error('Invalid API key — check Settings → ARIA AI.');
+    if (res.status === 401) throw new Error('Invalid API key; check Settings → ARIA AI.');
     throw new Error(detail || `AI request failed (${res.status}).`);
   }
   const data = await res.json();
@@ -490,7 +490,7 @@ async function callAnthropic(key, messages) {
   if (!res.ok) {
     let detail = '';
     try { detail = (await res.json())?.error?.message ?? ''; } catch (_) {}
-    if (res.status === 401) throw new Error('Invalid Anthropic key — check Settings → ARIA AI.');
+    if (res.status === 401) throw new Error('Invalid Anthropic key; check Settings → ARIA AI.');
     throw new Error(detail || `Anthropic request failed (${res.status}).`);
   }
   const data = await res.json();
@@ -526,7 +526,7 @@ async function callGemini(key, messages) {
 
 async function callCloudflare(combinedKey, messages) {
   const sep = combinedKey.indexOf('::');
-  if (sep < 0) throw new Error('Cloudflare key must be "AccountID::APIToken" — check Settings.');
+  if (sep < 0) throw new Error('Cloudflare key must be "AccountID::APIToken"; check Settings.');
   const accountId = combinedKey.slice(0, sep);
   const apiToken  = combinedKey.slice(sep + 2);
   const res = await fetch(
@@ -702,7 +702,7 @@ export function initAriaChat(mountId, role = 'student', getProfile = null) {
     const greetingBits = describeProfileToReader(profile, role);
     addMsg(msgs, 'bot', key
       ? (greetingBits
-          ? `Hi! I'm ARIA. From your reading quiz, I can tell ${greetingBits} — want a recommendation, or ask me anything about books!`
+          ? `Hi! I'm ARIA. From your reading quiz, I can tell ${greetingBits}. Want a recommendation, or is there something you'd like to ask about books?`
           : `Hi! I'm ARIA${hasSearchKey ? ' (web search on)' : ''}. Ask me for book recommendations, summaries, or anything about reading.`)
       : 'ARIA needs an API key. Add one in Settings → ARIA AI to start chatting.');
 
@@ -874,7 +874,7 @@ export function initAriaRecommends(mountId, role = 'student', getProfile = null)
         `${topGenres ? `${topGenres} book recommendations` : 'Highschool book recommendations'} for ${who}.` +
         `${profileLine ? ` ${profileLine}` : ''}\n\n` +
         `Suggest exactly ${AR_INTERNET_COUNT} real, well-known, highschool-appropriate books this reader would enjoy that are NOT ` +
-        `any of: ${excludeTitles}. Every title must be a real, existing, published book — never invent one.\n\n` +
+        `any of: ${excludeTitles}. Every title must be a real, existing, published book; never invent one.\n\n` +
         `Reply with EXACTLY ${AR_INTERNET_COUNT} lines, one book per line, in this format and nothing else, no numbering, no preamble:\n` +
         `Title | Author | one warm sentence (max 25 words) on why this reader would enjoy it`;
       const reply = await callAriaProvider(provider, key, [
@@ -927,7 +927,7 @@ export function initAriaRecommends(mountId, role = 'student', getProfile = null)
         ${localCards}
         ${internetCards}
       </div>
-      ${!internetPicks.length ? `<p class="settings-hint" style="margin-top:6px">${webGrounded ? 'ARIA couldn\'t fetch fresh web picks this time — try "Show different picks."' : 'Add a Web Search key in Settings → ARIA AI for fresh, internet-grounded picks too.'}</p>` : ''}
+      ${!internetPicks.length ? `<p class="settings-hint" style="margin-top:6px">${webGrounded ? 'ARIA couldn\'t fetch fresh web picks this time; try "Show different picks."' : 'Add a Web Search key in Settings → ARIA AI for fresh, internet-grounded picks too.'}</p>` : ''}
       <button type="button" class="btn btn--ghost btn--sm aria-recs-refresh">
         <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Show different picks
       </button>`;
@@ -1011,7 +1011,7 @@ export function initARIA(toastFn) {
     if (activeLine) {
       activeLine.innerHTML = active
         ? `ARIA is running on <strong>${PROVIDER_DISPLAY_NAME[active] ?? active}</strong>${active === 'anthropic' ? ' <span class="aria-badge aria-badge--best">⭐ Highest Quality</span>' : ''}.`
-        : `No key saved for ${PROVIDER_DISPLAY_NAME[getSelectedProvider()] ?? 'the selected provider'} yet — add one below to turn ARIA on.`;
+        : `No key saved for ${PROVIDER_DISPLAY_NAME[getSelectedProvider()] ?? 'the selected provider'} yet; add one below to switch ARIA on.`;
     }
   }
 
@@ -1037,7 +1037,7 @@ export function initARIA(toastFn) {
         ? 'Turned off for your school by an administrator.'
         : ready
         ? 'Adds an AI chat button and book recommendations to your library.'
-        : 'Locked — add an AI key AND a Web Search key below to unlock ARIA.';
+        : 'Locked: add both an AI key and a Web Search key below to unlock ARIA.';
     }
     renderBlockedNote(blocked);
     // Hide the whole key-setup block while blocked — nothing in it can take
@@ -1143,7 +1143,7 @@ export function initARIA(toastFn) {
       localStorage.setItem(storageKey, key);
       updateAriaGate();
       refreshAriaChats();
-      toastFn?.(`<i class="bi bi-search"></i> ${name} key saved — ARIA can now search the web!`, 'success');
+      toastFn?.(`<i class="bi bi-search"></i> ${name} key saved; ARIA can search the web now.`, 'success');
     } else {
       localStorage.removeItem(storageKey);
       updateAriaGate();

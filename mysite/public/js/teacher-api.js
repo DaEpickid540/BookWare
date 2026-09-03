@@ -45,7 +45,7 @@ export class TeacherApiError extends Error {
     this.hint  = hint;
   }
   /** One line fit to put in a toast. */
-  toString() { return this.hint ? `${this.message} — ${this.hint}` : this.message; }
+  toString() { return this.hint ? `${this.message}. ${this.hint}` : this.message; }
 }
 
 // Firestore's error codes are accurate and completely unhelpful to a teacher
@@ -53,13 +53,13 @@ export class TeacherApiError extends Error {
 // this app; say that cause out loud instead of the code.
 const HINTS = {
   'permission-denied':
-    'the security rules rejected it. If this started after a code change, the rules in firestore.rules may not be deployed — run: firebase deploy --only firestore:rules',
+    'the security rules rejected it. If this started after a code change, the rules in firestore.rules may not be deployed. Run: firebase deploy --only firestore:rules',
   'failed-precondition':
     'a Firestore composite index is missing. Deploy them with: firebase deploy --only firestore:indexes',
   'unavailable':
     'could not reach Firestore. Check the network and try again.',
   'not-found':
-    'that record no longer exists — it may have been deleted in another tab.',
+    'that record no longer exists; it may have been deleted in another tab.',
   'unauthenticated':
     'your session expired. Sign out and back in.',
   'resource-exhausted':

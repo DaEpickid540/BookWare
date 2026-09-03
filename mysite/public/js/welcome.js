@@ -22,7 +22,7 @@ const STUDENT_SLIDES = [
   {
     icon: 'bi-key-fill',
     title: 'Start with a class code',
-    body: 'Your teacher hands out a short code — or a link or QR code that fills it in for you. Add it once and their whole library shows up under <strong>Library</strong>.',
+    body: 'Your teacher hands out a short code, or a link or QR code that fills the code in for you. Add it once and their whole library appears under <strong>Library</strong>.',
   },
   {
     icon: 'bi-collection-fill',
@@ -45,7 +45,7 @@ const TEACHER_SLIDES = [
   {
     icon: 'bi-book-half',
     title: 'Welcome to BookWare',
-    body: 'Everything your classroom library needs: your shelves, your students, who has what, and when it is due — without a clipboard.',
+    body: 'Everything your classroom library needs in one place: your shelves, your students, who has what, and when it is due. No clipboard required.',
   },
   {
     icon: 'bi-upc-scan',
@@ -55,7 +55,7 @@ const TEACHER_SLIDES = [
   {
     icon: 'bi-people-fill',
     title: 'Get students in',
-    body: 'Each class on the <strong>Students</strong> tab gets its own join code, shareable link, and QR code. Put the QR on the board — students scan it and they are on your roster.',
+    body: 'Each class on the <strong>Students</strong> tab gets its own join code, shareable link, and QR code. Put the QR up on the board: students scan it and land on your roster.',
   },
   {
     icon: 'bi-arrow-left-right',
@@ -65,7 +65,7 @@ const TEACHER_SLIDES = [
   {
     icon: 'bi-shield-lock-fill',
     title: 'Student data has an expiry date',
-    body: 'Every class carries a last day of school. On that date the roster — names and emails — is deleted automatically and you lose access to it. Set it when you create the class.',
+    body: 'Every class carries a last day of school. On that date the roster, names and emails included, is deleted automatically and you lose access to it. You set the date when you create the class.',
   },
 ];
 

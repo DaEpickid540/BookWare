@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BookWare — Admin</title>
-  <meta name="description" content="BookWare Admin Portal — manage users, bans, libraries, and system settings." />
+  <title>BookWare: Admin</title>
+  <meta name="description" content="BookWare Admin Portal: manage users, bans, libraries, and system settings." />
   <meta name="theme-color" content="#1a1a1e" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
@@ -326,7 +326,7 @@
             Enter the new teacher's email to lock the invite to that address, or leave blank for an open link anyone with a school account can claim. Valid for 7 days.
           </p>
           <div class="form-group" style="margin-bottom:12px">
-            <label for="adminInviteEmailInput" class="form-label">Teacher Email <span style="opacity:0.55">(optional — leave blank for open invite)</span></label>
+            <label for="adminInviteEmailInput" class="form-label">Teacher Email <span style="opacity:0.55">(optional; leave blank for an open invite)</span></label>
             <input type="email" id="adminInviteEmailInput" class="text-input" placeholder="teacher@masonohioschools.com" autocomplete="off" />
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -339,7 +339,7 @@
           </div>
           <div id="adminInviteOutput" style="margin-top:12px"></div>
           <div id="adminInviteQrContainer" hidden style="margin-top:14px">
-            <div class="panel-title" style="margin-bottom:8px;font-size:0.8rem">QR Code — scan to open invite</div>
+            <div class="panel-title" style="margin-bottom:8px;font-size:0.8rem">QR code: scan to open the invite</div>
             <img id="adminInviteQrImg" src="" alt="QR code for invite link"
                  style="width:160px;height:160px;background:#fff;padding:6px;border-radius:8px;display:block" />
           </div>
@@ -549,7 +549,7 @@
               </div>
               <div id="ariaSetupPanel">
                 <div class="aria-active-line" id="ariaActiveProviderLine" style="border-top:1px solid var(--border);margin-top:10px">
-                  <i class="bi bi-info-circle-fill" aria-hidden="true"></i> <span id="ariaActiveProviderText">No AI key saved yet — add one below to turn ARIA on.</span>
+                  <i class="bi bi-info-circle-fill" aria-hidden="true"></i> <span id="ariaActiveProviderText">No AI key saved yet; add one below to switch ARIA on.</span>
                 </div>
 
                 <div class="aria-setup-warning">
@@ -559,13 +559,13 @@
 
                 <div class="settings-row settings-row--col" style="padding-bottom:2px">
                   <div class="settings-label">AI Provider</div>
-                  <div class="settings-hint">Pick the one you want to use — only its key box shows below</div>
+                  <div class="settings-hint">Pick the one you want to use: only that provider’s key box appears below</div>
                 </div>
                 <select id="ariaProviderSelect" class="select-input" aria-label="AI provider" style="margin-bottom:10px">
-                  <option value="anthropic">⭐ Claude — Highest Quality</option>
+                  <option value="anthropic">⭐ Claude · Highest quality</option>
                   <option value="openai">ChatGPT (OpenAI)</option>
-                  <option value="gemini">Gemini — Free tier</option>
-                  <option value="groq" selected>Groq — Free &amp; fast</option>
+                  <option value="gemini">Gemini · Free tier</option>
+                  <option value="groq" selected>Groq · Free and fast</option>
                 </select>
 
                 <!-- Claude -->
@@ -574,7 +574,7 @@
                     <span class="aria-key-row-label">Claude <span class="aria-badge aria-badge--best">⭐ Highest Quality</span></span>
                     <span class="aria-key-row-status" data-status="anthropic"></span>
                   </div>
-                  <div class="settings-hint">No free tier, but very cheap for this use — <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com/settings/keys</a></div>
+                  <div class="settings-hint">No free tier, but pennies for this kind of use. Create a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com/settings/keys</a></div>
                   <div class="aria-key-row-input">
                     <input type="password" id="ariaKey-anthropic" class="text-input text-input--mono" placeholder="sk-ant-api03-…" autocomplete="off" aria-label="Claude API key" />
                     <button class="btn btn--sm" data-save="anthropic">Save</button>
@@ -587,7 +587,7 @@
                     <span class="aria-key-row-label">ChatGPT (OpenAI)</span>
                     <span class="aria-key-row-status" data-status="openai"></span>
                   </div>
-                  <div class="settings-hint">No permanent free tier — <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a></div>
+                  <div class="settings-hint">No permanent free tier; new accounts get a short trial credit. Create a key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a></div>
                   <div class="aria-key-row-input">
                     <input type="password" id="ariaKey-openai" class="text-input text-input--mono" placeholder="sk-…" autocomplete="off" aria-label="OpenAI API key" />
                     <button class="btn btn--sm" data-save="openai">Save</button>
@@ -600,7 +600,7 @@
                     <span class="aria-key-row-label">Gemini <span class="aria-badge aria-badge--free">Free tier</span></span>
                     <span class="aria-key-row-status" data-status="gemini"></span>
                   </div>
-                  <div class="settings-hint">Free key, no card required — <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></div>
+                  <div class="settings-hint">Free key, no card required: <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></div>
                   <div class="aria-key-row-input">
                     <input type="password" id="ariaKey-gemini" class="text-input text-input--mono" placeholder="AIza…" autocomplete="off" aria-label="Gemini API key" />
                     <button class="btn btn--sm" data-save="gemini">Save</button>
@@ -613,7 +613,7 @@
                     <span class="aria-key-row-label">Groq <span class="aria-badge aria-badge--free">Free &amp; fast</span></span>
                     <span class="aria-key-row-status" data-status="groq"></span>
                   </div>
-                  <div class="settings-hint">Free key, generous limits — <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a></div>
+                  <div class="settings-hint">Free key with generous rate limits: <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a></div>
                   <div class="aria-key-row-input">
                     <input type="password" id="ariaKey-groq" class="text-input text-input--mono" placeholder="gsk_…" autocomplete="off" aria-label="Groq API key" />
                     <button class="btn btn--sm" data-save="groq">Save</button>
@@ -623,9 +623,9 @@
                 <!-- Web search (optional) -->
                 <div class="settings-row settings-row--col" style="border-top:1px solid var(--border);margin-top:10px;padding-top:12px">
                   <div class="settings-label">Web Search <span style="background:var(--bg-inset);border:1px solid var(--border);border-radius:4px;font-size:0.6rem;padding:1px 5px;margin-left:4px;font-weight:400;opacity:0.7">optional</span></div>
-                  <div class="settings-hint">Gives ARIA real-time web search — pick a provider</div>
+                  <div class="settings-hint">Gives ARIA real-time web search; pick a search provider below</div>
                   <select id="ariaSearchProvider" class="select-input" aria-label="Web search provider">
-                    <option value="contextwire" selected>⭐ ContextWire — Recommended (free)</option>
+                    <option value="contextwire" selected>⭐ ContextWire · Recommended, free</option>
                     <option value="brave">Brave Search</option>
                     <option value="serpapi">SerpAPI</option>
                   </select>
@@ -633,7 +633,7 @@
                 <div class="settings-row settings-row--col">
                   <div>
                     <div class="settings-label" id="ariaSearchKeyLabel">ContextWire API Key</div>
-                    <div class="settings-hint" id="ariaSearchKeyHint">1,000 free searches/mo, no card required — <a href="https://contextwire.dev" target="_blank" rel="noopener" style="color:var(--accent)">contextwire.dev</a></div>
+                    <div class="settings-hint" id="ariaSearchKeyHint">1,000 free searches a month, no card required: <a href="https://contextwire.dev" target="_blank" rel="noopener" style="color:var(--accent)">contextwire.dev</a></div>
                   </div>
                   <input type="password" id="ariaSearchKey" class="text-input text-input--mono" placeholder="contextwire api key…" autocomplete="off" aria-label="Web search API key" />
                   <button class="btn btn--sm" id="ariaSaveSearchBtn">Save</button>
@@ -695,8 +695,9 @@
             </div>
             <p class="settings-hint" style="margin-bottom:10px">
               Class rosters are deleted on each class's last day of school; checkout records are
-              deleted after 2 years. Anything listed here is past its deletion date and still
-              holding student data — open this portal to run the sweep.
+              deleted after two years. Everything listed below is past its deletion date and still
+              holding student data. BookWare has no scheduled job to do this for you: the sweep
+              runs when someone opens a portal, which is why anything sitting here needs you.
             </p>
             <div id="retentionStatus">
               <p class="empty-state">Checking…</p>
@@ -732,7 +733,7 @@
         <div class="form-group">
           <label for="banReason" class="form-label">Reason</label>
           <select id="banReason" class="select-input">
-            <option value="">— Select Reason —</option>
+            <option value="">Select a reason…</option>
             <option value="malicious">Malicious Activity</option>
             <option value="abuse">Abusive Behavior</option>
             <option value="non-return">Non-Return of Books</option>
