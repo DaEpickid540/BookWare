@@ -77,7 +77,7 @@ const STUDENT_STEPS = [
   {
     id: 'genres', type: 'multi', min: 1,
     title: 'What genres are you in the mood for?',
-    sub: 'Pick as many as you like — ARIA will use these to find your next favorite read.',
+    sub: 'Pick as many as you like; ARIA weighs every one of them when it hunts for your next favourite read.',
     options: GENRE_OPTIONS,
   },
   {
@@ -87,7 +87,7 @@ const STUDENT_STEPS = [
       { key: 'quick',  label: 'Quick reads',     icon: 'bi-lightning-charge' },
       { key: 'medium', label: 'Medium length',   icon: 'bi-book' },
       { key: 'long',   label: 'Doorstoppers',    icon: 'bi-books' },
-      { key: 'any',    label: "Doesn't matter — a good story is a good story", icon: 'bi-shuffle' },
+      { key: 'any',    label: "Doesn't matter: a good story is a good story", icon: 'bi-shuffle' },
     ],
   },
   {
@@ -113,13 +113,13 @@ const STUDENT_STEPS = [
   {
     id: 'favorite', type: 'text', optional: true,
     title: 'Name a book, author, or series you’ve loved',
-    sub: 'Optional — this helps ARIA find books with a similar feel.',
+    sub: 'Optional, but it helps ARIA find books with a similar feel.',
     placeholder: 'e.g. Percy Jackson, Scythe, anything by Angie Thomas…',
   },
   {
     id: 'ariaSetup', type: 'aria-setup', optional: true,
     title: 'Set up ARIA, your AI reading assistant',
-    sub: 'Optional — paste any keys you have to unlock AI chat and personalized picks. Skip this and set it up anytime later in Settings.',
+    sub: 'Optional: paste in any keys you have to unlock AI chat and personalised picks. You can skip this now and set it up later in Settings.',
   },
 ];
 
@@ -138,7 +138,7 @@ const TEACHER_EXTRA_STEPS = [
   {
     id: 'priorities', type: 'multi', min: 1,
     title: 'What matters most when stocking your classroom library?',
-    sub: 'Pick a few — ARIA will weigh these when it suggests titles for your shelves.',
+    sub: 'Pick a few; ARIA weighs them when it suggests titles for your shelves.',
     options: [
       { key: 'diverse',    label: 'Diverse voices & representation', icon: 'bi-globe-americas' },
       { key: 'curriculum', label: 'Curriculum tie-ins & classics',   icon: 'bi-mortarboard-fill' },
@@ -220,7 +220,7 @@ export function runReadingQuiz(role = 'student') {
             <h2 class="quiz-title">Enjoying BookWare?</h2>
             <p class="quiz-sub">
               BookWare is an independent passion project. If it's helped you find your next
-              great read, a ⭐ on the GitHub repo goes a long way — it costs nothing and means a lot.
+              great read, a ⭐ on the GitHub repo goes a long way: it costs you nothing and means a lot.
             </p>
             <div class="quiz-star-actions">
               <a class="btn btn--primary btn--sm quiz-star-link" href="${GITHUB_REPO_URL}" target="_blank" rel="noopener noreferrer">
@@ -280,7 +280,7 @@ export function runReadingQuiz(role = 'student') {
     // so they see the benefit without a separate trip to Settings.
     function buildAriaSetupHtml() {
       const providerOptions = ARIA_PROVIDERS.map(p =>
-        `<option value="${esc(p.key)}">${p.badge ? esc(p.badge) + ' — ' : ''}${esc(p.name)}</option>`
+        `<option value="${esc(p.key)}">${p.badge ? esc(p.badge) + ' · ' : ''}${esc(p.name)}</option>`
       ).join('');
 
       // Only the chosen provider's key box renders visibly — picking Groq
@@ -291,7 +291,7 @@ export function runReadingQuiz(role = 'student') {
             <span class="aria-key-row-label">${esc(p.name)}${p.badge ? ` <span class="aria-badge ${esc(p.badgeClass)}">${esc(p.badge)}</span>` : ''}</span>
             <span class="aria-key-row-status" data-quiz-status="${esc(p.key)}"></span>
           </div>
-          <div class="settings-hint">${esc(p.hint)} — <a href="${esc(p.linkUrl)}" target="_blank" rel="noopener">${esc(p.linkLabel)}</a></div>
+          <div class="settings-hint">${esc(p.hint)} · <a href="${esc(p.linkUrl)}" target="_blank" rel="noopener">${esc(p.linkLabel)}</a></div>
           <div class="aria-key-row-input">
             <input type="password" class="text-input text-input--mono" id="quizAriaKey-${esc(p.key)}"
               placeholder="${esc(p.placeholder)}" autocomplete="off" aria-label="${esc(p.name)} API key" />
@@ -300,21 +300,21 @@ export function runReadingQuiz(role = 'student') {
         </div>`).join('');
 
       const searchOptions = SEARCH_PROVIDERS.map(p =>
-        `<option value="${esc(p.key)}">${p.badge ? esc(p.badge) + ' — ' : ''}${esc(p.name)}</option>`
+        `<option value="${esc(p.key)}">${p.badge ? esc(p.badge) + ' · ' : ''}${esc(p.name)}</option>`
       ).join('');
 
       return `
         <div class="quiz-aria-setup">
           <div class="quiz-aria-status" id="quizAriaStatus"></div>
 
-          <div class="quiz-aria-group-label">AI Provider — pick the one you want to use</div>
+          <div class="quiz-aria-group-label">AI Provider: pick the one you want to use</div>
           <select id="quizAriaProviderSelect" class="select-input" aria-label="AI provider" style="margin-bottom:10px">${providerOptions}</select>
           ${providerRows}
 
           <div class="quiz-aria-group-label" style="margin-top:14px">
             Web Search <span class="aria-badge">optional but recommended</span>
           </div>
-          <div class="settings-hint" style="margin-bottom:8px">Lets ARIA search the web for fresh, internet-grounded book picks — pick a provider</div>
+          <div class="settings-hint" style="margin-bottom:8px">Lets ARIA search the web for fresh, internet-grounded book picks; pick a provider below</div>
           <select id="quizAriaSearchProvider" class="select-input" aria-label="Web search provider">${searchOptions}</select>
           <div class="aria-key-row" style="border-top:none;padding-top:10px">
             <div class="settings-hint" id="quizSearchHint"></div>
@@ -324,7 +324,7 @@ export function runReadingQuiz(role = 'student') {
             </div>
           </div>
 
-          <p class="settings-hint" style="margin-top:10px">Keys are stored only in your browser — never sent to our servers. Change these anytime in Settings → ARIA AI.</p>
+          <p class="settings-hint" style="margin-top:10px">Keys stay in your browser and nowhere else; they are never sent to a server of ours. Change them anytime in Settings → ARIA AI.</p>
         </div>`;
     }
 
@@ -357,13 +357,13 @@ export function runReadingQuiz(role = 'student') {
         // two is still missing rather than declaring victory on just one.
         if (statusLine) {
           if (active && searchReady) {
-            statusLine.innerHTML = `<i class="bi bi-check-circle-fill" style="color:var(--success)" aria-hidden="true"></i> ARIA is ready on <strong>${esc(PROVIDER_DISPLAY_NAME[active] ?? active)}</strong> — turned on for you.`;
+            statusLine.innerHTML = `<i class="bi bi-check-circle-fill" style="color:var(--success)" aria-hidden="true"></i> ARIA is ready on <strong>${esc(PROVIDER_DISPLAY_NAME[active] ?? active)}</strong>, and it is switched on for you.`;
           } else if (active && !searchReady) {
-            statusLine.innerHTML = `<i class="bi bi-hourglass-split" aria-hidden="true"></i> Almost there — add a Web Search key below too to fully unlock ARIA.`;
+            statusLine.innerHTML = `<i class="bi bi-hourglass-split" aria-hidden="true"></i> Almost there: add a Web Search key below as well to fully unlock ARIA.`;
           } else if (!active && searchReady) {
-            statusLine.innerHTML = `<i class="bi bi-hourglass-split" aria-hidden="true"></i> Almost there — add a key for ${esc(PROVIDER_DISPLAY_NAME[providerSelect.value] ?? providerSelect.value)} above too to fully unlock ARIA.`;
+            statusLine.innerHTML = `<i class="bi bi-hourglass-split" aria-hidden="true"></i> Almost there: add a key for ${esc(PROVIDER_DISPLAY_NAME[providerSelect.value] ?? providerSelect.value)} above as well to fully unlock ARIA.`;
           } else {
-            statusLine.innerHTML = `<i class="bi bi-info-circle-fill" aria-hidden="true"></i> No keys saved yet — add one above, or skip and set this up later in Settings.`;
+            statusLine.innerHTML = `<i class="bi bi-info-circle-fill" aria-hidden="true"></i> No keys saved yet; add one above, or skip this and set it up later in Settings.`;
           }
         }
         // Once both prerequisites are met, switch ARIA on right away — the
@@ -376,7 +376,7 @@ export function runReadingQuiz(role = 'student') {
 
       function updateSearchHint() {
         const p = SEARCH_PROVIDERS.find(s => s.key === searchSelect.value) ?? SEARCH_PROVIDERS[0];
-        if (searchHint) searchHint.innerHTML = `${esc(p.hint)} — <a href="${esc(p.linkUrl)}" target="_blank" rel="noopener">${esc(p.linkLabel)}</a>`;
+        if (searchHint) searchHint.innerHTML = `${esc(p.hint)} · <a href="${esc(p.linkUrl)}" target="_blank" rel="noopener">${esc(p.linkLabel)}</a>`;
         if (searchInput) {
           searchInput.placeholder = p.placeholder;
           searchInput.value = localStorage.getItem(ARIA_SEARCH_PROVIDER_KEYS[p.key]) ?? '';

@@ -26,7 +26,7 @@ function setLoading(on) {
 const token = new URLSearchParams(window.location.search).get('token');
 
 if (!token) {
-  setStatus('Invalid invite link — no token found.', 'error');
+  setStatus('Invalid invite link: no token found.', 'error');
 } else {
   validateToken(token);
 }

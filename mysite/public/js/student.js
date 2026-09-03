@@ -66,6 +66,22 @@ function toast(msg, type = "info") {
   }, 4200);
 }
 
+/** What a teacher wants students to call them.
+ *
+ *  Teachers set `displayName` themselves in their own portal, because the name
+ *  on a school Google account is often not the one a class uses ("Mrs. Chen",
+ *  not "Jennifer Chen") and because a legal name can change. `name` is still
+ *  the account of record and stays the fallback, so a teacher who has never
+ *  touched the setting reads exactly as before.
+ *
+ *  Every student-facing render of a teacher goes through here. Five call sites
+ *  used to read `.name` directly, which is how a rename would have shown up in
+ *  four places and not the fifth. */
+function teacherLabel(t) {
+  if (!t) return "Library";
+  return (t.displayName || "").trim() || t.name || t.email || "Library";
+}
+
 function fmtDate(ts) {
   if (!ts) return "—";
   const d = ts.toDate ? ts.toDate() : new Date(ts);
@@ -407,7 +423,7 @@ async function runQuizFlow({ isFirstRun }) {
       toast(`<i class="bi bi-stars"></i> Thanks! ARIA now knows what you like to read.`, 'success');
       refreshAriaChats();
     } else if (!isFirstRun) {
-      toast('No worries — you can take the quiz anytime from here.', 'info');
+      toast('No worries; you can take the quiz from here whenever you like.', 'info');
     }
   } catch (err) {
     console.error('[student] Reading quiz failed:', err);
@@ -693,12 +709,12 @@ async function joinLibraryByCode(code, input) {
     toast(
       `Library added, but your teacher's roster didn't accept the join (${esc(
         rosterError.code ?? rosterError.message ?? "unknown error",
-      )}). You may not be able to check books out — tell your teacher.`,
+      )}). Checking books out may not work until that is sorted, so let your teacher know.`,
       "danger",
     );
   } else if (alreadyLinked) {
     toast(
-      `<i class='bi bi-check2'></i> You're now in ${esc(className)} — this library was already on your list.`,
+      `<i class='bi bi-check2'></i> You're now in ${esc(className)}; this library was already on your list.`,
       "success",
     );
   } else {
@@ -718,7 +734,7 @@ async function joinLibraryByCode(code, input) {
   let teacherName = "Library";
   try {
     const tSnap = await getDoc(doc(db, "teachers", teacherId));
-    if (tSnap.exists()) teacherName = tSnap.data().name || teacherName;
+    if (tSnap.exists()) teacherName = teacherLabel(tSnap.data());
   } catch (_) {}
   closeSettingsModal();
   showPage("library");
@@ -813,7 +829,7 @@ async function renderAddedTeachersList() {
     row.className = "settings-row";
     row.innerHTML = `
       <div>
-        <div class='settings-label'>${esc(t.name)}'s Library</div>
+        <div class='settings-label'>${esc(teacherLabel(t))}'s Library</div>
         <div class='settings-hint'>${esc(t.email)}</div>
       </div>
       <button class='btn btn--ghost btn--sm' style='color:var(--danger);border-color:var(--danger-border)' data-remove='${esc(
@@ -961,7 +977,7 @@ async function loadTeachers() {
   teacherListEl.innerHTML = "";
   for (const { tid, data } of fetched) {
     if (!data) continue;
-    const name = data.name || data.email || "Library";
+    const name = teacherLabel(data);
     const btn = document.createElement("button");
     btn.className = "library-chip";
     btn.dataset.tid = tid;
@@ -1031,7 +1047,7 @@ async function renderAllLibraries() {
     const card = document.createElement("div");
     card.className = "all-lib-card";
     card.innerHTML = `
-      <div class='all-lib-name'>${esc(t.name)}</div>
+      <div class='all-lib-name'>${esc(teacherLabel(t))}</div>
       <div class='all-lib-email'>${esc(t.email ?? "")}</div>
       <div class='all-lib-tags'>
         ${
@@ -1105,7 +1121,7 @@ async function renderAllLibraries() {
     hint.className = "empty-state";
     hint.style.marginBottom = "10px";
     hint.textContent =
-      "Browse freely — ask the teacher for their class code to check out books.";
+      "Browse freely. To check a book out, ask the teacher for their class code.";
     wrapper.appendChild(h);
     wrapper.appendChild(hint);
     const grid = document.createElement("div");
@@ -1149,7 +1165,7 @@ async function autoSelectFirstLibrary() {
     try {
       const tSnap = await getDoc(doc(db, "teachers", tid));
       if (!tSnap.exists()) continue;
-      await setSelectedTeacher(tid, tSnap.data().name);
+      await setSelectedTeacher(tid, teacherLabel(tSnap.data()));
       return true;
     } catch (err) {
       console.warn("[student] could not open library", tid, err);
@@ -1320,7 +1336,7 @@ async function loadTeacherBooks(tid) {
     allBooks = [];
     bookListEl.innerHTML = `<p class='empty-state'>Couldn't load this library's books (${esc(
       err.code ?? err.message ?? "unknown error",
-    )}). If you just joined, refresh the page — and if it keeps happening, ask your teacher to re-share their class code.</p>`;
+    )}). If you have only just joined, refresh the page; if it keeps happening, ask your teacher to re-share their class code.</p>`;
     return;
   }
 
@@ -1636,7 +1652,7 @@ async function requestCheckout(bookId, bookTitle) {
       err.message === "already-has-book"
         ? "You already have a book checked out."
         : err.message === "unavailable"
-        ? "All copies just got taken — someone beat you to it!"
+        ? "All copies just got taken; someone beat you to it."
         : err.message === "book-not-found"
         ? "This book no longer exists."
         : `Checkout failed: ${err.message}`;
@@ -1682,7 +1698,7 @@ async function requestCheckout(bookId, bookTitle) {
   toast(
     `<i class='bi bi-check2'></i> "${esc(
       bookTitle,
-    )}" checked out — due ${dueDate.toLocaleDateString()}`,
+    )}" checked out, due back ${dueDate.toLocaleDateString()}`,
     "success",
   );
 }
@@ -1722,7 +1738,7 @@ async function submitRentalRequest(bookId, bookTitle, coverUrl) {
     toast(
       `<i class='bi bi-send-fill'></i> Request sent for "${esc(
         bookTitle,
-      )}" — waiting for teacher approval`,
+      )}" sent, now waiting on teacher approval`,
       "success",
     );
     if (document.getElementById("lockerPage")?.classList.contains("active"))
@@ -2025,7 +2041,7 @@ async function renderActiveLoans() {
         <div class='book-cover-ph'><i class='bi bi-hourglass-split'></i></div>
         <div class='book-info'>
           <div class='book-title'>${esc(e.bookTitle)}</div>
-          <div class='book-author'>Handed back — waiting for your teacher to confirm</div>
+          <div class='book-author'>Handed back; waiting for your teacher to confirm</div>
           <span class='badge badge--pending'>Awaiting confirmation</span>
         </div>`;
       el.appendChild(card);
@@ -2183,7 +2199,7 @@ document
     const ids = new Set([classTeacherId, ...addedTeacherIds].filter(Boolean));
     for (const tid of ids) {
       const tSnap = await getDoc(doc(db, "teachers", tid));
-      const tName = tSnap.exists() ? tSnap.data().name : tid;
+      const tName = tSnap.exists() ? teacherLabel(tSnap.data()) : tid;
       const hSnap = await getDocs(
         query(
           collection(db, "teachers", tid, "history"),
@@ -2195,7 +2211,7 @@ document
     const sorted = entries.sort(
       (a, b) => (b.dateOut?.seconds ?? 0) - (a.dateOut?.seconds ?? 0),
     );
-    let md = `# Reading Log — ${
+    let md = `# Reading Log: ${
       studentData.name
     }\n\n**Exported:** ${new Date().toLocaleDateString()}\n\n`;
     md += `| Book | Teacher Library | Date Out | Date Returned |\n`;
@@ -2241,7 +2257,7 @@ async function renderProfileCurrentBook() {
   el.innerHTML = `<div style='font-size:0.68rem;color:${limitColor};margin-bottom:8px;font-weight:${
     list.length >= READING_LIMIT ? "600" : "400"
   }'>${list.length}/${READING_LIMIT} books${
-    list.length >= READING_LIMIT ? " — list full" : ""
+    list.length >= READING_LIMIT ? " · list full" : ""
   }</div>`;
 
   if (checkedOut) {

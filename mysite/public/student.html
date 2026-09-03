@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BookWare — Student</title>
-  <meta name="description" content="BookWare Student Portal — browse your teacher's library, check out books, track reading, and manage your wishlist." />
+  <title>BookWare: Student</title>
+  <meta name="description" content="BookWare Student Portal: browse your teacher's library, check out books, track your reading, and keep a wishlist." />
   <meta name="theme-color" content="#1a1a1e" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
@@ -481,7 +481,7 @@
               <div class="settings-row">
                 <div>
                   <div class="settings-label">Reading preferences quiz</div>
-                  <div class="settings-hint">Retake it anytime — ARIA uses your answers to pick books and chat suggestions for you</div>
+                  <div class="settings-hint">Retake it whenever your taste changes: ARIA reads your answers to pick books and chat suggestions for you</div>
                 </div>
                 <button type="button" class="btn btn--sm" id="retakeQuizBtn">
                   <i class="bi bi-stars" aria-hidden="true"></i> Retake quiz
@@ -507,7 +507,7 @@
                   <i class="bi bi-chevron-right settings-caret" aria-hidden="true"></i>
                 </summary>
                 <div class="aria-active-line" id="ariaActiveProviderLine" style="border-top:1px solid var(--border);margin-top:10px">
-                  <i class="bi bi-info-circle-fill" aria-hidden="true"></i> <span id="ariaActiveProviderText">No AI key saved yet — add one below to turn ARIA on.</span>
+                  <i class="bi bi-info-circle-fill" aria-hidden="true"></i> <span id="ariaActiveProviderText">No AI key saved yet; add one below to switch ARIA on.</span>
                 </div>
 
                 <div class="aria-setup-warning">
@@ -517,13 +517,13 @@
 
                 <div class="settings-row settings-row--col" style="padding-bottom:2px">
                   <div class="settings-label">AI Provider</div>
-                  <div class="settings-hint">Pick the one you want to use — only its key box shows below</div>
+                  <div class="settings-hint">Pick the one you want to use: only that provider’s key box appears below</div>
                 </div>
                 <select id="ariaProviderSelect" class="select-input" aria-label="AI provider" style="margin-bottom:10px">
-                  <option value="anthropic">⭐ Claude — Highest Quality</option>
+                  <option value="anthropic">⭐ Claude · Highest quality</option>
                   <option value="openai">ChatGPT (OpenAI)</option>
-                  <option value="gemini">Gemini — Free tier</option>
-                  <option value="groq" selected>Groq — Free &amp; fast</option>
+                  <option value="gemini">Gemini · Free tier</option>
+                  <option value="groq" selected>Groq · Free and fast</option>
                 </select>
 
                 <!-- Claude -->
@@ -532,7 +532,7 @@
                     <span class="aria-key-row-label">Claude <span class="aria-badge aria-badge--best">⭐ Highest Quality</span></span>
                     <span class="aria-key-row-status" data-status="anthropic"></span>
                   </div>
-                  <div class="settings-hint">No free tier, but very cheap for this use — <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com/settings/keys</a></div>
+                  <div class="settings-hint">No free tier, but pennies for this kind of use. Create a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com/settings/keys</a></div>
                   <div class="aria-key-row-input">
                     <input type="password" id="ariaKey-anthropic" class="text-input text-input--mono" placeholder="sk-ant-api03-…" autocomplete="off" aria-label="Claude API key" />
                     <button class="btn btn--sm" data-save="anthropic">Save</button>
@@ -545,7 +545,7 @@
                     <span class="aria-key-row-label">ChatGPT (OpenAI)</span>
                     <span class="aria-key-row-status" data-status="openai"></span>
                   </div>
-                  <div class="settings-hint">No permanent free tier — <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a></div>
+                  <div class="settings-hint">No permanent free tier; new accounts get a short trial credit. Create a key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a></div>
                   <div class="aria-key-row-input">
                     <input type="password" id="ariaKey-openai" class="text-input text-input--mono" placeholder="sk-…" autocomplete="off" aria-label="OpenAI API key" />
                     <button class="btn btn--sm" data-save="openai">Save</button>
@@ -558,7 +558,7 @@
                     <span class="aria-key-row-label">Gemini <span class="aria-badge aria-badge--free">Free tier</span></span>
                     <span class="aria-key-row-status" data-status="gemini"></span>
                   </div>
-                  <div class="settings-hint">Free key, no card required — <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></div>
+                  <div class="settings-hint">Free key, no card required: <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></div>
                   <div class="aria-key-row-input">
                     <input type="password" id="ariaKey-gemini" class="text-input text-input--mono" placeholder="AIza…" autocomplete="off" aria-label="Gemini API key" />
                     <button class="btn btn--sm" data-save="gemini">Save</button>
@@ -571,7 +571,7 @@
                     <span class="aria-key-row-label">Groq <span class="aria-badge aria-badge--free">Free &amp; fast</span></span>
                     <span class="aria-key-row-status" data-status="groq"></span>
                   </div>
-                  <div class="settings-hint">Free key, generous limits — <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a></div>
+                  <div class="settings-hint">Free key with generous rate limits: <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a></div>
                   <div class="aria-key-row-input">
                     <input type="password" id="ariaKey-groq" class="text-input text-input--mono" placeholder="gsk_…" autocomplete="off" aria-label="Groq API key" />
                     <button class="btn btn--sm" data-save="groq">Save</button>
@@ -581,9 +581,9 @@
                 <!-- Web search (optional) -->
                 <div class="settings-row settings-row--col" style="border-top:1px solid var(--border);margin-top:10px;padding-top:12px">
                   <div class="settings-label">Web Search <span style="background:var(--bg-inset);border:1px solid var(--border);border-radius:4px;font-size:0.6rem;padding:1px 5px;margin-left:4px;font-weight:400;opacity:0.7">optional</span></div>
-                  <div class="settings-hint">Lets ARIA search the web for up-to-date info — pick a provider</div>
+                  <div class="settings-hint">Lets ARIA look up current information on the web; pick a search provider below</div>
                   <select id="ariaSearchProvider" class="select-input" aria-label="Web search provider">
-                    <option value="contextwire" selected>⭐ ContextWire — Recommended (free)</option>
+                    <option value="contextwire" selected>⭐ ContextWire · Recommended, free</option>
                     <option value="brave">Brave Search</option>
                     <option value="serpapi">SerpAPI</option>
                   </select>
@@ -591,12 +591,12 @@
                 <div class="settings-row settings-row--col">
                   <div>
                     <div class="settings-label" id="ariaSearchKeyLabel">ContextWire API Key</div>
-                    <div class="settings-hint" id="ariaSearchKeyHint">1,000 free searches/mo, no card required — <a href="https://contextwire.dev" target="_blank" rel="noopener" style="color:var(--accent)">contextwire.dev</a></div>
+                    <div class="settings-hint" id="ariaSearchKeyHint">1,000 free searches a month, no card required: <a href="https://contextwire.dev" target="_blank" rel="noopener" style="color:var(--accent)">contextwire.dev</a></div>
                   </div>
                   <input type="password" id="ariaSearchKey" class="text-input text-input--mono" placeholder="contextwire api key…" autocomplete="off" aria-label="Web search API key" />
                   <button class="btn btn--sm" id="ariaSaveSearchBtn">Save</button>
                 </div>
-                <p class="settings-hint" style="margin-top:10px">Keys are stored only in your browser — never sent to our servers.</p>
+                <p class="settings-hint" style="margin-top:10px">Keys stay in your browser and nowhere else; BookWare never sends them to a server of ours.</p>
               </details>
             </div>
           </details>
@@ -628,7 +628,7 @@
             <div class="settings-section-header">
               <div>
                 <div class="settings-section-title">About</div>
-                <div class="settings-section-sub">BookWare v2.5.1 · Mason High School · Sarvin Sukhe</div>
+                <div class="settings-section-sub">BookWare v2.6.0 · Mason High School · Sarvin Sukhe</div>
               </div>
             </div>
           </div>

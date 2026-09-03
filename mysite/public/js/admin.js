@@ -223,8 +223,8 @@ function renderAriaAvailability() {
     if (toggle) toggle.checked = on;
     if (hint) {
       hint.textContent = on
-        ? `On — ${cfg.label.toLowerCase()} can turn ARIA on for themselves`
-        : `Off — hidden and locked for all ${cfg.label.toLowerCase()}`;
+        ? `On: ${cfg.label.toLowerCase()} can turn ARIA on for themselves`
+        : `Off: hidden and locked for all ${cfg.label.toLowerCase()}`;
       hint.style.color = on ? 'var(--success)' : 'var(--danger)';
     }
   }
@@ -240,7 +240,7 @@ async function setAriaRoleEnabled(role, enabled) {
     toast(
       enabled
         ? `<i class='bi bi-robot'></i> ARIA re-enabled for ${esc(cfg.label.toLowerCase())}`
-        : `ARIA turned off for ${esc(cfg.label.toLowerCase())} — takes effect on their next page load`,
+        : `ARIA turned off for ${esc(cfg.label.toLowerCase())}; this takes effect on their next page load`,
       enabled ? 'success' : 'info',
     );
   } catch (err) {
@@ -417,7 +417,7 @@ async function deleteUserRecord(uid) {
     try { await deleteDoc(doc(db, 'teachers', uid)); } catch (_) {}
 
     toast(
-      `Deleted ${esc(label)} — ${swept.rosterRemoved} roster entr${swept.rosterRemoved !== 1 ? 'ies' : 'y'}, ` +
+      `Deleted ${esc(label)}: ${swept.rosterRemoved} roster entr${swept.rosterRemoved !== 1 ? 'ies' : 'y'}, ` +
       `${swept.historyRedacted} history record${swept.historyRedacted !== 1 ? 's' : ''} redacted`,
       'success'
     );
@@ -922,7 +922,7 @@ function renderAdminInvitesList(invites) {
   const el = document.getElementById('adminInvitesList');
   if (!el) return;
   if (!invites.length) {
-    el.innerHTML = `<p class='empty-state'>No invites yet — create the first one above.</p>`;
+    el.innerHTML = `<p class='empty-state'>No invites yet; create the first one above.</p>`;
     return;
   }
   el.innerHTML = '';
@@ -986,7 +986,7 @@ function renderAdminInvitesList(invites) {
       if (action === 'copy-link') {
         navigator.clipboard.writeText(link)
           .then(() => toast('<i class="bi bi-check2"></i> Link copied', 'success'))
-          .catch(() => toast(`Copy failed — link: ${link}`, 'info'));
+          .catch(() => toast(`Copy failed. Here is the link to copy by hand: ${link}`, 'info'));
       }
       if (action === 'show-qr') {
         const entry = btn.closest('.ban-entry');
@@ -1041,7 +1041,7 @@ async function createAdminInvite() {
       <p class='settings-hint' style='margin-top:8px'>
         <i class='bi bi-check2'></i> Copied! Valid 7 days${email
           ? ` · locked to ${esc(email)}`
-          : ' · open — any school account can claim'}.
+          : ' · open, so any school account can claim it'}.
       </p>`;
 
     if (qrImg && qrContainer) {
@@ -1139,7 +1139,7 @@ function setupEventListeners() {
       `Hi,\n\nYou've been invited to join BookWare as a teacher at Mason High School.\n\n` +
       `Click the link below to create your account:\n${_adminLastInviteLink}\n\n` +
       `${_adminLastInviteEmail ? `This invite is locked to ${_adminLastInviteEmail}.\n` : ''}` +
-      `It expires in 7 days.\n\n— BookWare Admin`
+      `It expires in 7 days.\n\n– BookWare Admin`
     );
     window.open(`mailto:${_adminLastInviteEmail}?subject=${subject}&body=${body}`);
     toast('<i class="bi bi-envelope-fill"></i> Opening email client…', 'info');

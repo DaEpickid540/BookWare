@@ -45,7 +45,7 @@ export class TeacherApiError extends Error {
     this.hint  = hint;
   }
   /** One line fit to put in a toast. */
-  toString() { return this.hint ? `${this.message} — ${this.hint}` : this.message; }
+  toString() { return this.hint ? `${this.message}. ${this.hint}` : this.message; }
 }
 
 // Firestore's error codes are accurate and completely unhelpful to a teacher
@@ -53,13 +53,13 @@ export class TeacherApiError extends Error {
 // this app; say that cause out loud instead of the code.
 const HINTS = {
   'permission-denied':
-    'the security rules rejected it. If this started after a code change, the rules in firestore.rules may not be deployed — run: firebase deploy --only firestore:rules',
+    'the security rules rejected it. If this started after a code change, the rules in firestore.rules may not be deployed. Run: firebase deploy --only firestore:rules',
   'failed-precondition':
     'a Firestore composite index is missing. Deploy them with: firebase deploy --only firestore:indexes',
   'unavailable':
     'could not reach Firestore. Check the network and try again.',
   'not-found':
-    'that record no longer exists — it may have been deleted in another tab.',
+    'that record no longer exists; it may have been deleted in another tab.',
   'unauthenticated':
     'your session expired. Sign out and back in.',
   'resource-exhausted':
@@ -1173,6 +1173,30 @@ export const setRequireApproval  = (on)      => patchTeacher('change the checkou
 export const setCurrentlyReading = (reading) => patchTeacher('save your current read',    { currentlyReading: reading });
 export const setReadingProfile   = (profile) => patchTeacher('save your reading profile', { readingProfile: profile });
 export const markWelcomeSeen     = ()        => patchTeacher('save your progress',        { welcomeSeenAt: serverTimestamp() });
+
+/** The name students see, which is not always the name on the Google account.
+ *  Teachers go by "Mrs. Chen" in front of a class, and a legal name can change
+ *  with a marriage or a divorce long before the school directory catches up.
+ *
+ *  Stored alongside `name` rather than replacing it. `name` stays the account
+ *  of record, which is what the admin portal lists and what an administrator
+ *  needs to match a person to a Google account; `displayName` is only what the
+ *  student portal renders. An empty string clears the override, so every
+ *  reader has to fall back to `name` — see teacherLabel() in student.js.
+ *
+ *  No rules change was needed for this: teachers/{teacherId} already allows
+ *  update by the owning teacher or an admin, and read by any school account. */
+export async function setDisplayName(displayName) {
+  const clean = String(displayName ?? '').trim().replace(/\s+/g, ' ');
+  if (clean.length > 60) {
+    throw new TeacherApiError('That display name is too long', {
+      code: 'bw/display-name-too-long',
+      hint: 'keep it to 60 characters or fewer',
+    });
+  }
+  await patchTeacher('save your display name', { displayName: clean });
+  return clean;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Small shared helpers
