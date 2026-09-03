@@ -53,6 +53,11 @@ const TEACHER_SLIDES = [
     body: 'On the <strong>Library</strong> tab, search by title, author, or ISBN and add the book. Covers and details fill themselves in, and you can set how many copies you own.',
   },
   {
+    icon: 'bi-file-earmark-arrow-up',
+    title: 'Already have a list? Import it',
+    body: 'Moving from another classroom-library app, or a spreadsheet you keep yourself? <strong>Library → Import a Library</strong> takes an .xlsx, .xls or .csv file. It only needs a <strong>title</strong> column; author, ISBN and copies are used when they are there. Repeated rows of the same book are read as copies rather than duplicates, and importing never deletes anything: a title already on your shelf gains the extra copies instead.',
+  },
+  {
     icon: 'bi-people-fill',
     title: 'Get students in',
     body: 'Each class on the <strong>Students</strong> tab gets its own join code, shareable link, and QR code. Put the QR up on the board: students scan it and land on your roster.',

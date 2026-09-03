@@ -77,6 +77,31 @@ function toast(msg, type = "info") {
  *  Every student-facing render of a teacher goes through here. Five call sites
  *  used to read `.name` directly, which is how a rename would have shown up in
  *  four places and not the fifth. */
+/** How long a book was out, as a phrase.
+ *
+ *  Both ends are Firestore Timestamps. Counts whole days by calendar date
+ *  rather than by elapsed milliseconds: a book taken out Monday afternoon and
+ *  returned Wednesday morning is "2 days" to a student, not the 1.6 that
+ *  rounding the raw difference would give. Same-day returns are their own
+ *  case, since "0 days" reads as an error. */
+function heldFor(dateOut, dateReturned) {
+  const toDate = (t) => (t?.toDate ? t.toDate() : t ? new Date(t) : null);
+  const a = toDate(dateOut);
+  const b = toDate(dateReturned);
+  if (!a || !b || isNaN(a) || isNaN(b)) return "";
+  const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const days = Math.round((midnight(b) - midnight(a)) / 86400000);
+  if (days <= 0) return "Same day";
+  if (days === 1) return "1 day";
+  if (days < 7) return `${days} days`;
+  if (days < 14) return "1 week";
+  // Hands over to months at 30, not 60: past that the months branch can never
+  // round down to 1, so "1 month" was unreachable and 30 days read "4 weeks".
+  if (days < 30) return `${Math.round(days / 7)} weeks`;
+  const months = Math.round(days / 30);
+  return months === 1 ? "1 month" : `${months} months`;
+}
+
 function teacherLabel(t) {
   if (!t) return "Library";
   return (t.displayName || "").trim() || t.name || t.email || "Library";
@@ -1383,6 +1408,114 @@ function filterAndRenderBooks() {
   renderBooks(list, raw);
 }
 
+// ── Book detail modal ─────────────────────────────────────────────────────────
+
+/** Ask the cover host for a bigger image than the list thumbnail.
+ *
+ *  Both providers encode the size in the URL, so there is no second lookup to
+ *  do. Open Library sizes are S/M/L; Google Books uses a zoom level. Anything
+ *  else is returned untouched. The caller must keep the original as an onerror
+ *  fallback: Open Library's `?default=false` 404s when it has no large scan,
+ *  which is exactly the case a blind swap would turn into a broken image. */
+function upscaleCover(url) {
+  if (!url) return "";
+  if (url.includes("covers.openlibrary.org")) return url.replace(/-M\.jpg/, "-L.jpg");
+  // Replacer function, not "$13": that only means "group 1 then a literal 3"
+  // because there is no group 13, and it stops meaning that the moment
+  // someone adds a capture group.
+  if (url.includes("books.google")) return url.replace(/([?&]zoom=)\d/, (_, p) => `${p}3`);
+  return url;
+}
+
+/** Best available Google Books destination for a book.
+ *
+ *  `sourceId` is whichever provider the teacher added it from: a Google volume
+ *  id, or an Open Library key, which always begins with "/" (e.g. /works/OL1W).
+ *  Only the first is addressable on Google Books, so an OL-sourced book falls
+ *  through to an ISBN lookup, and a book with neither to a plain search. */
+function googleBooksUrl(book) {
+  const id = (book.sourceId ?? "").trim();
+  if (id && !id.startsWith("/")) {
+    return `https://books.google.com/books?id=${encodeURIComponent(id)}`;
+  }
+  const isbn = (book.isbn ?? "").replace(/[^0-9Xx]/g, "");
+  if (isbn) return `https://books.google.com/books?vid=ISBN${encodeURIComponent(isbn)}`;
+  const q = [book.title, book.author].filter(Boolean).join(" ");
+  return `https://www.google.com/search?tbm=bks&q=${encodeURIComponent(q)}`;
+}
+
+let _bookModalLastFocus = null;
+
+function closeBookModal() {
+  const modal = document.getElementById("bookModal");
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  document.body.style.overflow = "";
+  _bookModalLastFocus?.focus?.();
+  _bookModalLastFocus = null;
+}
+
+/** Everything the list row has to truncate: the full blurb, the identifiers,
+ *  and a way out to Google Books. */
+function openBookModal(book) {
+  const modal = document.getElementById("bookModal");
+  const body  = document.getElementById("bookModalBody");
+  if (!modal || !body || !book) return;
+
+  const copies = book.copies ?? 1;
+  const out    = book.checkedOutCount ?? (book.status === "checked_out" ? 1 : 0);
+  const avail  = copies - out;
+
+  const facts = [
+    copies > 1 ? `${avail} of ${copies} copies available` : avail > 0 ? "Available" : "Checked out",
+    book.isbn ? `ISBN ${esc(book.isbn)}` : "",
+  ].filter(Boolean);
+
+  const big = upscaleCover(book.coverUrl);
+  const cover = book.coverUrl
+    ? `<img src='${esc(big)}' class='book-modal-cover' alt='Cover of ${esc(book.title)}'
+            onerror="this.onerror=null;this.src='${esc(book.coverUrl)}'">`
+    : `<div class='book-modal-cover book-modal-cover-ph' aria-hidden='true'><i class='bi bi-book-fill'></i></div>`;
+
+  body.innerHTML = `
+    <div class='book-modal-grid'>
+      <div>${cover}</div>
+      <div>
+        <div class='book-modal-title' id='bookModalTitle'>${esc(book.title)}</div>
+        <div class='book-modal-author'>${esc(book.author ?? "Unknown author")}</div>
+        <div class='book-modal-facts'>${facts.map(f => `<span>${f}</span>`).join("")}</div>
+        ${
+          book.description
+            ? `<div class='book-modal-section-label'>About this book</div>
+               <div class='book-modal-desc'>${esc(book.description)}</div>`
+            : `<div class='book-modal-desc' style='color:var(--text-3)'>
+                 No description was saved for this book. The Google Books page below usually has one.
+               </div>`
+        }
+        <div class='book-modal-actions'>
+          <a class='btn btn--sm' href='${esc(googleBooksUrl(book))}' target='_blank' rel='noopener noreferrer'>
+            <i class='bi bi-box-arrow-up-right' aria-hidden='true'></i> View on Google Books
+          </a>
+        </div>
+      </div>
+    </div>`;
+
+  _bookModalLastFocus = document.activeElement;
+  modal.hidden = false;
+  document.body.style.overflow = "hidden";
+  document.getElementById("bookModalClose")?.focus();
+}
+
+document.getElementById("bookModalClose")?.addEventListener("click", closeBookModal);
+// Backdrop click only: a click that started inside the box and drifted out
+// while selecting text should not dismiss it.
+document.getElementById("bookModal")?.addEventListener("mousedown", (e) => {
+  if (e.target.id === "bookModal") closeBookModal();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeBookModal();
+});
+
 // ── Render books ──────────────────────────────────────────────────────────────
 function renderBooks(books, searchTerm = "") {
   const bookListEl = document.getElementById("bookList");
@@ -1509,6 +1642,12 @@ function renderBooks(books, searchTerm = "") {
     const row = document.createElement("div");
     row.className = "book-row";
     row.setAttribute("role", "listitem");
+    // The whole row opens the detail modal, but the row also carries the
+    // checkout and wishlist buttons. Those are wired below and call
+    // stopPropagation via the closest() guard in the handler, so a click on a
+    // button never also opens the modal.
+    row.tabIndex = 0;
+    row.setAttribute("aria-label", `${book.title}. Open details`);
     row.innerHTML = `
       ${
         book.coverUrl
@@ -1588,6 +1727,19 @@ function renderBooks(books, searchTerm = "") {
       ?.addEventListener("click", (e) =>
         removeFromCurrentlyReading(e.currentTarget.dataset.id),
       );
+
+    // Open the modal from anywhere in the row except the action controls.
+    // Checked against the click target rather than bound to a sub-element so
+    // new buttons added to .book-actions later are excluded automatically.
+    const openFromRow = (e) => {
+      if (e.target.closest("button, a")) return;
+      openBookModal(book);
+    };
+    row.addEventListener("click", openFromRow);
+    row.addEventListener("keydown", (e) => {
+      if (e.target !== row) return;               // let buttons keep Enter/Space
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openBookModal(book); }
+    });
 
     bookListEl.appendChild(row);
   });
@@ -2171,6 +2323,7 @@ async function renderReadingLog() {
   grid.className = "book-card-grid";
   history.forEach((e) => {
     const cached = [...bookCache.values()].find((b) => b.title === e.bookTitle);
+    const held = heldFor(e.dateOut, e.dateReturned);
     const card = document.createElement("div");
     card.className = "book-card book-card--faded";
     card.setAttribute("role", "listitem");
@@ -2185,7 +2338,14 @@ async function renderReadingLog() {
       <div class='book-card-title'>${esc(e.bookTitle)}</div>
       <div style='font-size:0.63rem;color:var(--text-3);margin-top:4px'>Returned ${fmtDate(
         e.dateReturned,
-      )}</div>`;
+      )}</div>
+      ${
+        held
+          ? `<div style='font-size:0.63rem;color:var(--text-3);margin-top:2px'><i class='bi bi-clock-history' aria-hidden='true'></i> Kept ${esc(
+              held,
+            )}</div>`
+          : ""
+      }`;
     grid.appendChild(card);
   });
   el.appendChild(grid);
@@ -2214,12 +2374,12 @@ document
     let md = `# Reading Log: ${
       studentData.name
     }\n\n**Exported:** ${new Date().toLocaleDateString()}\n\n`;
-    md += `| Book | Teacher Library | Date Out | Date Returned |\n`;
-    md += `|------|----------------|----------|---------------|\n`;
+    md += `| Book | Teacher Library | Date Out | Date Returned | Kept For |\n`;
+    md += `|------|----------------|----------|---------------|----------|\n`;
     sorted.forEach((e) => {
       md += `| ${e.bookTitle} | ${e.teacherName} | ${fmtDate(e.dateOut)} | ${
         e.dateReturned ? fmtDate(e.dateReturned) : "Currently checked out"
-      } |\n`;
+      } | ${e.dateReturned ? heldFor(e.dateOut, e.dateReturned) : '—'} |\n`;
     });
     md += `\n---\n_Generated by BookWare · Mason High School_\n`;
     const a = Object.assign(document.createElement("a"), {

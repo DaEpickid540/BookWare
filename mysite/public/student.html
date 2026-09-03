@@ -104,53 +104,55 @@
           </div>
         </div>
 
-        <!-- Two-column grid -->
-        <div class="split-grid">
-
-          <!-- Left: library selector + book list.
-               The card's heading describes the WHOLE card (the book list is the
-               bulk of it); the library picker gets its own small caption. The
-               heading used to read "Select a Library", which described only the
-               chip row and left the search box and book list underneath it
-               looking like they belonged to something else. -->
-          <div class="panel-card">
-            <div class="section-label"><i class="bi bi-collection-fill" aria-hidden="true"></i> Browse Books</div>
-            <div class="picker-label">Choose a library</div>
-            <div class="chip-row" id="teacherList">
-              <span class="muted-text small-text loading-state">Loading libraries…</span>
-            </div>
-            <div class="search-box">
-              <i class="bi bi-search search-box-icon" aria-hidden="true"></i>
-              <input type="search" id="searchInput" class="search-box-input" placeholder="Search by title, author, or ISBN…" aria-label="Search books" />
-            </div>
-            <div id="bookList" role="list">
-              <p class="empty-state">Pick a library above to browse books.</p>
-            </div>
-          </div>
-
-          <!-- Right: teacher recommendations + now reading.
-               Both headings mirror what they become once a library is selected
+        <!-- Teacher's picks first.
+             These two cards are short and curated; the book list underneath
+             runs to however many books are on the shelf. Side by side, the
+             list set the height of the row and left a column of dead space
+             next to it, and on a narrow window the picks were pushed below a
+             list nobody scrolls to the bottom of. -->
+        <div class="lib-extras-grid" id="teacherExtras">
+          <!-- Both headings mirror what they become once a library is selected
                ("Recommended by Ms. Lee", "Ms. Lee Is Reading") so the card
                doesn't appear to change subject the moment it loads. -->
-          <div class="stack-col" id="teacherExtras">
-            <div class="panel-card" id="recCardPlaceholder">
-              <div class="section-label"><i class="bi bi-star-fill" aria-hidden="true"></i> Recommended by Your Teacher</div>
-              <p class="empty-state">
-                Join a library using your teacher's code to see their recommendations.
-                <br><br>
-                <button class="btn btn--sm" id="recPlaceholderAddCodeBtn" type="button">
-                  Add a Code <i class="bi bi-arrow-right" aria-hidden="true"></i>
-                </button>
-              </p>
-            </div>
-            <div class="panel-card" id="readingCardPlaceholder">
-              <div class="section-label"><i class="bi bi-book-fill" aria-hidden="true"></i> Your Teacher Is Reading</div>
-              <p class="empty-state">Join a library to see what your teacher is currently reading.</p>
-            </div>
-            <div class="panel-card" id="ariaRecommendsMount" hidden></div>
+          <div class="panel-card" id="recCardPlaceholder">
+            <div class="section-label"><i class="bi bi-star-fill" aria-hidden="true"></i> Recommended by Your Teacher</div>
+            <p class="empty-state">
+              Join a library using your teacher's code to see their recommendations.
+              <br><br>
+              <button class="btn btn--sm" id="recPlaceholderAddCodeBtn" type="button">
+                Add a Code <i class="bi bi-arrow-right" aria-hidden="true"></i>
+              </button>
+            </p>
           </div>
+          <div class="panel-card" id="readingCardPlaceholder">
+            <div class="section-label"><i class="bi bi-book-fill" aria-hidden="true"></i> Your Teacher Is Reading</div>
+            <p class="empty-state">Join a library to see what your teacher is currently reading.</p>
+          </div>
+          <div class="panel-card" id="ariaRecommendsMount" hidden></div>
+        </div>
 
-        </div><!-- /split-grid -->
+        <!-- Browse Books: full width, below the picks.
+             The card's heading describes the WHOLE card (the book list is the
+             bulk of it); the library picker gets its own small caption. The
+             heading used to read "Select a Library", which described only the
+             chip row and left the search box and book list underneath it
+             looking like they belonged to something else. -->
+        <div class="panel-card" style="margin-top:14px">
+          <div class="section-label"><i class="bi bi-collection-fill" aria-hidden="true"></i> Browse Books</div>
+          <div class="picker-label">Choose a library</div>
+          <div class="chip-row" id="teacherList">
+            <span class="muted-text small-text loading-state">Loading libraries…</span>
+          </div>
+          <div class="search-box">
+            <i class="bi bi-search search-box-icon" aria-hidden="true"></i>
+            <input type="search" id="searchInput" class="search-box-input" placeholder="Search by title, author, or ISBN…" aria-label="Search books" />
+          </div>
+          <!-- .book-grid: the full width lets these flow into columns instead
+               of one very tall stack. -->
+          <div id="bookList" class="book-grid" role="list">
+            <p class="empty-state">Pick a library above to browse books.</p>
+          </div>
+        </div>
 
         <!-- All Libraries discovery -->
         <div id="allLibrariesSection"></div>
@@ -183,16 +185,6 @@
           </div>
         </div>
 
-        <!-- Pending rental requests -->
-        <div id="rentalRequestsSection" hidden>
-          <div class="log-header" style="margin-top:0">
-            <div class="section-label" style="margin-bottom:0">Rental Requests</div>
-          </div>
-          <div id="rentalRequestsList" role="list" style="margin-bottom:20px">
-            <p class="empty-state loading-state">Loading…</p>
-          </div>
-        </div>
-
         <div class="section-label">Active Loans</div>
         <div id="activeLoans" role="list">
           <p class="empty-state loading-state">Loading…</p>
@@ -206,6 +198,20 @@
         </div>
         <div id="readingLog" role="list">
           <p class="empty-state loading-state">Loading history…</p>
+        </div>
+
+        <!-- Pending rental requests, last.
+             One card per pending request and no cap on how many a student can
+             have open, so at the top they pushed Active Loans and the reading
+             log below the fold. Nothing here is actionable by the student
+             anyway: it is a waiting list until the teacher approves. -->
+        <div id="rentalRequestsSection" hidden>
+          <div class="log-header">
+            <div class="section-label" style="margin-bottom:0">Rental Requests</div>
+          </div>
+          <div id="rentalRequestsList" role="list">
+            <p class="empty-state loading-state">Loading…</p>
+          </div>
         </div>
 
       </section><!-- /lockerPage -->
@@ -628,7 +634,7 @@
             <div class="settings-section-header">
               <div>
                 <div class="settings-section-title">About</div>
-                <div class="settings-section-sub">BookWare v2.6.0 · Mason High School · Sarvin Sukhe</div>
+                <div class="settings-section-sub">BookWare v2.7.0 · Mason High School · Sarvin Sukhe</div>
               </div>
             </div>
           </div>
@@ -678,6 +684,19 @@
       </button>
     </div>
   </nav>
+
+  <!-- Book detail modal. Emptied and refilled by openBookModal() in
+       student.js; kept in the markup rather than created on the fly so the
+       backdrop, close button and aria wiring live with the rest of the page. -->
+  <div class="book-modal" id="bookModal" role="dialog" aria-modal="true"
+       aria-labelledby="bookModalTitle" hidden>
+    <div class="book-modal-box">
+      <button type="button" class="settings-modal-close" id="bookModalClose" aria-label="Close">
+        <i class="bi bi-x-lg" aria-hidden="true"></i>
+      </button>
+      <div id="bookModalBody"></div>
+    </div>
+  </div>
 
   <script type="module" src="/js/student.js"></script>
   <script defer src="/js/sw-register.js"></script>
