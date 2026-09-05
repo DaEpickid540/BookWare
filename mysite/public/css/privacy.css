@@ -233,3 +233,50 @@ a:hover { text-decoration: underline; }
   .doc-table th { background: #eee; }
   .table-scroll, .loc-card, .rule-card, .doc-note { break-inside: avoid; }
 }
+
+/* ── Display-cutout padding (installed iOS app) ───────────────────────────
+   privacy.html carries `viewport-fit=cover` like every other page, so this
+   long scrolling document now runs edge to edge. Without the insets the first
+   heading sits under the status bar and the last paragraph under the home
+   indicator. */
+.doc {
+  padding-top: calc(48px + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
+}
+
+@media (max-width: 600px) {
+  .doc {
+    padding-top: calc(30px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+    padding-left: max(15px, env(safe-area-inset-left, 0px));
+    padding-right: max(15px, env(safe-area-inset-right, 0px));
+  }
+}
+
+/* ── Borderless desktop window (window-controls-overlay) ──────────────────
+   The manifest lists window-controls-overlay first in display_override, so on
+   desktop the browser drops its title bar and the page owns the whole window.
+   That leaves the OS window buttons floating over the top-right corner and no
+   handle to drag the window by, so this reserves a strip for both. See the
+   fuller explanation at the end of app.css. */
+.wco-drag-strip { display: none; }
+
+@media (display-mode: window-controls-overlay) {
+  body { padding-top: env(titlebar-area-height, 0px); }
+
+  .wco-drag-strip {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: env(titlebar-area-height, 0px);
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    -webkit-app-region: drag;
+    app-region: drag;
+    z-index: 10000;
+  }
+}

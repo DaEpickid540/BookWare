@@ -2,13 +2,23 @@
   "name": "BookWare",
   "short_name": "BookWare",
   "description": "Classroom library management — browse books, track reading, and manage your class library.",
+  "id": "/",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone",
+    "minimal-ui"
+  ],
   "background_color": "#1a1a1e",
   "theme_color": "#1a1a1e",
   "orientation": "any",
   "lang": "en-US",
-  "categories": ["education", "productivity"],
+  "categories": [
+    "education",
+    "productivity"
+  ],
   "icons": [
     {
       "src": "/icons/icon-192.png",

@@ -1,0 +1,357 @@
+/* install.css — shared styles for ios.html and android.html.
+   Follows the privacy.css pattern: these are public pages with no sign-in, so
+   the design tokens are declared locally and the page has no dependency on
+   app.css or the brightness/theme system. The two install guides are the same
+   layout with different step copy, so they share this one file rather than
+   carrying a near-identical <style> block each. */
+
+:root {
+  color-scheme: dark;
+  --bg:       #1a1a1e;
+  --bg-card:  #22222a;
+  --bg-inset: #16161a;
+  --border:   #2d2d38;
+  --text:     #f0f0f0;
+  --text-2:   #b0b0be;
+  --text-3:   #6e6e80;
+  --accent:   #e74c3c;
+  --success:  #2ecc71;
+  --info:     #5dade2;
+  --warn:     #f39c12;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --tr: 0.18s ease;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+  font-weight: 300;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+img { display: block; max-width: 100%; }
+
+/* ── HEADER ──────────────────────────────────────────────────── */
+.install-header {
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+  padding: 14px 20px;
+  padding-top: calc(14px + env(safe-area-inset-top, 0px));
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.install-logo { display: flex; align-items: center; gap: 9px; }
+.logo-dot {
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--accent); flex-shrink: 0;
+}
+.install-logo-name {
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: 1.3rem;
+  letter-spacing: 0.01em;
+}
+
+/* Tabs between the two guides. */
+.install-nav { display: flex; gap: 6px; }
+.nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-inset);
+  color: var(--text-2);
+  font-size: 0.82rem;
+  font-weight: 400;
+  transition: color var(--tr), border-color var(--tr), background var(--tr);
+}
+.nav-link:hover { color: var(--text); text-decoration: none; border-color: var(--text-3); }
+.nav-link.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(231, 76, 60, 0.1);
+  font-weight: 500;
+}
+
+/* ── HERO ────────────────────────────────────────────────────── */
+.install-hero {
+  text-align: center;
+  padding: 52px 20px 44px;
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
+  border-bottom: 1px solid var(--border);
+  background:
+    radial-gradient(ellipse 70% 100% at 50% 0%, rgba(231, 76, 60, 0.13), transparent 70%),
+    var(--bg);
+}
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  border-radius: 100px;
+  padding: 5px 14px;
+  font-size: 0.68rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 18px;
+}
+.install-hero h1 {
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-weight: 400;
+  font-size: clamp(1.7rem, 6vw, 2.6rem);
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+  margin-bottom: 12px;
+}
+.install-hero p {
+  color: var(--text-2);
+  max-width: 34rem;
+  margin: 0 auto;
+  font-size: 0.98rem;
+}
+
+/* ── LAYOUT ──────────────────────────────────────────────────── */
+.install-container {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 34px 20px 80px;
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
+  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+}
+
+/* ── "BEFORE YOU START" CALLOUT ──────────────────────────────── */
+.prereq {
+  display: flex;
+  gap: 13px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--info);
+  border-radius: var(--r-md);
+  padding: 16px 18px;
+  margin-bottom: 34px;
+}
+.prereq-icon { font-size: 1.15rem; line-height: 1.4; flex-shrink: 0; }
+.prereq-title { font-weight: 500; color: var(--text); margin-bottom: 3px; }
+.prereq p { color: var(--text-2); font-size: 0.9rem; }
+
+.section-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 18px;
+}
+
+/* ── STEPS ───────────────────────────────────────────────────── */
+.steps-wrapper {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 22px;
+}
+@media (min-width: 860px) {
+  .steps-wrapper { grid-template-columns: 1fr 1fr; gap: 22px 28px; }
+}
+.step-pair { display: flex; flex-direction: column; gap: 22px; }
+
+.step { display: flex; gap: 14px; }
+.step-left { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; }
+.step-num {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.step-line { width: 1px; flex: 1; background: var(--border); margin-top: 8px; }
+.step > div:last-child { flex: 1; min-width: 0; }
+
+.step-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 18px;
+}
+.step-title {
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: 1.08rem;
+  font-weight: 400;
+  color: var(--text);
+  margin-bottom: 7px;
+  line-height: 1.3;
+}
+.step-desc { color: var(--text-2); font-size: 0.9rem; }
+.step-desc strong { color: var(--text); font-weight: 500; }
+
+/* Screenshots are tall phone captures; cap the height so a step card stays
+   scannable instead of turning into a full screen of image. */
+.step-screenshot {
+  margin-top: 14px;
+  width: 100%;
+  max-width: 260px;
+  height: auto;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--bg-inset);
+}
+
+/* Placeholder used where a real screenshot hasn't been taken yet. Mirrors the
+   aspect ratio of the real ones so swapping an <img> in doesn't reflow. */
+.screenshot-slot {
+  margin-top: 14px;
+  width: 100%;
+  max-width: 260px;
+  aspect-ratio: 1170 / 2532;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-inset);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px;
+  text-align: center;
+}
+.slot-icon { font-size: 1.7rem; opacity: 0.5; }
+.slot-label { color: var(--text-2); font-size: 0.82rem; line-height: 1.45; }
+.slot-hint { color: var(--text-3); font-size: 0.72rem; }
+
+/* ── TIP CALLOUT ─────────────────────────────────────────────── */
+.tip {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warn);
+  border-radius: var(--r-sm);
+  padding: 11px 13px;
+}
+.tip-icon { flex-shrink: 0; line-height: 1.4; }
+.tip p { color: var(--text-2); font-size: 0.84rem; }
+.tip strong { color: var(--text); font-weight: 500; }
+
+/* ── DONE CARD ───────────────────────────────────────────────── */
+.done-card {
+  margin-top: 40px;
+  text-align: center;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 40px 24px;
+}
+.done-icon { font-size: 2.4rem; display: block; margin-bottom: 12px; }
+.done-card h2 {
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-weight: 400;
+  font-size: 1.5rem;
+  margin-bottom: 9px;
+}
+.done-card p { color: var(--text-2); max-width: 30rem; margin: 0 auto 22px; font-size: 0.93rem; }
+.done-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--r-sm);
+  padding: 12px 22px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: filter var(--tr);
+}
+.done-btn:hover { filter: brightness(1.1); text-decoration: none; }
+
+/* ── FOOTER ──────────────────────────────────────────────────── */
+.install-footer {
+  border-top: 1px solid var(--border);
+  padding: 26px 20px;
+  padding-bottom: calc(26px + env(safe-area-inset-bottom, 0px));
+  text-align: center;
+  color: var(--text-3);
+  font-size: 0.78rem;
+}
+.install-footer p { margin-bottom: 6px; }
+
+/* ── SCROLL REVEAL ───────────────────────────────────────────── */
+/* Steps are VISIBLE by default and JS hides the off-screen ones, rather than
+   the other way round. Starting them hidden means a page whose script is
+   blocked — no JS, an old browser, a CSP mistake — renders as a column of
+   invisible cards, and starting them hidden also flashes: install-reveal.js is
+   deferred, so the content paints before it can run. Hiding only what is
+   already off-screen avoids both. */
+.step, .done-card {
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+.step.reveal-pending, .done-card.reveal-pending {
+  opacity: 0;
+  transform: translateY(14px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step, .done-card { opacity: 1; transform: none; transition: none; }
+}
+
+/* ── MOBILE ──────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .install-header { padding-top: calc(12px + env(safe-area-inset-top, 0px)); }
+  .install-nav { width: 100%; }
+  .nav-link { flex: 1; justify-content: center; min-height: 44px; }
+  .done-btn { min-height: 44px; }
+  .install-hero { padding: 38px 16px 32px; }
+  .install-container { padding-left: max(16px, env(safe-area-inset-left, 0px));
+                       padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .step-card { padding: 15px; }
+  /* Full-width screenshots read better than a narrow column on a phone. */
+  .step-screenshot, .screenshot-slot { max-width: 100%; }
+}
+
+a, button { touch-action: manipulation; }
+@media (pointer: coarse) { * { -webkit-tap-highlight-color: transparent; } }
+
+/* ── Borderless desktop window (window-controls-overlay) ──────────────────
+   Matches every other page in the app — see the block at the end of app.css
+   for why the drag strip exists and why it stays empty. */
+.wco-drag-strip { display: none; }
+
+@media (display-mode: window-controls-overlay) {
+  body { padding-top: env(titlebar-area-height, 0px); }
+
+  .wco-drag-strip {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: env(titlebar-area-height, 0px);
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    -webkit-app-region: drag;
+    app-region: drag;
+    z-index: 10000;
+  }
+}
