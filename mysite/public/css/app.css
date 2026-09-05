@@ -1046,6 +1046,9 @@ html[data-theme="light"] .book-row:hover { background: rgba(0,0,0,0.015); }
 }
 .book-modal-cover {
   width: 100%;
+  /* The modal cover also carries .book-cover so initCoverFallback() sees it;
+     that sets a 48px list-row height this has to undo. */
+  height: auto;
   border-radius: var(--r);
   border: 1px solid var(--border);
   background: var(--bg-inset);
@@ -1059,6 +1062,16 @@ html[data-theme="light"] .book-row:hover { background: rgba(0,0,0,0.015); }
   justify-content: center;
   font-size: 2.4rem;
   color: var(--text-3);
+}
+/* initCoverFallback() replaces a failed cover with a bare .book-cover-ph,
+   dropping .book-modal-cover along with it — that tile is sized 34x48 for a
+   list row, so re-size it to fill the modal's cover slot. */
+#bookModalBody .book-cover-ph {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--r);
+  font-size: 2.4rem;
 }
 .book-modal-title {
   font-family: var(--font-serif);
@@ -1104,7 +1117,8 @@ html[data-theme="light"] .book-row:hover { background: rgba(0,0,0,0.015); }
   /* Cover above the text, and not full-bleed: a 2:3 image at full phone width
      pushes the title and the buttons off the first screen. */
   .book-modal-grid { grid-template-columns: 1fr; gap: 16px; }
-  .book-modal-cover { max-width: 150px; margin: 0 auto; }
+  .book-modal-cover,
+  #bookModalBody .book-cover-ph { max-width: 150px; margin: 0 auto; }
 }
 
 .book-card-cover {
