@@ -109,6 +109,67 @@ export async function lookupISBN(isbn) {
   return ol || g || null;
 }
 
+/** Ask Google Books for a bigger cover than it volunteers.
+ *
+ *  Google hands out `zoom=1` thumbnails — about 128px wide, which is fine in a
+ *  search row and looks like a postage stamp in a modal. The zoom level is a
+ *  plain query parameter, so asking for a larger render costs nothing. Written
+ *  as a replacer function rather than "$13", which would silently mean "group 1
+ *  then a literal 3" the moment anyone adds a capture group. */
+export function upscaleGoogleCover(url) {
+  if (!url) return '';
+  if (url.includes('books.google')) return url.replace(/([?&]zoom=)\d/, (_, p) => `${p}3`);
+  if (url.includes('covers.openlibrary.org')) return url.replace(/-M\.jpg/, '-L.jpg');
+  return url;
+}
+
+/** Look up a scanned barcode, Google Books first.
+ *
+ *  Deliberately the mirror image of lookupISBN(), which leads with Open
+ *  Library. A barcode goes straight into a modal showing a cover and a blurb,
+ *  and Google is markedly better at both: Open Library's `first_sentence` is
+ *  one line where Google returns a real publisher description, and Open Library
+ *  has no cover at all for a good share of school paperbacks. Open Library
+ *  still runs, in parallel, to fill whatever Google leaves blank — and to
+ *  answer at all on the days Google's endpoint is rate-limiting us.
+ *
+ *  Returns null when neither provider knows the barcode, which is a real
+ *  outcome worth showing rather than an error: library-processed books often
+ *  carry a locally printed barcode that no catalogue has ever seen. */
+export async function lookupBarcode(code) {
+  const clean = String(code ?? '').trim().replace(/[\s\-]/g, '');
+  if (!clean) return null;
+
+  const [g, ol] = await Promise.all([
+    safeFetch(`${GBOOKS}?q=isbn:${encodeURIComponent(clean)}&maxResults=1`, 'Google barcode')
+      .then(d => (d?.items?.length ? parseGoogle(d.items[0]) : null)).catch(() => null),
+    safeFetch(`${OL_SEARCH}?q=isbn:${encodeURIComponent(clean)}&limit=1`, 'OL barcode')
+      .then(d => (d?.docs?.length ? parseOL(d.docs[0]) : null)).catch(() => null),
+  ]);
+
+  let book = g ? (ol ? fillGaps(g, ol) : g) : ol;
+  if (!book) return null;
+
+  // The isbn: search returns a trimmed volumeInfo — often with no description
+  // at all, which is the one field the scan modal exists to show. The single
+  // volume endpoint returns the full record, so spend one more request on it
+  // rather than showing a blank blurb for a book Google plainly knows about.
+  if (!book.description && g?.sourceId) {
+    const full = await safeFetch(`${GBOOKS}/${encodeURIComponent(g.sourceId)}`, 'Google volume')
+      .then(d => (d ? parseGoogle(d) : null)).catch(() => null);
+    if (full) book = fillGaps(book, full);
+  }
+
+  return {
+    ...book,
+    // Keep the scanned code even when the catalogue record carries a different
+    // printing's ISBN: it is what the teacher physically has, and it is what
+    // findExistingBook() will match the next time this same copy is scanned.
+    isbn:  clean || book.isbn,
+    cover: upscaleGoogleCover(book.cover),
+  };
+}
+
 // Title/author/keyword search — queries both providers concurrently for redundancy.
 // If one provider is down or empty, the other carries the results; when both
 // respond, Open Library order is kept and missing covers are cross-filled from

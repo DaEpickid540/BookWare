@@ -9,7 +9,8 @@
 
 import { auth } from './firebase.js';
 import { ADMIN_EMAILS, shouldForceLogout, buildJoinUrl, isTeacherEmail as isEmailAllowed } from './config.js';
-import { lookupISBN, searchBooks, initCoverFallback } from './books.js';
+import { lookupISBN, lookupBarcode, searchBooks, initCoverFallback } from './books.js';
+import { startScanner, isScanSupported } from './barcode.js';
 import {
   initTheme, initARIA, initAriaChat, initAriaRecommends, refreshAriaChats,
   initSettingsModal, openSettingsModal, closeSettingsModal, initStaySignedIn, setAriaAvailability,
@@ -240,6 +241,7 @@ onAuthStateChanged(auth, async (user) => {
   setupRetakeQuiz();
   setupReplayIntro();
   setupSignout();
+  initBarcodeScan();
 
   if (!sessionStorage.getItem('bw-welcomed')) {
     const first = (user.displayName ?? '').split(' ')[0] || 'there';
@@ -1094,6 +1096,369 @@ async function addCopiesToLibrary(idx, qty = 1) {
 
   await loadLibrary();
   toast(`<i class='bi bi-check2'></i> ${qtyLabel} of "${esc(book.title)}" added`, 'success');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Barcode scanning
+//
+// Same destination as the search box above — findExistingBook(), then either
+// adjustCopies() or addBook() — reached by pointing a camera at a back cover
+// instead of typing. That shared ending is the point: scanning a book already
+// on the shelf raises its copy count, exactly as searching for it does, rather
+// than starting a second entry for the Merge button to clean up later.
+//
+// The camera itself lives in barcode.js; this half is modal chrome and the
+// decision about what to write.
+// ═══════════════════════════════════════════════════════════════════════════
+
+let scanStop      = null;   // stop() from the running scanner, null when idle
+let scanBook      = null;   // the book currently shown in the result pane
+let scanQty       = 1;
+let scanLastFocus = null;
+let scanLookupFor = '';     // ISBN whose lookup is in flight, '' when none
+/** Bumped by every start and every stop. A camera takes real time to open, so a
+ *  second start can be issued — by a double-tap on Scan, or by closing the modal
+ *  mid-open — while the first is still awaiting getUserMedia. Whoever holds the
+ *  current number owns the run; everyone else discards itself rather than
+ *  writing its `stop` handle over the live one.
+ *
+ *  Without this, `scanStop` is still null when the second call runs its
+ *  stopScanner(), so that guard stops nothing: measured, the first stream was
+ *  left running with no handle to close it — a camera track live behind a
+ *  closed modal. barcode.js's startQueue keeps the two starts from overlapping
+ *  on the element; this keeps their bookkeeping straight. */
+let scanRun       = 0;
+
+function setScanStatus(msg, kind = '') {
+  const el = document.getElementById('scanStatus');
+  if (!el) return;
+  el.innerHTML = msg;
+  el.className = `scan-status${kind ? ` scan-status--${kind}` : ''}`;
+}
+
+/** Stop the camera. Idempotent, and called from every exit path — the capture
+ *  light stays on and the track stays live until this runs, which on a phone is
+ *  both alarming and a battery drain. */
+function stopScanner() {
+  scanRun++;                          // invalidates any start still in flight
+  try { scanStop?.(); } catch (err) { console.warn('[teacher] scanner stop failed:', err); }
+  scanStop = null;
+}
+
+function showScanPane(which) {
+  const stage  = document.getElementById('scanStage');
+  const result = document.getElementById('scanResult');
+  if (stage)  stage.hidden  = which !== 'stage';
+  if (result) result.hidden = which !== 'result';
+  // The hidden pane stays in the DOM, so the two headings need distinct ids and
+  // the dialog has to be re-pointed at whichever one is showing. Reusing one id
+  // across both left aria-labelledby resolving to the hidden element, and a
+  // screen reader announced "Scan a barcode" over the book it had just found.
+  document.getElementById('scanModal')?.setAttribute(
+    'aria-labelledby', which === 'result' ? 'scanResultHeading' : 'scanModalHeading',
+  );
+}
+
+/** (Re)start the camera.
+ *
+ *  `note` is a message to hold in the status line instead of the usual
+ *  "Looking for a barcode…" — used after an add, so the confirmation survives
+ *  the restart rather than being wiped by "Starting the camera…" a frame later.
+ *
+ *  Never pass this straight to addEventListener: the click Event would arrive
+ *  as `note`. */
+async function beginScanning(note = '') {
+  const video = document.getElementById('scanVideo');
+  if (!video) return;
+
+  stopScanner();                       // bumps scanRun; any start in flight is now stale
+  const run = scanRun;                 // this call's claim on the video element
+  const mine = () => run === scanRun;
+
+  showScanPane('stage');
+  scanBook = null;
+  setScanStatus(note || 'Starting the camera…', note ? 'ok' : '');
+
+  let stop;
+  try {
+    stop = await startScanner({
+      video,
+      onReady:   () => { if (mine()) setScanStatus(note || 'Looking for a barcode…', note ? 'ok' : ''); },
+      onCode:    (isbn) => { if (mine()) handleScannedIsbn(isbn); },
+      onNonBook: () => { if (mine()) setScanStatus(
+        "That barcode isn't a book — book barcodes start 978 or 979. Try the one on the back cover.",
+      ); },
+      onError:   (err) => { if (!mine()) return; stopScanner(); setScanStatus(describeError(err), 'error'); },
+    });
+  } catch (err) {
+    // Not a toast: the modal is covering the screen, so the explanation has to
+    // be inside it or nobody reads it. Stay quiet if we were superseded — the
+    // run that replaced us owns the status line now.
+    if (mine()) setScanStatus(describeError(err), 'error');
+    return;
+  }
+
+  // Superseded while the camera was opening. Stop the stream we just opened
+  // rather than storing it over the live one, which would strand a track with
+  // no handle left to close it.
+  if (!mine()) { stop(); return; }
+  scanStop = stop;
+}
+
+/** A barcode decoded and passed the ISBN check. Look the book up and show it.
+ *
+ *  The camera stops for the duration. Leaving it running would keep firing on
+ *  the same cover behind the modal's result pane, and every hit would race the
+ *  lookup already in flight. */
+async function handleScannedIsbn(isbn) {
+  if (scanLookupFor) return;           // already resolving one
+  scanLookupFor = isbn;
+  stopScanner();
+  setScanStatus(`Found ${esc(isbn)} — looking it up…`);
+
+  let book = null;
+  try {
+    book = await lookupBarcode(isbn);
+  } catch (err) {
+    console.error('[teacher] barcode lookup failed:', err);
+    renderScanMiss(isbn, "That lookup didn't come back. Check your connection and try again.");
+    scanLookupFor = '';
+    return;
+  }
+  scanLookupFor = '';
+
+  if (!book) { renderScanMiss(isbn); return; }
+  scanBook = book;
+  scanQty  = 1;
+  renderScanResult(book);
+}
+
+/** No catalogue has this barcode. A real outcome, not a failure: a book
+ *  processed by a school library often carries a locally printed barcode that
+ *  Google and Open Library have never seen. Offer the manual route out. */
+function renderScanMiss(isbn, why = '') {
+  const el = document.getElementById('scanResult');
+  if (!el) return;
+  el.innerHTML = `
+    <h2 class='book-modal-title' id='scanResultHeading'>No match for that barcode</h2>
+    <p class='book-modal-desc'>
+      ${why ? `${esc(why)}<br><br>` : ''}
+      Nothing in Google Books or Open Library is listed under
+      <strong>${esc(isbn)}</strong>. Library-processed copies often carry a
+      barcode the school printed itself, which no catalogue knows about.
+    </p>
+    <div class='book-modal-actions'>
+      <button class='btn btn--primary btn--sm' id='scanAgainBtn' type='button'>
+        <i class='bi bi-upc-scan' aria-hidden='true'></i> Scan another
+      </button>
+      <button class='btn btn--sm' id='scanSearchInsteadBtn' type='button'>
+        <i class='bi bi-search' aria-hidden='true'></i> Search by title instead
+      </button>
+    </div>`;
+  showScanPane('result');
+
+  document.getElementById('scanAgainBtn')?.addEventListener('click', () => beginScanning());
+  document.getElementById('scanSearchInsteadBtn')?.addEventListener('click', () => {
+    closeScanModal();
+    const input = document.getElementById('isbnInput');
+    if (input) { input.value = ''; input.focus(); }
+  });
+  document.getElementById('scanAgainBtn')?.focus();
+}
+
+/** Cover, blurb, and the copies pill.
+ *
+ *  `existing` is looked up here for display only. The write path re-checks it
+ *  against the live library — see confirmScanAdd(). */
+function renderScanResult(book) {
+  const el = document.getElementById('scanResult');
+  if (!el || !book) return;
+
+  const existing = api.findExistingBook(book, allBooks);
+  const have     = existing?.copies ?? 0;
+
+  const cover = book.cover
+    ? `<img src='${esc(book.cover)}' class='book-modal-cover book-cover' alt='Cover of ${esc(book.title)}'>`
+    : `<div class='book-modal-cover book-modal-cover-ph'><i class='bi bi-book-fill' aria-hidden='true'></i></div>`;
+
+  const facts = [
+    book.isbn      ? `ISBN ${esc(book.isbn)}`       : '',
+    book.published ? esc(String(book.published))    : '',
+    book.publisher ? esc(book.publisher)            : '',
+    book.pageCount ? `${book.pageCount} pages`      : '',
+  ].filter(Boolean);
+
+  el.innerHTML = `
+    <div class='book-modal-grid'>
+      <div>${cover}</div>
+      <div>
+        <div class='book-modal-title' id='scanResultHeading'>${esc(book.title)}</div>
+        <div class='book-modal-author'>${esc(book.author || 'Unknown author')}</div>
+        ${facts.length ? `<div class='book-modal-facts'>${facts.map(f => `<span>${f}</span>`).join('')}</div>` : ''}
+        ${existing ? `
+          <div class='scan-dupe-note'>
+            <i class='bi bi-check-circle-fill' aria-hidden='true'></i>
+            <span>Already on your shelf — ${plural(have, 'copy', 'copies')}. Adding here
+            raises that count instead of creating a second entry.</span>
+          </div>` : ''}
+        ${book.description
+          ? `<div class='book-modal-section-label'>About this book</div>
+             <div class='book-modal-desc'>${esc(book.description)}</div>`
+          : `<div class='book-modal-desc' style='color:var(--text-3)'>
+               Google Books has no description for this edition.
+             </div>`}
+
+        <div class='copy-pill-row'>
+          <span class='copy-pill-label'>Copies to add</span>
+          <div class='copy-pill' role='group' aria-label='Number of copies to add'>
+            <button type='button' class='copy-pill-btn' id='scanQtyDec' aria-label='One fewer copy'>&minus;</button>
+            <span class='copy-pill-val' id='scanQtyVal' role='status' aria-live='polite'>1</span>
+            <button type='button' class='copy-pill-btn' id='scanQtyInc' aria-label='One more copy'>+</button>
+          </div>
+        </div>
+
+        <div class='book-modal-actions'>
+          <button class='btn btn--primary btn--sm' id='scanAddBtn' type='button'>
+            <i class='bi bi-plus-lg' aria-hidden='true'></i>
+            <span id='scanAddLabel'></span>
+          </button>
+          <button class='btn btn--sm' id='scanAgainBtn' type='button'>
+            <i class='bi bi-upc-scan' aria-hidden='true'></i> Scan another
+          </button>
+        </div>
+      </div>
+    </div>`;
+
+  showScanPane('result');
+  syncScanQty(Boolean(existing));
+
+  document.getElementById('scanQtyDec')?.addEventListener('click', () => setScanQty(scanQty - 1, Boolean(existing)));
+  document.getElementById('scanQtyInc')?.addEventListener('click', () => setScanQty(scanQty + 1, Boolean(existing)));
+  document.getElementById('scanAgainBtn')?.addEventListener('click', () => beginScanning());
+  document.getElementById('scanAddBtn')?.addEventListener('click', confirmScanAdd);
+  document.getElementById('scanAddBtn')?.focus();
+}
+
+/** Copy counts are physical objects on a shelf; 20 at once is already generous
+ *  and matches the search panel's stepper. The cap exists so a stuck + button
+ *  or a leaned-on key can't write 400 copies of one paperback. */
+const SCAN_MAX_COPIES = 20;
+
+function setScanQty(next, existing) {
+  scanQty = Math.min(SCAN_MAX_COPIES, Math.max(1, next));
+  syncScanQty(existing);
+}
+
+function syncScanQty(existing) {
+  const val = document.getElementById('scanQtyVal');
+  if (val) val.textContent = String(scanQty);
+  const dec = document.getElementById('scanQtyDec');
+  const inc = document.getElementById('scanQtyInc');
+  if (dec) dec.disabled = scanQty <= 1;
+  if (inc) inc.disabled = scanQty >= SCAN_MAX_COPIES;
+  const label = document.getElementById('scanAddLabel');
+  if (label) {
+    label.textContent = existing
+      ? `Add ${plural(scanQty, 'copy', 'copies')}`
+      : scanQty === 1 ? 'Add to Library' : `Add ${plural(scanQty, 'copy', 'copies')}`;
+  }
+}
+
+async function confirmScanAdd() {
+  const book = scanBook;
+  if (!book) return;
+  const btn = document.getElementById('scanAddBtn');
+  if (btn) btn.disabled = true;
+
+  // Re-checked against the CURRENT library rather than against the match made
+  // when this pane was rendered. The modal can sit open for a while — a whole
+  // stack of books gets scanned through it — and the shelf changes underneath
+  // it, including from the teacher's own previous scan. A stale "no match"
+  // here is precisely what creates a duplicate entry.
+  const existing = api.findExistingBook(book, allBooks);
+  const qty      = scanQty;
+
+  try {
+    if (existing) await api.adjustCopies(existing.id, qty);
+    else          await api.addBook(book, qty);
+  } catch (err) {
+    toastError(err);
+    if (btn) btn.disabled = false;
+    return;
+  }
+
+  // Before scanning the next book, so its duplicate check sees this write.
+  await loadLibrary();
+
+  toast(
+    `<i class='bi bi-check2'></i> ${plural(qty, 'copy', 'copies')} of "${esc(book.title)}" ${existing ? 'added' : 'added to your library'}`,
+    'success',
+  );
+  scanBook = null;
+
+  // The write can outlast the modal: on a slow connection a teacher can hit Add
+  // and close the dialog before it lands. Restarting the camera then lights the
+  // capture indicator with nothing on screen to explain it.
+  if (document.getElementById('scanModal')?.hidden) return;
+  beginScanning(`<i class='bi bi-check2'></i> Added "${esc(book.title)}". Ready for the next book.`);
+}
+
+function openScanModal() {
+  const modal = document.getElementById('scanModal');
+  if (!modal) return;
+  scanLastFocus = document.activeElement;
+  modal.hidden = false;
+  document.body.style.overflow = 'hidden';
+  document.getElementById('scanModalClose')?.focus();
+  beginScanning();
+}
+
+function closeScanModal() {
+  const modal = document.getElementById('scanModal');
+  if (!modal || modal.hidden) return;
+  stopScanner();
+  scanBook      = null;
+  scanLookupFor = '';
+  modal.hidden = true;
+  document.body.style.overflow = '';
+  scanLastFocus?.focus?.();
+  scanLastFocus = null;
+}
+
+let scanWired = false;
+
+function initBarcodeScan() {
+  if (scanWired) return;
+  const row = document.getElementById('scanRow');
+  const btn = document.getElementById('scanBarcodeBtn');
+  if (!row || !btn) return;
+
+  // A Scan button on a desktop with no webcam, or on a page served over plain
+  // http where getUserMedia never resolves, is a button that does nothing. Show
+  // it only where it can work; the search box above covers everywhere else.
+  if (!isScanSupported()) return;
+  row.hidden = false;
+  // The Escape and pagehide listeners below are on document/window, so nothing
+  // ever collects them. A second bootstrap — onAuthStateChanged fires again
+  // when someone signs out and back in without reloading — would stack another
+  // copy of every handler here.
+  scanWired = true;
+
+  btn.addEventListener('click', openScanModal);
+  document.getElementById('scanModalClose')?.addEventListener('click', closeScanModal);
+
+  // Backdrop only: a click that began inside the box and drifted out while
+  // selecting a blurb should not dismiss the whole thing.
+  document.getElementById('scanModal')?.addEventListener('mousedown', (e) => {
+    if (e.target.id === 'scanModal') closeScanModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeScanModal();
+  });
+  // Bfcache-safe: `unload` never fires on iOS, and a backgrounded tab holding a
+  // live camera track is the one thing guaranteed to get this feature blamed
+  // for a dead battery.
+  window.addEventListener('pagehide', stopScanner);
 }
 
 document.getElementById('mergeDuplicatesBtn')?.addEventListener('click', async (e) => {

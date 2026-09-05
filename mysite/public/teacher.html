@@ -118,6 +118,16 @@
                 <input type="text" id="isbnInput" class="text-input" placeholder="Title, author, or ISBN…" aria-label="Search for book to add" />
                 <button class="btn btn--primary" id="lookupIsbnBtn">Search</button>
               </div>
+              <!-- Unhidden by teacher.js only when the browser can actually use
+                   a camera. Offering Scan on a desktop with no webcam, or over
+                   plain http where getUserMedia never resolves, is a button
+                   that does nothing. -->
+              <div class="scan-row" id="scanRow" hidden>
+                <button class="btn btn--sm" id="scanBarcodeBtn" type="button">
+                  <i class="bi bi-upc-scan" aria-hidden="true"></i> Scan a barcode
+                </button>
+                <span class="settings-hint">Point your camera at the back cover.</span>
+              </div>
               <div id="isbnResult"></div>
             </div>
 
@@ -851,6 +861,36 @@
       </button>
     </div>
   </nav>
+
+  <!-- Barcode scan modal. Two panes in one dialog: the camera stage, and the
+       book it matched. They share a box so the modal never closes and reopens
+       between scanning and adding — on a phone that flash is disorienting, and
+       it would drop the camera stream we are about to need again for the next
+       book. Filled and driven by teacher.js. -->
+  <div class="book-modal" id="scanModal" hidden role="dialog" aria-modal="true"
+       aria-labelledby="scanModalHeading">
+    <div class="book-modal-box">
+      <button type="button" class="settings-modal-close" id="scanModalClose" aria-label="Close">
+        <i class="bi bi-x-lg" aria-hidden="true"></i>
+      </button>
+
+      <div id="scanStage">
+        <h2 class="book-modal-title" id="scanModalHeading">Scan a barcode</h2>
+        <p class="settings-hint" style="margin-bottom:0">
+          Turn the book sideways and hold the barcode inside the frame.
+        </p>
+        <div class="scan-viewport">
+          <!-- muted + playsinline are load-bearing on iOS: without them Safari
+               refuses to autoplay the stream and takes the video full screen. -->
+          <video id="scanVideo" class="scan-video" playsinline muted autoplay></video>
+          <div class="scan-reticle"></div>
+        </div>
+        <p class="scan-status" id="scanStatus" role="status" aria-live="polite"></p>
+      </div>
+
+      <div id="scanResult" hidden></div>
+    </div>
+  </div>
 
   <script type="module" src="/js/teacher.js"></script>
   <script defer src="/js/sw-register.js"></script>
