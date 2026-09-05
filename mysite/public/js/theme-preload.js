@@ -155,7 +155,33 @@
     };
   }
 
-  window.BookWareTheme = { computeThemeVars: computeThemeVars };
+  /** Points <meta name="theme-color"> at the palette the slider just produced.
+   *
+   *  That meta was a hardcoded #1a1a1e while the brightness slider takes --bg
+   *  all the way to #f2f2f2, so an installed app on Android sat under a
+   *  near-black status bar and showed a near-black card in the task switcher
+   *  while the app itself was white. The colour is a live property of the
+   *  theme, so it has to be written wherever the theme is applied — which is
+   *  here (before first paint) and in theme.js applyBrightness (on every move
+   *  of the slider). Both call this, for the same reason the maths itself is
+   *  shared: two copies would drift.
+   *
+   *  Uses --bg rather than the topbar's --bg-card because admin has no topbar
+   *  and scrolls --bg straight up to the status bar. The two differ by at most
+   *  8/255, which is not visible as a seam.
+   *
+   *  Pages with a fixed dark palette (index, privacy, teacher-access,
+   *  teacher-signup) don't load this file; their static #1a1a1e already matches
+   *  the --bg they hardcode, so there is nothing to update there. */
+  function setThemeColor(vars) {
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', vars['--bg']);
+  }
+
+  window.BookWareTheme = {
+    computeThemeVars: computeThemeVars,
+    setThemeColor: setThemeColor,
+  };
 
   // ── Apply the saved theme now, before paint ──────────────────────────────
   var val = parseInt(localStorage.getItem('bookware-brightness') || '18', 10);
@@ -167,6 +193,7 @@
     if (k.charAt(0) === '-') r.style.setProperty(k, vars[k]);
   }
   if (vars.light) r.setAttribute('data-theme', 'light');
+  setThemeColor(vars);
 
   var color = localStorage.getItem('bookware-color');
   if (color && color !== 'crimson') r.setAttribute('data-color', color);

@@ -322,3 +322,51 @@ body {
 
 button, a, input, select, textarea { touch-action: manipulation; }
 @media (pointer: coarse) { * { -webkit-tap-highlight-color: transparent; } }
+
+/* ── Display-cutout padding (installed iOS app) ───────────────────────────
+   Both pages using this file carry `viewport-fit=cover`, so the viewport now
+   extends into the notch and home-indicator areas instead of being inset by
+   iOS. The card is vertically centred, so the risk here is a short viewport in
+   landscape rather than the card itself being clipped — but the padding has to
+   account for the insets either way. */
+body {
+  padding-top: calc(20px + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
+}
+
+@media (max-width: 480px) {
+  body {
+    padding-top: calc(12px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    padding-left: max(12px, env(safe-area-inset-left, 0px));
+    padding-right: max(12px, env(safe-area-inset-right, 0px));
+  }
+}
+
+/* ── Borderless desktop window (window-controls-overlay) ──────────────────
+   The manifest lists window-controls-overlay first in display_override, so on
+   desktop the browser drops its title bar and the page owns the whole window.
+   That leaves the OS window buttons floating over the top-right corner and no
+   handle to drag the window by, so this reserves a strip for both. See the
+   fuller explanation at the end of app.css. */
+.wco-drag-strip { display: none; }
+
+@media (display-mode: window-controls-overlay) {
+  body { padding-top: env(titlebar-area-height, 0px); }
+
+  .wco-drag-strip {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: env(titlebar-area-height, 0px);
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    -webkit-app-region: drag;
+    app-region: drag;
+    z-index: 10000;
+  }
+}
