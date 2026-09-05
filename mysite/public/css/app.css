@@ -2014,6 +2014,44 @@ html[data-theme="light"] .book-row:hover { background: rgba(0,0,0,0.015); }
   body { min-height: -webkit-fill-available; }
 }
 
+/* ── Display-cutout padding (installed iOS app) ───────────────────────────
+   These only do anything because the viewport meta carries `viewport-fit=cover`.
+   Without it iOS insets the viewport to the safe area itself, every
+   env(safe-area-inset-*) in this file resolves to 0, and the app is letterboxed
+   instead of full-bleed. The two go together — dropping `cover` from the meta
+   silently turns all of this back into dead weight.
+
+   The bottom inset is handled per-component above (.bottom-nav, .content-area,
+   .toast-container, and the two full-screen sheets). What was missing is the
+   TOP — the pages set apple-mobile-web-app-status-bar-style=black-translucent,
+   which asks iOS to draw the app behind the status bar, and .topbar had no
+   compensation at all, so the page title and avatar landed under the clock. */
+.topbar {
+  padding-top: env(safe-area-inset-top, 0px);
+  height: calc(var(--topbar-h) + env(safe-area-inset-top, 0px));
+}
+
+/* Landscape puts the camera housing beside the content rather than above it,
+   so the horizontal insets are non-zero only in that orientation. max() keeps
+   the existing gutter on every device that reports no inset. */
+.topbar        { padding-left: max(24px, env(safe-area-inset-left, 0px));
+                 padding-right: max(24px, env(safe-area-inset-right, 0px)); }
+.content-area  { padding-left: max(24px, env(safe-area-inset-left, 0px));
+                 padding-right: max(24px, env(safe-area-inset-right, 0px)); }
+.bottom-nav    { padding-left: env(safe-area-inset-left, 0px);
+                 padding-right: env(safe-area-inset-right, 0px); }
+
+@media (max-width: 640px) {
+  /* The mobile layer tightens both gutters to 14px; keep that as the floor
+     here rather than inheriting the 24px desktop one. Both selectors have to
+     be listed — the rules above are unconditional, so anything left out of
+     this block silently gets widened back to the desktop gutter on phones. */
+  .topbar       { padding-left: max(14px, env(safe-area-inset-left, 0px));
+                  padding-right: max(14px, env(safe-area-inset-right, 0px)); }
+  .content-area { padding-left: max(14px, env(safe-area-inset-left, 0px));
+                  padding-right: max(14px, env(safe-area-inset-right, 0px)); }
+}
+
 /* ── Reading-preferences quiz (first-run + retake) ───────────────────────── */
 .quiz-overlay {
   position: fixed;
@@ -3249,4 +3287,51 @@ html[data-theme="light"] .toast-retry:hover { background: rgba(0,0,0,0.10); }
      beside it. */
   .copy-pill-btn { min-width: 48px; min-height: 44px; }
   .copy-pill-val { min-width: 56px; }
+/* ── Borderless desktop window (window-controls-overlay) ──────────────────
+   `display: standalone` already removes the URL bar, but on desktop Chrome it
+   still draws a title bar above the app. Listing window-controls-overlay first
+   in the manifest's display_override asks the browser to drop that bar and hand
+   the whole window to the page, leaving only the OS minimise/maximise/close
+   buttons floating over the top-right.
+
+   Two things have to be true for that to be usable, and both are handled here:
+
+   1. NOTHING may be drawn under the window controls. env(titlebar-area-height)
+      is the height the browser has reserved at the top; the body padding below
+      pushes the entire shell clear of it. body is height:100dvh + border-box,
+      so this shrinks the content box rather than overflowing it.
+   2. The window must still be draggable. Losing the title bar means losing the
+      grab handle, so .wco-drag-strip re-creates one — a full-width, empty,
+      non-interactive strip pinned to the top. It is deliberately empty: put a
+      button in a drag region and the button stops receiving clicks.
+
+   Outside window-controls-overlay this whole block is inert — the media query
+   only matches when the browser has actually granted the overlay. */
+.wco-drag-strip { display: none; }
+
+@media (display-mode: window-controls-overlay) {
+  body { padding-top: env(titlebar-area-height, 0px); }
+
+  .wco-drag-strip {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: env(titlebar-area-height, 0px);
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    /* The unprefixed property is still not supported in Chromium; keep both. */
+    -webkit-app-region: drag;
+    app-region: drag;
+    z-index: 10000;
+  }
+
+  /* Overlays that position against the viewport must clear the strip too, or
+     they open underneath it. */
+  .settings-modal,
+  .book-modal,
+  .modal-overlay { top: env(titlebar-area-height, 0px); }
 }
+
+  

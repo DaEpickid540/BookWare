@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>BookWare: Teacher Invite</title>
   <meta name="description" content="Accept your BookWare teacher invite and create your classroom library account." />
   <meta name="theme-color" content="#1a1a1e" />
@@ -18,6 +18,11 @@
   <link rel="stylesheet" href="/css/signup.css" />
 </head>
 <body>
+
+  <!-- Drag handle for the borderless desktop window. Invisible unless the
+       browser grants window-controls-overlay; see the block at the end of the
+       stylesheet. Without it the app has no title bar left to drag by. -->
+  <div class="wco-drag-strip" aria-hidden="true"></div>
 
   <div class="signup-page">
     <div class="signup-card">
