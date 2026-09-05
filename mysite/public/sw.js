@@ -39,6 +39,7 @@ const SHELL  = [
   '/js/teacher.js',
   '/js/admin.js',
   '/js/books.js',
+  '/js/barcode.js',
   '/js/preloader.js',
   '/js/retention.js',
   '/css/preloader.css',

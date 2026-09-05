@@ -32,6 +32,7 @@ mysite/public/         ← the entire app. This is what ships.
   js/student.js        ← student portal      (UI + data, not yet split)
   js/admin.js          ← admin portal        (UI + data, not yet split)
   js/retention.js      ← data-retention policy, shared by all three
+  js/barcode.js        ← camera + barcode decoding (no books, no Firestore)
   js/config.js         ← admin allowlist + school domain
   js/firebase.js       ← the one Firebase app/auth/db instance
 mysite/firestore.rules       ← the real security boundary
@@ -130,6 +131,9 @@ firebase emulators:exec --only firestore --project school-suite-652d8 "echo ok"
   URL. Keep the version identical across files.
 - New external origins must be added to the CSP `connect-src`/`script-src` in
   `mysite/firebase.json` or the browser blocks them with no visible error.
+- `firebase.json` also carries a `Permissions-Policy` header. Barcode scanning
+  needs `camera=(self)` there; with `camera=()` getUserMedia rejects without
+  ever showing a permission prompt, which reads exactly like a denied camera.
 - Escape every interpolated value with `esc()` before it reaches `innerHTML`.
 - Comments explain *why*, especially where the code looks odd because of a bug
   it is deliberately avoiding. Don't strip those.
@@ -153,7 +157,7 @@ stamp. The only version indicator is a hardcoded string in the Settings panel
 footer, in **both** `mysite/public/teacher.html` and `mysite/public/student.html`:
 
 ```html
-<div class="settings-section-sub">BookWare v2.5.1 · Mason High School · Sarvin Sukhe</div>
+<div class="settings-section-sub">BookWare v2.8.0 · Mason High School · Sarvin Sukhe</div>
 ```
 
 **Bump this (in both files, they must match) whenever you ship a change large

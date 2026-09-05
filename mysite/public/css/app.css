@@ -3068,3 +3068,180 @@ html[data-theme="light"] .toast-retry:hover { background: rgba(0,0,0,0.10); }
 .book-row-check { display: none; align-self: center; flex-shrink: 0; margin-right: 2px; }
 .books-list.selecting .book-row-check { display: block; }
 .book-row.is-selected { background: var(--accent-bg); }
+
+/* ── BARCODE SCANNER ─────────────────────────────────────────────
+   The scan modal reuses .book-modal / .book-modal-box wholesale, so the
+   backdrop, the pop-in and the mobile full-screen behaviour are all shared
+   with the student portal's book modal. Only the camera stage and the copies
+   pill are new. */
+
+.scan-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.scan-row .settings-hint { margin: 0; flex: 1 1 160px; min-width: 0; }
+
+.scan-viewport {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 46vh;
+  margin: 12px 0 10px;
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: #000;
+  overflow: hidden;
+}
+.scan-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* A wide, short window rather than a square: a book barcode is a letterbox,
+   and framing it as one is what tells a teacher to turn the book sideways
+   instead of trying to fit the whole back cover in. */
+.scan-reticle {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  top: 50%;
+  height: 27%;
+  transform: translateY(-50%);
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: var(--r-sm);
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
+.scan-status {
+  font-size: 0.72rem;
+  color: var(--text-2);
+  min-height: 1.2em;
+  margin: 0;
+}
+.scan-status--error { color: var(--danger); }
+.scan-status--ok    { color: var(--success); }
+
+/* ── COPIES PILL ─────────────────────────────────────────────────
+   One pill, three segments: − on the left, the running count in the middle,
+   + on the right. A single bordered container rather than three buttons in a
+   row, because three separate pills read as three unrelated actions when the
+   whole point is that they operate on the one number between them. */
+.copy-pill {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  background: var(--bg-inset);
+  overflow: hidden;
+  /* Its own stacking context, so the focus ring on a segment paints over the
+     neighbouring segment's border instead of under it. */
+  isolation: isolate;
+}
+.copy-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: none;
+  background: none;
+  color: var(--text-2);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--tr), color var(--tr);
+}
+.copy-pill-btn:hover:not(:disabled) { background: var(--accent-bg); color: var(--accent-text); }
+.copy-pill-btn:active:not(:disabled) { transform: translateY(1px); }
+.copy-pill-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.copy-pill-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  z-index: 1;
+}
+/* Dividers on the value, not the buttons: the hover fill then runs to the
+   edge of each segment instead of stopping a pixel short of its own border. */
+.copy-pill-val {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 52px;
+  padding: 0 6px;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.copy-pill-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 14px 0;
+}
+.copy-pill-label {
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* Shown when the scanned book is already on the shelf — the scan modal's half
+   of the anti-duplicate system, so a teacher can see BEFORE adding that this
+   will raise a copy count rather than create a second entry. */
+.scan-dupe-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 11px;
+  margin-bottom: 12px;
+  border-radius: var(--r-sm);
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.scan-dupe-note i { color: var(--accent-text); margin-top: 1px; }
+
+/* Put the close button back in the corner.
+   `.settings-modal-close` is positioned absolutely where it is defined, but a
+   later rule — `.settings-modal-close { position: static }`, added when the
+   Settings dialog grew a flex header — un-positions EVERY instance of it,
+   including the ones in `.book-modal-box`, which have no header to sit in. The
+   × therefore fell into normal flow at the top LEFT of the box and shoved the
+   title down. This restores it for book modals only, leaving the Settings
+   header alone. Also fixes the student portal's book modal, which shares this
+   box and had the same displaced ×. */
+.book-modal-box .settings-modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+}
+
+/* A cover URL that 404s is swapped for a placeholder tile by
+   initCoverFallback() — the CSP-safe route, since an inline onerror= attribute
+   is blocked outright by script-src. That tile is sized for a list row, so
+   without this it lands in the modal's 190px cover slot as a 34px stamp. */
+#scanResult .book-cover-ph {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--r);
+  font-size: 2.4rem;
+}
+
+@media (max-width: 620px) {
+  .scan-viewport { aspect-ratio: 3 / 4; max-height: 52vh; }
+}
