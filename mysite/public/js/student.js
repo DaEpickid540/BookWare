@@ -1433,9 +1433,10 @@ function filterAndRenderBooks() {
  *
  *  Both providers encode the size in the URL, so there is no second lookup to
  *  do. Open Library sizes are S/M/L; Google Books uses a zoom level. Anything
- *  else is returned untouched. The caller must keep the original as an onerror
- *  fallback: Open Library's `?default=false` 404s when it has no large scan,
- *  which is exactly the case a blind swap would turn into a broken image. */
+ *  else is returned untouched. The caller must keep the original as the
+ *  `data-cover-fallback` retry: Open Library's `?default=false` 404s when it
+ *  has no large scan, which is exactly the case a blind swap would turn into a
+ *  broken image. */
 function upscaleCover(url) {
   if (!url) return "";
   if (url.includes("covers.openlibrary.org")) return url.replace(/-M\.jpg/, "-L.jpg");
@@ -1490,10 +1491,14 @@ function openBookModal(book) {
     book.isbn ? `ISBN ${esc(book.isbn)}` : "",
   ].filter(Boolean);
 
+  // `book-cover` is what initCoverFallback() listens for, and the retry URL
+  // goes in a data attribute: an inline `onerror=` is dead markup under the
+  // production CSP (script-src has no 'unsafe-inline'), so the large-cover 404
+  // used to paint the browser's own broken-image icon.
   const big = upscaleCover(book.coverUrl);
+  const retry = big !== book.coverUrl ? ` data-cover-fallback='${esc(book.coverUrl)}'` : "";
   const cover = book.coverUrl
-    ? `<img src='${esc(big)}' class='book-modal-cover' alt='Cover of ${esc(book.title)}'
-            onerror="this.onerror=null;this.src='${esc(book.coverUrl)}'">`
+    ? `<img src='${esc(big)}' class='book-cover book-modal-cover' alt='Cover of ${esc(book.title)}'${retry}>`
     : `<div class='book-modal-cover book-modal-cover-ph' aria-hidden='true'><i class='bi bi-book-fill'></i></div>`;
 
   body.innerHTML = `

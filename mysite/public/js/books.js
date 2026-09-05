@@ -157,12 +157,23 @@ export async function lookupById(id) {
  *  icon, which reads as "the app is broken" rather than "this book has no
  *  cover". Registered once in the capture phase because `error` events from
  *  <img> do not bubble — that single listener covers every cover rendered
- *  anywhere in the app, including markup added later. */
+ *  anywhere in the app, including markup added later.
+ *
+ *  `data-cover-fallback` is one more URL to try before giving up — used where
+ *  the requested image is an upscaled guess (see upscaleCover in student.js)
+ *  and the smaller original is known to exist. It has to be retried from here
+ *  rather than an inline `onerror=`, which the production CSP blocks. */
 export function initCoverFallback() {
   document.addEventListener('error', (e) => {
     const img = e.target;
     if (!(img instanceof HTMLImageElement)) return;
     if (!img.classList.contains('book-cover') || img.dataset.coverFailed) return;
+    const retry = img.dataset.coverFallback;
+    if (retry && !img.dataset.coverRetried) {
+      img.dataset.coverRetried = '1';
+      img.src = retry;
+      return;
+    }
     img.dataset.coverFailed = '1';
     const ph = document.createElement('div');
     ph.className = 'book-cover-ph';
