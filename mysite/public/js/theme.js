@@ -71,6 +71,10 @@ export function applyBrightness(val) {
     for (const [k, v] of Object.entries(vars)) {
       if (k.startsWith('--')) html.style.setProperty(k, v);
     }
+    // Keep the Android status bar / task-switcher colour on the theme the user
+    // just chose. Same shared definition as the maths above — see the header
+    // comment on setThemeColor in theme-preload.js.
+    window.BookWareTheme?.setThemeColor(vars);
   }
   if (val >= 50) {
     html.setAttribute('data-theme', 'light');

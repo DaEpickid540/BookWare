@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>BookWare: Student</title>
   <meta name="description" content="BookWare Student Portal: browse your teacher's library, check out books, track your reading, and keep a wishlist." />
   <meta name="theme-color" content="#1a1a1e" />
@@ -22,6 +22,11 @@
   <script src="/js/theme-preload.js"></script>
 </head>
 <body>
+
+  <!-- Drag handle for the borderless desktop window. Invisible unless the
+       browser grants window-controls-overlay; see the block at the end of the
+       stylesheet. Without it the app has no title bar left to drag by. -->
+  <div class="wco-drag-strip" aria-hidden="true"></div>
 
   <div id="preloader" class="preloader" aria-hidden="true">
     <div class="preloader-mark">
@@ -634,7 +639,7 @@
             <div class="settings-section-header">
               <div>
                 <div class="settings-section-title">About</div>
-                <div class="settings-section-sub">BookWare v2.7.0 · Mason High School · Sarvin Sukhe</div>
+                <div class="settings-section-sub">BookWare v2.8.0 · Mason High School · Sarvin Sukhe</div>
               </div>
             </div>
           </div>

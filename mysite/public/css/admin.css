@@ -984,3 +984,59 @@ button, .btn, .nav-item, a, label, summary, input, select, textarea {
 @media (prefers-reduced-motion: reduce) {
   .loading-state::before { border-top-color: var(--border); }
 }
+
+/* ── Display-cutout padding (installed iOS app) ───────────────────────────
+   Live only because the viewport meta in admin.html carries `viewport-fit=cover`;
+   without it iOS insets the viewport itself and every env(safe-area-inset-*) in
+   this file resolves to 0. The two ship together.
+
+   Unlike the student/teacher portals there is no .topbar here — .main-area is
+   the first thing under the status bar, and admin.html asks for a translucent
+   one (apple-mobile-web-app-status-bar-style=black-translucent), so its top
+   padding has to absorb the inset or the page header sits under the clock. */
+.main-area {
+  padding-left: max(28px, env(safe-area-inset-left, 0px));
+  padding-right: max(28px, env(safe-area-inset-right, 0px));
+}
+.admin-bottom-nav {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+@media (max-width: 640px) {
+  /* Mirrors the 16px/14px gutter the mobile layer above already sets, with the
+     top inset added and the bottom-nav clearance preserved. */
+  .main-area {
+    padding-top: calc(16px + env(safe-area-inset-top, 0px));
+    padding-left: max(14px, env(safe-area-inset-left, 0px));
+    padding-right: max(14px, env(safe-area-inset-right, 0px));
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* ── Borderless desktop window (window-controls-overlay) ──────────────────
+   Mirrors the block at the end of app.css — see there for why the drag strip
+   exists and why it has to stay empty. Kept duplicated rather than shared
+   because admin.css is standalone by design and imports nothing. */
+.wco-drag-strip { display: none; }
+
+@media (display-mode: window-controls-overlay) {
+  body { padding-top: env(titlebar-area-height, 0px); }
+
+  .wco-drag-strip {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: env(titlebar-area-height, 0px);
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    -webkit-app-region: drag;
+    app-region: drag;
+    z-index: 10000;
+  }
+
+  .settings-modal,
+  .modal-overlay { top: env(titlebar-area-height, 0px); }
+}
