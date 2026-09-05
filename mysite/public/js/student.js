@@ -681,6 +681,12 @@ async function joinLibraryByCode(code, input) {
     email: currentUser.email ?? "",
     joinedAt: serverTimestamp(),
     joinedVia: "code",
+    // Proof of possession, checked server-side. firestore.rules will not let a
+    // student add themselves to a roster unless this resolves — via
+    // classCodes/{joinCode}, or the teacher's own legacy inviteCode — to the
+    // exact teacher and class being written. Without it the code was a purely
+    // client-side formality and anyone could self-enrol into any library.
+    joinCode: code,
   };
   // firestore.rules lets a student CREATE their own roster entry but never
   // update one (`allow update: if isAdmin()`), so a blind setDoc over an entry
@@ -783,7 +789,20 @@ async function joinLibraryByCode(code, input) {
  *  and only goes looking through the class rosters when the marker is missing.
  *
  *  Deliberately conservative: the marker is only written when the student is
- *  genuinely listed on one of that teacher's class rosters. */
+ *  genuinely listed on one of that teacher's class rosters.
+ *
+ *  EXPECT THIS TO FAIL for most students now, and that is intended. Finding the
+ *  right class means LISTING the teacher's classes, and firestore.rules no
+ *  longer lets a non-member do that: a class document carries its own
+ *  inviteCode, so anyone able to enumerate classes could read a join code
+ *  straight off one and let themselves into the library. Single-document reads
+ *  still work, so the ordinary join path is unaffected — it learns classId from
+ *  classCodes/{code}.
+ *
+ *  The loop is already per-teacher try/catch, so a denial here is silent and
+ *  harmless; the student simply re-enters their class code, which rebuilds the
+ *  marker properly. This only ever mattered for accounts that joined before the
+ *  marker existed. */
 async function ensureLibraryAccessMarkers() {
   const ids = new Set([classTeacherId, ...addedTeacherIds].filter(Boolean));
   for (const tid of ids) {
