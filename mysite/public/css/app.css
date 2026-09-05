@@ -3147,8 +3147,8 @@ html[data-theme="light"] .toast-retry:hover { background: rgba(0,0,0,0.10); }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 40px;
-  min-height: 36px;
+  min-width: 44px;
+  min-height: 40px;
   padding: 0 12px;
   border: none;
   background: none;
@@ -3244,4 +3244,9 @@ html[data-theme="light"] .toast-retry:hover { background: rgba(0,0,0,0.10); }
 
 @media (max-width: 620px) {
   .scan-viewport { aspect-ratio: 3 / 4; max-height: 52vh; }
+  /* Full 44px touch targets where it is actually a thumb doing the tapping.
+     Desktop keeps the shorter segment so the pill sits level with the buttons
+     beside it. */
+  .copy-pill-btn { min-width: 48px; min-height: 44px; }
+  .copy-pill-val { min-width: 56px; }
 }

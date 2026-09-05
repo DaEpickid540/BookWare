@@ -1116,6 +1116,18 @@ let scanBook      = null;   // the book currently shown in the result pane
 let scanQty       = 1;
 let scanLastFocus = null;
 let scanLookupFor = '';     // ISBN whose lookup is in flight, '' when none
+/** Bumped by every start and every stop. A camera takes real time to open, so a
+ *  second start can be issued — by a double-tap on Scan, or by closing the modal
+ *  mid-open — while the first is still awaiting getUserMedia. Whoever holds the
+ *  current number owns the run; everyone else discards itself rather than
+ *  writing its `stop` handle over the live one.
+ *
+ *  Without this, `scanStop` is still null when the second call runs its
+ *  stopScanner(), so that guard stops nothing: measured, the first stream was
+ *  left running with no handle to close it — a camera track live behind a
+ *  closed modal. barcode.js's startQueue keeps the two starts from overlapping
+ *  on the element; this keeps their bookkeeping straight. */
+let scanRun       = 0;
 
 function setScanStatus(msg, kind = '') {
   const el = document.getElementById('scanStatus');
@@ -1128,6 +1140,7 @@ function setScanStatus(msg, kind = '') {
  *  light stays on and the track stays live until this runs, which on a phone is
  *  both alarming and a battery drain. */
 function stopScanner() {
+  scanRun++;                          // invalidates any start still in flight
   try { scanStop?.(); } catch (err) { console.warn('[teacher] scanner stop failed:', err); }
   scanStop = null;
 }
@@ -1146,30 +1159,50 @@ function showScanPane(which) {
   );
 }
 
-async function beginScanning() {
+/** (Re)start the camera.
+ *
+ *  `note` is a message to hold in the status line instead of the usual
+ *  "Looking for a barcode…" — used after an add, so the confirmation survives
+ *  the restart rather than being wiped by "Starting the camera…" a frame later.
+ *
+ *  Never pass this straight to addEventListener: the click Event would arrive
+ *  as `note`. */
+async function beginScanning(note = '') {
   const video = document.getElementById('scanVideo');
   if (!video) return;
 
-  stopScanner();                       // never leave two streams running
+  stopScanner();                       // bumps scanRun; any start in flight is now stale
+  const run = scanRun;                 // this call's claim on the video element
+  const mine = () => run === scanRun;
+
   showScanPane('stage');
   scanBook = null;
-  setScanStatus('Starting the camera…');
+  setScanStatus(note || 'Starting the camera…', note ? 'ok' : '');
 
+  let stop;
   try {
-    scanStop = await startScanner({
+    stop = await startScanner({
       video,
-      onReady:   () => setScanStatus('Looking for a barcode…'),
-      onCode:    (isbn) => { handleScannedIsbn(isbn); },
-      onNonBook: () => setScanStatus(
+      onReady:   () => { if (mine()) setScanStatus(note || 'Looking for a barcode…', note ? 'ok' : ''); },
+      onCode:    (isbn) => { if (mine()) handleScannedIsbn(isbn); },
+      onNonBook: () => { if (mine()) setScanStatus(
         "That barcode isn't a book — book barcodes start 978 or 979. Try the one on the back cover.",
-      ),
-      onError:   (err) => { stopScanner(); setScanStatus(describeError(err), 'error'); },
+      ); },
+      onError:   (err) => { if (!mine()) return; stopScanner(); setScanStatus(describeError(err), 'error'); },
     });
   } catch (err) {
     // Not a toast: the modal is covering the screen, so the explanation has to
-    // be inside it or nobody reads it.
-    setScanStatus(describeError(err), 'error');
+    // be inside it or nobody reads it. Stay quiet if we were superseded — the
+    // run that replaced us owns the status line now.
+    if (mine()) setScanStatus(describeError(err), 'error');
+    return;
   }
+
+  // Superseded while the camera was opening. Stop the stream we just opened
+  // rather than storing it over the live one, which would strand a track with
+  // no handle left to close it.
+  if (!mine()) { stop(); return; }
+  scanStop = stop;
 }
 
 /** A barcode decoded and passed the ISBN check. Look the book up and show it.
@@ -1224,7 +1257,7 @@ function renderScanMiss(isbn, why = '') {
     </div>`;
   showScanPane('result');
 
-  document.getElementById('scanAgainBtn')?.addEventListener('click', beginScanning);
+  document.getElementById('scanAgainBtn')?.addEventListener('click', () => beginScanning());
   document.getElementById('scanSearchInsteadBtn')?.addEventListener('click', () => {
     closeScanModal();
     const input = document.getElementById('isbnInput');
@@ -1301,7 +1334,7 @@ function renderScanResult(book) {
 
   document.getElementById('scanQtyDec')?.addEventListener('click', () => setScanQty(scanQty - 1, Boolean(existing)));
   document.getElementById('scanQtyInc')?.addEventListener('click', () => setScanQty(scanQty + 1, Boolean(existing)));
-  document.getElementById('scanAgainBtn')?.addEventListener('click', beginScanning);
+  document.getElementById('scanAgainBtn')?.addEventListener('click', () => beginScanning());
   document.getElementById('scanAddBtn')?.addEventListener('click', confirmScanAdd);
   document.getElementById('scanAddBtn')?.focus();
 }
@@ -1361,12 +1394,13 @@ async function confirmScanAdd() {
     `<i class='bi bi-check2'></i> ${plural(qty, 'copy', 'copies')} of "${esc(book.title)}" ${existing ? 'added' : 'added to your library'}`,
     'success',
   );
-  setScanStatus(
-    `<i class='bi bi-check2'></i> Added "${esc(book.title)}". Ready for the next book.`,
-    'ok',
-  );
   scanBook = null;
-  beginScanning();
+
+  // The write can outlast the modal: on a slow connection a teacher can hit Add
+  // and close the dialog before it lands. Restarting the camera then lights the
+  // capture indicator with nothing on screen to explain it.
+  if (document.getElementById('scanModal')?.hidden) return;
+  beginScanning(`<i class='bi bi-check2'></i> Added "${esc(book.title)}". Ready for the next book.`);
 }
 
 function openScanModal() {
@@ -1391,7 +1425,10 @@ function closeScanModal() {
   scanLastFocus = null;
 }
 
+let scanWired = false;
+
 function initBarcodeScan() {
+  if (scanWired) return;
   const row = document.getElementById('scanRow');
   const btn = document.getElementById('scanBarcodeBtn');
   if (!row || !btn) return;
@@ -1401,6 +1438,11 @@ function initBarcodeScan() {
   // it only where it can work; the search box above covers everywhere else.
   if (!isScanSupported()) return;
   row.hidden = false;
+  // The Escape and pagehide listeners below are on document/window, so nothing
+  // ever collects them. A second bootstrap — onAuthStateChanged fires again
+  // when someone signs out and back in without reloading — would stack another
+  // copy of every handler here.
+  scanWired = true;
 
   btn.addEventListener('click', openScanModal);
   document.getElementById('scanModalClose')?.addEventListener('click', closeScanModal);

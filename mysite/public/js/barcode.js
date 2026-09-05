@@ -215,6 +215,16 @@ function cameraError(err) {
       hint: 'scan from a phone or tablet, or type the ISBN into the search box',
     });
   }
+  // Raised when a play() or load is superseded — the element was handed a new
+  // stream, or paused, mid-start. Never the teacher's problem, and the browser's
+  // own wording ("The play() request was interrupted by a new load request")
+  // is meaningless to them.
+  if (name === 'AbortError') {
+    return new BarcodeError('The camera was interrupted', {
+      code: 'bw/camera-interrupted',
+      hint: 'try scanning again',
+    });
+  }
   if (name === 'NotReadableError') {
     return new BarcodeError('The camera is already in use', {
       code: 'bw/camera-busy',
@@ -243,8 +253,46 @@ function cameraError(err) {
  * @param {() => void}             [opts.onReady]    preview live, frames being read
  * @returns {Promise<() => void>} stop
  */
-export async function startScanner({ video, onCode, onError, onNonBook, onReady }) {
+export async function startScanner(opts) {
+  const video = opts?.video;
   if (!video) throw new BarcodeError('No preview element was given');
+
+  // One start at a time per element — see startQueue.
+  const prev = startQueue.get(video) ?? Promise.resolve();
+  const mine = prev.then(() => openScanner(opts), () => openScanner(opts));
+  // Park a never-rejecting handle: the next caller only needs to know when this
+  // one finished, not whether it worked, and an unhandled rejection here would
+  // surface as a console error for a failure the caller already receives.
+  startQueue.set(video, mine.then(() => {}, () => {}));
+  return mine;
+}
+
+/** Serialises startScanner() per <video>.
+ *
+ *  A double-tap on Scan issues a second start while the first is still awaiting
+ *  getUserMedia. Measured, without this: two cameras are opened, the second
+ *  srcObject assignment aborts the first element load, and the first play()
+ *  rejects with AbortError. The element itself recovers — the second stream
+ *  plays — but the teacher has paid for two camera activations, and the loser's
+ *  cleanup then has to be careful not to take the winner down with it (see
+ *  stop()). Queuing removes the whole class of problem: only one start ever
+ *  touches the element, so there is no loser to clean up after. */
+const startQueue = new WeakMap();
+
+/** Detach whatever is currently attached, so the element starts clean.
+ *
+ *  Last start wins: if a previous scanner is still holding this element, its
+ *  stream is stopped here. Its own stop() then no-ops on the element, because
+ *  that checks ownership before touching it. */
+function detachStream(video) {
+  const current = video.srcObject;
+  if (!current) return;
+  try { video.pause(); } catch { /* already gone */ }
+  video.srcObject = null;
+  current.getTracks?.().forEach(t => { try { t.stop(); } catch { /* already ended */ } });
+}
+
+async function openScanner({ video, onCode, onError, onNonBook, onReady }) {
   if (!isScanSupported()) {
     throw new BarcodeError("This browser can't use the camera", {
       code: 'bw/unsupported',
@@ -260,10 +308,19 @@ export async function startScanner({ video, onCode, onError, onNonBook, onReady 
     if (stopped) return;
     stopped = true;
     clearTimeout(timer);
-    // Detach the element before killing the tracks, or Safari leaves the last
-    // frame frozen in place the next time the modal opens.
-    try { video.pause(); } catch { /* already gone */ }
-    video.srcObject = null;
+    // Only tear the element down if this scanner still owns it.
+    //
+    // Belt and braces behind startQueue: if anything ever does replace
+    // srcObject while this scanner is running, pausing the element here would
+    // abort the NEW scanner's play() too and kill both — measured as a black
+    // preview with a raw "The play() request was interrupted" string in the
+    // status line. Stop our own stream; leave someone else's element alone.
+    if (stream && video.srcObject === stream) {
+      // Detach before killing the tracks, or Safari leaves the last frame
+      // frozen in place the next time the modal opens.
+      try { video.pause(); } catch { /* already gone */ }
+      video.srcObject = null;
+    }
     stream?.getTracks()?.forEach(t => { try { t.stop(); } catch { /* already ended */ } });
     stream = null;
   }
@@ -285,6 +342,7 @@ export async function startScanner({ video, onCode, onError, onNonBook, onReady 
   }
   if (stopped) { stop(); return stop; }   // closed while the prompt was still up
 
+  detachStream(video);                    // never stack a second stream on a live element
   video.srcObject = stream;
   video.setAttribute('playsinline', '');  // iOS fullscreens the preview without it
   video.muted = true;
