@@ -28,8 +28,15 @@ service cloud.firestore {
       return isSignedIn() && userRole() == "student";
     }
 
+    // Tolerates a missing users/{uid}. get() on a document that does not exist
+    // is an evaluation error, not null, and an evaluation error inside a rule
+    // reads as a flat deny — so on the sign-in path, where a write can land
+    // between auth resolving and auth.js provisioning the user document, every
+    // notBanned() gate would reject a perfectly legitimate request with no
+    // indication why. No record means no ban.
     function isBanned() {
-      let u = get(/databases/$(database)/documents/users/$(uid())).data;
+      let path = /databases/$(database)/documents/users/$(uid());
+      let u = exists(path) ? get(path).data : {};
       return u.get("banned", false) == true &&
         (u.get("banExpiry", null) == null ||
          u.banExpiry > request.time);
@@ -184,12 +191,36 @@ service cloud.firestore {
         allow create: if (isSignedIn() && uid() == teacherId && isTeacher()) || isAdmin();
         allow delete: if (isSignedIn() && uid() == teacherId && isTeacher()) || isAdmin();
 
+        // The one and only student-side write to a book is self-checkout
+        // (checkoutBook() in student.js). Restricting WHICH fields it may touch
+        // was never enough on its own, because nothing tied those fields to the
+        // caller: a student could set checkedOutBy to another student's uid and
+        // check a book out in their name, flip a book back to available to
+        // cancel someone else's loan, or write any checkedOutCount they liked.
+        //
+        // All three conditions below simply restate what the client's own
+        // transaction already computes, so a legitimate checkout is unaffected:
+        //   1. the loan is yours;
+        //   2. the counter moves by exactly one — the fallback mirrors the
+        //      client's `checkedOutCount ?? (status == "checked_out" ? 1 : 0)`
+        //      so books predating the counter still work;
+        //   3. it never exceeds the number of copies, which makes capacity a
+        //      server-side fact rather than a client-side courtesy.
+        function studentCheckoutIsSelf() {
+          let prior = resource.data.get("checkedOutCount",
+            resource.data.get("status", "") == "checked_out" ? 1 : 0);
+          return request.resource.data.get("checkedOutBy", "") == uid() &&
+            request.resource.data.get("checkedOutCount", 0) == prior + 1 &&
+            request.resource.data.get("checkedOutCount", 0) <= resource.data.get("copies", 1);
+        }
+
         allow update: if isAdmin() ||
           (isSignedIn() && uid() == teacherId && isTeacher()) ||
           (isSignedIn() && isStudent() && notBanned() &&
            request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(["status", "checkedOutBy", "checkedOutAt",
                        "dueDate", "checkedOutCount"]) &&
+           studentCheckoutIsSelf() &&
            (get(/databases/$(database)/documents/teachers/$(teacherId)).data.get("libraryPublic", false) == true ||
             exists(/databases/$(database)/documents/teachers/$(teacherId)/students/$(uid()))));
       }
@@ -243,7 +274,26 @@ service cloud.firestore {
 
       // ── teachers/{uid}/classes/{classId} ────────────────────────────────
       match /classes/{classId} {
-        allow read: if isSignedIn() && allowedEmail();
+        // A class document carries `inviteCode` — the very code that
+        // joinCodeGrantsThisClass() below treats as proof of enrolment. While
+        // this was a blanket `allow read` for any signed-in account, that proof
+        // was worthless: anyone could list a teacher's classes, read the code
+        // straight off the document, and hand it back to the join rule. Locking
+        // the roster down without locking this down achieves nothing.
+        //
+        // Split rather than restricted, because the join flow legitimately
+        // reads a class it is not yet a member of (student.js looks up the name
+        // for the "Joined Period 1!" toast). A single-document `get` is safe:
+        // reaching one requires already knowing classId, which is a 20-character
+        // Firestore auto-ID — not something you guess. What has to go is `list`,
+        // which is the only way to discover those IDs in the first place.
+        //
+        // Cost of the split: the legacy teacher-level-inviteCode join and
+        // ensureLibraryAccessMarkers() in student.js both enumerate classes and
+        // will now be denied. Both are wrapped and degrade to "student re-enters
+        // their class code", which is the right trade against a live hole.
+        allow get: if isSignedIn() && allowedEmail();
+        allow list: if isSignedIn() && (uid() == teacherId || isAdmin());
         allow write: if (isSignedIn() && uid() == teacherId && isTeacher()) || isAdmin();
 
         // A class roster holds student names and school emails. It stops being
@@ -264,6 +314,39 @@ service cloud.firestore {
           return c.get("endDate", null) == null || request.time <= c.endDate;
         }
 
+        // Proof that the caller actually holds this class's join code.
+        //
+        // Self-service enrolment used to require nothing but being signed in,
+        // and the class code was checked ONLY in student.js. Since
+        // teachers/{tid} and its classes are both readable by any signed-in
+        // account, anyone could list every teacher, list their classes, and
+        // write themselves onto a roster they were never given a code for —
+        // which is the access grant the book rules below depend on.
+        //
+        // The code is a shared secret the teacher hands out, so the join has to
+        // carry it and the server has to check it resolves to THIS class.
+        // classCodes/{code} already stores {teacherId, classId}, so this is two
+        // plain gets and no index. The format guard keeps a hostile value from
+        // being interpolated into the document path.
+        //
+        // Two codes can be presented. A modern per-class code resolves through
+        // classCodes/{code} to this exact teacher AND class. A legacy
+        // teacher-level inviteCode identifies only the teacher — student.js
+        // then lands the student in that teacher's oldest class — so it is
+        // matched against the teacher document instead. Dropping the legacy arm
+        // would deny every join for teachers still handing out an inviteCode.
+        function joinCodeGrantsThisClass() {
+          let code = request.resource.data.get("joinCode", "");
+          return code is string &&
+            code.matches('^[A-Z0-9-]{4,24}$') &&
+            (
+              (exists(/databases/$(database)/documents/classCodes/$(code)) &&
+               get(/databases/$(database)/documents/classCodes/$(code)).data.teacherId == teacherId &&
+               get(/databases/$(database)/documents/classCodes/$(code)).data.classId == classId) ||
+              get(/databases/$(database)/documents/teachers/$(teacherId)).data.get("inviteCode", "") == code
+            );
+        }
+
         match /students/{sid} {
           // The student themselves and admins keep access regardless — a
           // student may always see and delete their own record, which is what
@@ -273,9 +356,18 @@ service cloud.firestore {
              (uid() == teacherId && classNotEnded()));
           // A student shouldn't be able to join a class whose year already
           // ended — admin is exempt since erasure itself writes here (redaction).
-          allow create: if isSignedIn() &&
-            (uid() == sid || uid() == teacherId) && allowedEmail() &&
-            (classNotEnded() || isAdmin());
+          // A student joining themselves must present the class code; the
+          // owning teacher and admins may add someone without one.
+          // notBanned() applies only to the self-join arm: a ban should stop a
+          // student enrolling themselves, but must never stop a teacher or an
+          // admin from managing a roster that happens to contain a banned
+          // student. Every other student-initiated write in this file already
+          // carried this check; the two roster creates were the gap, so a
+          // banned account could still join new libraries.
+          allow create: if isSignedIn() && allowedEmail() &&
+            (classNotEnded() || isAdmin()) &&
+            (uid() == teacherId || isAdmin() ||
+             (uid() == sid && notBanned() && joinCodeGrantsThisClass()));
           allow delete: if isSignedIn() &&
             (uid() == teacherId || uid() == sid || isAdmin());
           allow update: if isAdmin();
@@ -289,11 +381,44 @@ service cloud.firestore {
       }
 
       // ── Legacy flat roster (teachers/{uid}/students/{sid}) ───────────────
+      //
+      // THIS IS THE LIBRARY ACCESS GRANT. Every "Class Only" read, checkout and
+      // rental request above is gated on `exists(teachers/{tid}/students/{uid})`
+      // and nothing else, so whoever can create this document can read the
+      // teacher's entire catalogue and check books out of it.
+      //
+      // It used to allow `uid() == sid` on its own — i.e. any signed-in Google
+      // account could grant itself access to any teacher's private library, no
+      // class code involved, simply by writing one document. The class code was
+      // only ever checked in student.js.
+      //
+      // A student may now only place this marker when they are genuinely on one
+      // of that teacher's class rosters (which itself now requires the code —
+      // see joinCodeGrantsThisClass above), or, for legacy teachers who have no
+      // classes at all, when they present that teacher's own inviteCode. The
+      // marker records which class backs it; existsAfter rather than exists so
+      // the check still holds if the two writes are ever batched together.
+      // `sid` is bound by the inner match, not this one, so it has to be passed
+      // in — referencing it here directly is an evaluation error, which reads as
+      // a flat denial and would lock every joining student out.
+      function markerBackedByClassRoster(sid) {
+        let cid = request.resource.data.get("classId", "");
+        return cid is string && cid != "" &&
+          existsAfter(/databases/$(database)/documents/teachers/$(teacherId)/classes/$(cid)/students/$(sid));
+      }
+      function markerBackedByLegacyInviteCode() {
+        let code = request.resource.data.get("joinCode", "");
+        let stored = get(/databases/$(database)/documents/teachers/$(teacherId)).data.get("inviteCode", "");
+        return code is string && code != "" && stored != "" && stored == code;
+      }
+
       match /students/{sid} {
         allow read: if isSignedIn() &&
           (uid() == teacherId || uid() == sid || isAdmin());
-        allow create: if isSignedIn() &&
-          (uid() == sid || uid() == teacherId) && allowedEmail();
+        allow create: if isSignedIn() && allowedEmail() &&
+          (uid() == teacherId || isAdmin() ||
+           (uid() == sid && notBanned() &&
+            (markerBackedByClassRoster(sid) || markerBackedByLegacyInviteCode())));
         allow delete: if isSignedIn() &&
           (uid() == teacherId || uid() == sid || isAdmin());
         allow update: if isAdmin();
@@ -423,9 +548,16 @@ service cloud.firestore {
     }
 
     // ── notifications (future FCM) ─────────────────────────────────────────────
+    // Nothing in public/js reads or writes this yet; it is reserved surface.
+    //
+    // Write was `isAdmin() || isTeacher()`, which let ANY teacher drop a
+    // document into ANY user's notification tree — a ready-made spoofing
+    // channel the moment something starts rendering these. Narrowed to admin
+    // while it is still unused, so whoever builds the feature has to make a
+    // deliberate decision about who may notify whom rather than inheriting one.
     match /notifications/{userId}/{document=**} {
       allow read: if isSignedIn() && uid() == userId;
-      allow write: if isAdmin() || isTeacher();
+      allow write: if isAdmin();
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

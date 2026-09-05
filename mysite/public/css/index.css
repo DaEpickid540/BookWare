@@ -582,3 +582,52 @@ button, a, input, select, textarea { touch-action: manipulation; }
 @media (max-width: 640px) {
   .join-notice { margin: -10px auto 22px; }
 }
+
+/* ── Display-cutout padding (installed iOS app) ───────────────────────────
+   index.html carries `viewport-fit=cover` in its viewport meta AND asks for a
+   translucent status bar (apple-mobile-web-app-status-bar-style), so iOS draws
+   this page behind the clock and the home indicator. Nothing in this file
+   compensated for that, because before `cover` was added iOS did the insetting
+   itself and env() was always 0. It isn't any more. */
+.portal-page {
+  padding-top: calc(40px + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
+}
+
+@media (max-width: 480px) {
+  /* Same values the small-phone layer above uses, plus the insets. */
+  .portal-page {
+    padding-top: calc(28px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+}
+
+/* ── Borderless desktop window (window-controls-overlay) ──────────────────
+   The manifest lists window-controls-overlay first in display_override, so on
+   desktop the browser drops its title bar and the page owns the whole window.
+   That leaves the OS window buttons floating over the top-right corner and no
+   handle to drag the window by, so this reserves a strip for both. See the
+   fuller explanation at the end of app.css. */
+.wco-drag-strip { display: none; }
+
+@media (display-mode: window-controls-overlay) {
+  body { padding-top: env(titlebar-area-height, 0px); }
+
+  .wco-drag-strip {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: env(titlebar-area-height, 0px);
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    -webkit-app-region: drag;
+    app-region: drag;
+    z-index: 10000;
+  }
+}

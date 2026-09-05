@@ -143,22 +143,25 @@ onAuthStateChanged(auth, async (user) => {
     const isHardcodedAdmin = ADMIN_EMAILS.includes(user.email?.toLowerCase());
 
     if (!userSnap.exists() || userSnap.data().role !== 'admin' || !isHardcodedAdmin) {
-      if (userSnap.exists() && !isHardcodedAdmin) {
-        const ATTEMPT_KEY = `bw-admin-attempts-${user.uid}`;
-        const ONE_HOUR    = 3600000;
-        const now         = Date.now();
-        let attempts = [];
-        try { attempts = JSON.parse(localStorage.getItem(ATTEMPT_KEY) || '[]'); } catch (_) {}
-        attempts = attempts.filter(t => now - t < ONE_HOUR);
-        attempts.push(now);
-        localStorage.setItem(ATTEMPT_KEY, JSON.stringify(attempts));
-        if (attempts.length >= 3) {
-          try { await updateDoc(userRef, { banned: true, banExpiry: Timestamp.fromDate(new Date(now + 86400000)), banReason: 'Repeated unauthorized admin access attempts (auto-ban)', bannedBy: 'system', bannedAt: serverTimestamp() }); } catch (_) {}
-          localStorage.removeItem(ATTEMPT_KEY);
-          await signOut(auth); window.location.href = '/?banned=admin'; return;
-        }
-      }
-      await signOut(auth); window.location.href = '/'; return;
+      // There used to be an auto-ban in this branch: it counted failed attempts
+      // in localStorage and, on the third, wrote banned/banExpiry to the
+      // CALLER'S OWN users/{uid} document. firestore.rules has never allowed
+      // that — its "own doc only" branch explicitly excludes every ban field —
+      // so the write was rejected every single time, silently, inside a bare
+      // catch. The counter behind it lived in localStorage, cleared by one
+      // devtools command or a private window, and the redirect it produced
+      // (?banned=admin) had no handler anywhere and told the user they were
+      // banned when nothing had happened.
+      //
+      // It was a control that read as protection and provided none, which is
+      // worse than not having it. Genuine attempt-limiting has to be counted
+      // somewhere the client cannot reach, and that needs Cloud Functions —
+      // see the "there is no server" note in CLAUDE.md. Nothing is weaker for
+      // its removal: entry is refused here, and every document this portal
+      // touches is gated by isAdmin() in the rules regardless.
+      await signOut(auth);
+      window.location.href = '/';
+      return;
     }
 
     currentUser = user;
